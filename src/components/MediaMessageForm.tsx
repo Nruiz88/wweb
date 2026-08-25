@@ -9,12 +9,13 @@ import {
   LoaderIcon,
   MicIcon,
   SendIcon,
+  SmileIcon,
   UploadIcon,
   VideoIcon,
   XIcon,
 } from "@/components/icons";
 
-type MediaKind = "image" | "document" | "video" | "audio" | "ptt";
+type MediaKind = "image" | "document" | "video" | "audio" | "ptt" | "sticker";
 type Feedback = { kind: "success" | "error"; message: string } | null;
 
 const KIND_OPTIONS: { value: MediaKind; label: string; icon: typeof ImageIcon }[] = [
@@ -22,7 +23,8 @@ const KIND_OPTIONS: { value: MediaKind; label: string; icon: typeof ImageIcon }[
   { value: "document", label: "PDF / Doc", icon: FileTextIcon },
   { value: "video", label: "Video", icon: VideoIcon },
   { value: "audio", label: "Audio", icon: AudioLinesIcon },
-  { value: "ptt", label: "Nota de voz", icon: MicIcon },
+  { value: "ptt", label: "Voz", icon: MicIcon },
+  { value: "sticker", label: "Sticker", icon: SmileIcon },
 ];
 
 function dataUrlToBase64(dataUrl: string): string {
@@ -112,7 +114,7 @@ export function MediaMessageForm() {
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <span className="field-label">Tipo de archivo</span>
-        <div className="grid grid-cols-5 gap-1.5">
+        <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
           {KIND_OPTIONS.map((option) => {
             const Icon = option.icon;
             const active = kind === option.value;

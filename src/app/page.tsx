@@ -6,6 +6,7 @@ import { QrViewer } from "@/components/QrViewer";
 import { SendMessageForm } from "@/components/SendMessageForm";
 import { MediaMessageForm } from "@/components/MediaMessageForm";
 import { MessagesPanel, type MessageItem } from "@/components/MessagesPanel";
+import { ConversationsPanel } from "@/components/ConversationsPanel";
 import {
   ClockIcon,
   InboxIcon,
@@ -376,7 +377,7 @@ export default function Home() {
           <SectionHeader
             icon={<UploadIcon className="h-5 w-5" />}
             title="Enviar archivo"
-            description="Imágenes, PDF, video, audio y notas de voz"
+            description="Imágenes, PDF, video, audio, stickers y notas de voz"
           />
 
           <MediaMessageForm />
@@ -385,6 +386,10 @@ export default function Home() {
         <div className="glass-panel fade-up flex flex-col gap-5 p-6">
           <MessagesPanel messages={messages} loading={messagesLoading} />
         </div>
+      </section>
+
+      <section className="glass-panel fade-up p-6">
+        <ConversationsPanel />
       </section>
 
       <footer className="pb-4 pt-2 text-center text-xs text-slate-600">

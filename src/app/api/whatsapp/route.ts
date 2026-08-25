@@ -63,11 +63,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const { number, text, delay, presence } = (body ?? {}) as {
+  const { number, text, delay, presence, quoted } = (body ?? {}) as {
     number?: unknown;
     text?: unknown;
     delay?: unknown;
     presence?: { type?: unknown; duration?: unknown };
+    quoted?: { id?: unknown; text?: unknown; remoteJid?: unknown };
   };
 
   if (typeof number !== "string" || number.trim() === "") {
@@ -83,6 +84,18 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+
+  const quotedMessage =
+    quoted && typeof quoted.id === "string" && quoted.id.trim() !== ""
+      ? {
+          id: quoted.id.trim(),
+          text: typeof quoted.text === "string" ? quoted.text.trim() : undefined,
+          remoteJid:
+            typeof quoted.remoteJid === "string" && quoted.remoteJid.trim() !== ""
+              ? quoted.remoteJid.trim()
+              : `${number.trim()}@s.whatsapp.net`,
+        }
+      : undefined;
 
   const presenceType = presence?.type;
   const wantsPresence =
@@ -113,7 +126,8 @@ export async function POST(request: Request) {
   const result = await sendTextMessage(
     number.trim(),
     text.trim(),
-    wantsPresence ? 0 : typeof delay === "number" ? delay : undefined
+    wantsPresence ? 0 : typeof delay === "number" ? delay : undefined,
+    quotedMessage
   );
 
   if (!result.ok) {

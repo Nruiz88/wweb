@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   sendMediaMessage,
+  sendStickerMessage,
   sendWhatsAppAudio,
   type MediaType,
   type SendMediaPayload,
@@ -8,9 +9,9 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type MediaKind = MediaType | "ptt";
+type MediaKind = MediaType | "ptt" | "sticker";
 
-const MEDIA_KINDS: MediaKind[] = ["image", "document", "video", "audio", "ptt"];
+const MEDIA_KINDS: MediaKind[] = ["image", "document", "video", "audio", "ptt", "sticker"];
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
 
   if (typeof kind !== "string" || !MEDIA_KINDS.includes(kind as MediaKind)) {
     return NextResponse.json(
-      { status: "error", error: "El campo kind debe ser image, document, video, audio o ptt", data: null },
+      { status: "error", error: "El campo kind debe ser image, document, video, audio, ptt o sticker", data: null },
       { status: 400 }
     );
   }
@@ -59,6 +60,19 @@ export async function POST(request: Request) {
 
   if (kind === "ptt") {
     const result = await sendWhatsAppAudio(number.trim(), media.trim(), delayMs);
+
+    if (!result.ok) {
+      return NextResponse.json(
+        { status: "error", error: result.message, data: null },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ status: "success", error: null, data: result.data });
+  }
+
+  if (kind === "sticker") {
+    const result = await sendStickerMessage(number.trim(), media.trim());
 
     if (!result.ok) {
       return NextResponse.json(

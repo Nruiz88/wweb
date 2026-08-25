@@ -127,10 +127,20 @@ export async function getQrCode(): Promise<EvolutionResult<QrData>> {
   );
 }
 
+export interface SendQuoted {
+  id: string;
+  text?: string;
+  remoteJid?: string;
+}
+
 export interface SendTextPayload {
   number: string;
   text: string;
   delay?: number;
+  quoted?: {
+    key: { id: string; remoteJid?: string; fromMe?: boolean };
+    message?: { conversation?: string };
+  };
 }
 
 export interface SendTextResult {
@@ -148,7 +158,8 @@ export interface SendTextResult {
 export async function sendTextMessage(
   number: string,
   text: string,
-  delay?: number
+  delay?: number,
+  quoted?: SendQuoted
 ): Promise<EvolutionResult<SendTextResult>> {
   if (!EVOLUTION_INSTANCE) {
     return envError();
@@ -157,6 +168,18 @@ export async function sendTextMessage(
   const payload: SendTextPayload = { number, text };
   if (typeof delay === "number" && delay >= 0) {
     payload.delay = delay;
+  }
+  if (quoted?.id) {
+    payload.quoted = {
+      key: {
+        id: quoted.id,
+        remoteJid: quoted.remoteJid,
+        fromMe: false,
+      },
+      message: quoted.text
+        ? { conversation: quoted.text }
+        : undefined,
+    };
   }
 
   return evolutionRequest<SendTextResult>(`/message/sendText/${EVOLUTION_INSTANCE}`, {
@@ -363,4 +386,241 @@ export async function findInstanceWebhook(): Promise<EvolutionResult<WebhookEven
   }
 
   return { ok: true, status: result.status, data: { enabled: false } };
+}
+
+export interface ChatContact {
+  jid: string;
+  name: string;
+  profilePicUrl?: string;
+  lastMessage?: {
+    text: string;
+    at?: number | string;
+  };
+}
+
+function extractMessageText(message: unknown): string {
+  if (!message || typeof message !== "object") {
+    return "";
+  }
+
+  const record = message as Record<string, unknown>;
+  const conversation = record.conversation;
+  if (typeof conversation === "string") {
+    return conversation;
+  }
+
+  const extended = record.extendedTextMessage as Record<string, unknown> | undefined;
+  if (typeof extended?.text === "string") {
+    return extended.text;
+  }
+
+  const mediaKeys = ["imageMessage", "videoMessage", "documentMessage", "audioMessage"];
+  for (const key of mediaKeys) {
+    const media = record[key] as Record<string, unknown> | undefined;
+    if (typeof media?.caption === "string") {
+      return media.caption;
+    }
+  }
+
+  return "";
+}
+
+export async function findChats(): Promise<EvolutionResult<ChatContact[]>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  const result = await evolutionRequest<unknown>(
+    `/chat/findChats/${EVOLUTION_INSTANCE}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ where: {}, sort: "desc", page: 1, offset: 50 }),
+    }
+  );
+
+  if (!result.ok) {
+    return result;
+  }
+
+  const items = Array.isArray(result.data)
+    ? result.data
+    : Array.isArray((result.data as { records?: unknown[] })?.records)
+      ? (result.data as { records: unknown[] }).records
+      : [];
+
+  const chats: ChatContact[] = items
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => {
+      const jid =
+        (typeof item.jid === "string" && item.jid) ||
+        (typeof item.remoteJid === "string" && item.remoteJid) ||
+        (typeof item.id === "string" && item.id) ||
+        "";
+
+      const name =
+        (typeof item.name === "string" && item.name) ||
+        (typeof item.pushName === "string" && item.pushName) ||
+        (typeof item.profileName === "string" && item.profileName) ||
+        jid.replace(/@.*$/, "") ||
+        "Sin nombre";
+
+      const lastMessage = item.lastMessage as Record<string, unknown> | null | undefined;
+      const message = lastMessage?.message;
+      const timestamp = lastMessage?.messageTimestamp;
+
+      return {
+        jid,
+        name,
+        profilePicUrl:
+          typeof item.profilePicUrl === "string" ? item.profilePicUrl : undefined,
+        lastMessage: {
+          text: extractMessageText(message),
+          at: typeof timestamp === "string" || typeof timestamp === "number" ? timestamp : undefined,
+        },
+      };
+    });
+
+  return { ok: true, status: result.status, data: chats };
+}
+
+export interface ThreadMessage {
+  id: string;
+  remoteJid: string;
+  fromMe: boolean;
+  text: string;
+  type: string;
+  timestamp?: number | string;
+  quotedMessageId?: string;
+}
+
+export async function findMessages(
+  remoteJid: string,
+  limit = 30
+): Promise<EvolutionResult<ThreadMessage[]>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  const result = await evolutionRequest<unknown>(
+    `/chat/findMessages/${EVOLUTION_INSTANCE}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        where: { key: { remoteJid } },
+        limit,
+        offset: 0,
+      }),
+    }
+  );
+
+  if (!result.ok) {
+    return result;
+  }
+
+  const items = Array.isArray(result.data)
+    ? result.data
+    : Array.isArray((result.data as { messages?: unknown[] })?.messages)
+      ? (result.data as { messages: unknown[] }).messages
+      : Array.isArray((result.data as { records?: unknown[] })?.records)
+        ? (result.data as { records: unknown[] }).records
+        : [];
+
+  const messages: ThreadMessage[] = items
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => {
+      const key = (item.key ?? {}) as Record<string, unknown>;
+      const message = item.message as Record<string, unknown> | undefined;
+
+      const id = (typeof key.id === "string" && key.id) || (typeof item.id === "string" && item.id) || "";
+      const remote = (typeof key.remoteJid === "string" && key.remoteJid) || remoteJid;
+      const fromMe = Boolean(key.fromMe ?? item.fromMe ?? false);
+
+      const rawType = (typeof item.messageType === "string" && item.messageType) || "";
+      const type = rawType || (message ? Object.keys(message).find((k) => k !== "contextInfo") ?? "unknown" : "unknown");
+
+      const quotedMessageId = (() => {
+        if (!message) return undefined;
+        const typeValue = message[type] as Record<string, unknown> | undefined;
+        const context = typeValue?.contextInfo as Record<string, unknown> | undefined;
+        const stanzaId = context?.stanzaId;
+        return typeof stanzaId === "string" ? stanzaId : undefined;
+      })();
+
+      const rawTimestamp = item.messageTimestamp;
+      const timestamp =
+        typeof rawTimestamp === "string" || typeof rawTimestamp === "number"
+          ? rawTimestamp
+          : undefined;
+
+      return {
+        id,
+        remoteJid: remote,
+        fromMe,
+        text: extractMessageText(message),
+        type,
+        timestamp,
+        quotedMessageId,
+      };
+    })
+    .sort((a, b) => {
+      const atA = typeof a.timestamp === "number" ? a.timestamp : 0;
+      const atB = typeof b.timestamp === "number" ? b.timestamp : 0;
+      return atA - atB;
+    });
+
+  return { ok: true, status: result.status, data: messages };
+}
+
+export async function sendReaction(
+  remoteJid: string,
+  messageId: string,
+  fromMe: boolean,
+  reaction: string
+): Promise<EvolutionResult<unknown>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  return evolutionRequest<unknown>(`/message/sendReaction/${EVOLUTION_INSTANCE}`, {
+    method: "POST",
+    body: JSON.stringify({
+      key: { id: messageId, remoteJid, fromMe },
+      reaction,
+    }),
+  });
+}
+
+export async function sendStickerMessage(
+  number: string,
+  sticker: string
+): Promise<EvolutionResult<SendMediaResult>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  return evolutionRequest<SendMediaResult>(`/message/sendSticker/${EVOLUTION_INSTANCE}`, {
+    method: "POST",
+    body: JSON.stringify({ number, sticker }),
+  });
+}
+
+export interface SendLocationPayload {
+  number: string;
+  latitude: number;
+  longitude: number;
+  name?: string;
+  address?: string;
+}
+
+export async function sendLocationMessage(
+  payload: SendLocationPayload
+): Promise<EvolutionResult<SendMediaResult>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  return evolutionRequest<SendMediaResult>(`/message/sendLocation/${EVOLUTION_INSTANCE}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
