@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { sendTextMessage } from "@/lib/evolution-multi";
+import { rateLimitResponse } from "@/lib/rate-limit";
+import { verifyWebhookSignature } from "@/lib/webhook-secret";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +76,15 @@ function matchRegex(messageText: string, pattern: string): boolean {
 }
 
 export async function POST(request: Request) {
+  // Rate limit: 100 requests per minute per IP
+  const rateLimitErr = rateLimitResponse(request, "webhook", { maxRequests: 100, windowMs: 60_000 });
+  if (rateLimitErr) return rateLimitErr;
+
+  // Verify webhook signature
+  if (!verifyWebhookSignature(request)) {
+    return NextResponse.json({ status: "error", error: "Invalid signature" }, { status: 401 });
+  }
+
   let body: WebhookPayload;
 
   try {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { supabaseConfig } from "@/lib/supabase/config";
+import { rateLimitResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ async function getAuthUser() {
 
 // GET: List assignments for an instance
 export async function GET(request: Request) {
+  const rateLimitErr = rateLimitResponse(request, "admin", { maxRequests: 30, windowMs: 60_000 });
+  if (rateLimitErr) return rateLimitErr;
+
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
 
@@ -44,6 +48,9 @@ export async function GET(request: Request) {
 
 // POST: Assign user to instance
 export async function POST(request: Request) {
+  const rateLimitErr = rateLimitResponse(request, "admin", { maxRequests: 30, windowMs: 60_000 });
+  if (rateLimitErr) return rateLimitErr;
+
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
 
@@ -74,6 +81,9 @@ export async function POST(request: Request) {
 
 // DELETE: Unassign
 export async function DELETE(request: Request) {
+  const rateLimitErr = rateLimitResponse(request, "admin", { maxRequests: 30, windowMs: 60_000 });
+  if (rateLimitErr) return rateLimitErr;
+
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
 
