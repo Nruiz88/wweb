@@ -73,32 +73,93 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex h-full bg-background">
-      {/* Desktop Sidebar */}
-      <aside className="hidden w-64 flex-col border-r border-wa-border bg-wa-panel lg:flex">
-        {/* Logo + user */}
-        <div className="border-b border-wa-border px-4 py-5">
-          <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#00a884]/15 text-[#00a884]">
-              <MessageCircleIcon className="h-5 w-5" />
+    <div className="flex h-full flex-col bg-background">
+      {/* ===== DESKTOP TOP NAV (lg+) ===== */}
+      <header className="hidden border-b border-wa-border bg-wa-panel lg:flex">
+        <div className="flex w-full items-center px-4 xl:px-6">
+          {/* Logo */}
+          <a href="/" className="flex items-center gap-2.5 py-3 pr-6 border-r border-wa-border mr-4">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#00a884]/15 text-[#00a884]">
+              <MessageCircleIcon className="h-4 w-4" />
             </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold text-wa-text">Bot WhatsApp</p>
-              <p className="truncate text-[11px] text-wa-text-secondary">{userName}</p>
-            </div>
-          </div>
-          {isAdmin && (
-            <div className="mt-3">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#00a884]/10 px-2.5 py-1 text-[10px] font-semibold text-[#00a884]">
-                <ShieldIcon className="h-3 w-3" />
-                Administrador
-              </span>
-            </div>
-          )}
-        </div>
+            <span className="text-sm font-bold text-wa-text">Bot WhatsApp</span>
+          </a>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
+          {/* Nav links */}
+          <nav className="flex items-center gap-1 flex-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const active = pathname === item.href;
+              return (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    active
+                      ? "bg-[#00a884]/10 text-[#00a884]"
+                      : "text-wa-text-secondary hover:bg-wa-hover hover:text-wa-text"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </a>
+              );
+            })}
+          </nav>
+
+          {/* Right side: user + logout */}
+          <div className="flex items-center gap-4 pl-4 border-l border-wa-border">
+            {isAdmin && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#00a884]/10 px-2 py-0.5 text-[10px] font-semibold text-[#00a884]">
+                <ShieldIcon className="h-3 w-3" />
+                Admin
+              </span>
+            )}
+            <span className="text-xs text-wa-text-secondary truncate max-w-[120px]">{userName}</span>
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/10"
+            >
+              <LogOutIcon className="h-3.5 w-3.5" />
+              Salir
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* ===== MOBILE HEADER (< lg) ===== */}
+      <div className="flex items-center gap-3 border-b border-wa-border bg-wa-header px-4 py-3 lg:hidden">
+        <button type="button" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="icon-btn h-9 w-9">
+          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            {mobileMenuOpen ? (
+              <>
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </>
+            ) : (
+              <>
+                <line x1="4" x2="20" y1="12" y2="12" />
+                <line x1="4" x2="20" y1="6" y2="6" />
+                <line x1="4" x2="20" y1="18" y2="18" />
+              </>
+            )}
+          </svg>
+        </button>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00a884]/15 text-[#00a884]">
+          <MessageCircleIcon className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <p className="truncate text-sm font-bold text-wa-text">Bot WhatsApp</p>
+            {isAdmin && <span className="rounded-full bg-[#00a884]/10 px-1.5 py-0.5 text-[8px] font-semibold text-[#00a884]">Admin</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile menu dropdown */}
+      {mobileMenuOpen && (
+        <div className="border-b border-wa-border bg-wa-panel p-3 space-y-1 lg:hidden">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
@@ -106,7 +167,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <a
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                onClick={() => setMobileMenuOpen(false)}
+                className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
                   active
                     ? "bg-[#00a884]/10 text-[#00a884]"
                     : "text-wa-text-secondary hover:bg-wa-hover hover:text-wa-text"
@@ -117,92 +179,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </a>
             );
           })}
-        </nav>
-
-        {/* Logout */}
-        <div className="border-t border-wa-border px-3 py-4">
-          <button
-            type="button"
-            onClick={() => void handleLogout()}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-500/10"
-          >
-            <LogOutIcon className="h-5 w-5" />
-            Cerrar sesion
-          </button>
-        </div>
-      </aside>
-
-      {/* Mobile */}
-      <div className="flex flex-1 flex-col lg:hidden">
-        {/* Mobile header */}
-        <div className="flex items-center gap-3 border-b border-wa-border bg-wa-header px-4 py-3">
-          <button type="button" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="icon-btn h-9 w-9">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              {mobileMenuOpen ? (
-                <>
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </>
-              ) : (
-                <>
-                  <line x1="4" x2="20" y1="12" y2="12" />
-                  <line x1="4" x2="20" y1="6" y2="6" />
-                  <line x1="4" x2="20" y1="18" y2="18" />
-                </>
-              )}
-            </svg>
-          </button>
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00a884]/15 text-[#00a884]">
-            <MessageCircleIcon className="h-4 w-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <p className="truncate text-sm font-bold text-wa-text">Bot WhatsApp</p>
-              {isAdmin && <span className="rounded-full bg-[#00a884]/10 px-1.5 py-0.5 text-[8px] font-semibold text-[#00a884]">Admin</span>}
-            </div>
+          <div className="border-t border-wa-border pt-2 mt-2">
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-red-400 transition hover:bg-red-500/10"
+            >
+              <LogOutIcon className="h-5 w-5" />
+              Cerrar sesion
+            </button>
           </div>
         </div>
+      )}
 
-        {/* Mobile menu */}
-        {mobileMenuOpen && (
-          <div className="border-b border-wa-border bg-wa-panel p-3 space-y-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const active = pathname === item.href;
-              return (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
-                    active
-                      ? "bg-[#00a884]/10 text-[#00a884]"
-                      : "text-wa-text-secondary hover:bg-wa-hover hover:text-wa-text"
-                  }`}
-                >
-                  <Icon className="h-5 w-5" />
-                  {item.label}
-                </a>
-              );
-            })}
-            <div className="border-t border-wa-border pt-2 mt-2">
-              <button
-                type="button"
-                onClick={() => void handleLogout()}
-                className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-red-400 transition hover:bg-red-500/10"
-              >
-                <LogOutIcon className="h-5 w-5" />
-                Cerrar sesion
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto">{children}</div>
-      </div>
-
-      {/* Desktop content */}
-      <div className="hidden flex-1 overflow-y-auto lg:flex">{children}</div>
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto">{children}</div>
     </div>
   );
 }
