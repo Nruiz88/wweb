@@ -1,14 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { supabaseConfig } from "@/lib/supabase/config";
+import { createServerClient } from "@/lib/supabase/server";
 import { sendTextMessage } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
-
-// Service-role client for webhook (no user session)
-function getAdminClient() {
-  return createClient(supabaseConfig.url, supabaseConfig.serviceRoleKey);
-}
 
 interface WebhookPayload {
   event: string;
@@ -111,7 +105,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "ignored" });
   }
 
-  const supabase = getAdminClient();
+  const supabase = await createServerClient();
 
   // Find the instance
   const { data: instance } = await supabase
