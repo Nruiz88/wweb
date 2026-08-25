@@ -16,7 +16,9 @@ import {
 interface ChatContact {
   jid: string;
   name: string;
+  pushName?: string;
   profilePicUrl?: string;
+  isSaved?: boolean;
   lastMessage?: { text: string; at?: number | string };
 }
 
@@ -72,6 +74,39 @@ function initials(name: string): string {
 function avatarColor(name: string): string {
   const sum = name.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
   return AVATAR_COLORS[sum % AVATAR_COLORS.length];
+}
+
+function Avatar({
+  name,
+  src,
+  className,
+}: {
+  name: string;
+  src?: string;
+  className?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const showImage = Boolean(src) && !failed;
+
+  return (
+    <span
+      className={`relative flex items-center justify-center overflow-hidden rounded-full ${avatarColor(
+        name
+      )} ${className ?? ""}`}
+    >
+      {showImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span className="text-sm font-bold">{initials(name)}</span>
+      )}
+    </span>
+  );
 }
 
 function formatTime(value?: number | string): string {
@@ -348,13 +383,11 @@ export function ConversationsPanel() {
                       : "text-slate-300 hover:bg-white/5"
                   }`}
                 >
-                  <span
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${avatarColor(
-                      chat.name
-                    )}`}
-                  >
-                    {initials(chat.name)}
-                  </span>
+                  <Avatar
+                    name={chat.name}
+                    src={chat.profilePicUrl}
+                    className="h-10 w-10 shrink-0"
+                  />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline justify-between gap-2">
                       <span className="truncate text-sm font-medium">{chat.name}</span>
@@ -384,17 +417,22 @@ export function ConversationsPanel() {
           ) : (
             <>
               <div className="flex items-center gap-3 border-b border-white/5 px-4 py-3">
-                <span
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${avatarColor(
-                    selectedChat?.name ?? selectedJid
-                  )}`}
-                >
-                  {initials(selectedChat?.name ?? selectedJid)}
-                </span>
+                <Avatar
+                  name={selectedChat?.name ?? selectedJid}
+                  src={selectedChat?.profilePicUrl}
+                  className="h-9 w-9 shrink-0"
+                />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-slate-100">
-                    {selectedChat?.name ?? "Conversación"}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-semibold text-slate-100">
+                      {selectedChat?.name ?? "Conversación"}
+                    </p>
+                    {selectedChat?.isSaved && (
+                      <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                        Agendado
+                      </span>
+                    )}
+                  </div>
                   <p className="truncate text-xs text-slate-500">{selectedJid}</p>
                 </div>
                 <button

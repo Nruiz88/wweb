@@ -391,7 +391,9 @@ export async function findInstanceWebhook(): Promise<EvolutionResult<WebhookEven
 export interface ChatContact {
   jid: string;
   name: string;
+  pushName?: string;
   profilePicUrl?: string;
+  isSaved?: boolean;
   lastMessage?: {
     text: string;
     at?: number | string;
@@ -471,6 +473,8 @@ export async function findChats(): Promise<EvolutionResult<ChatContact[]>> {
       return {
         jid,
         name,
+        pushName: typeof item.pushName === "string" ? item.pushName : undefined,
+        isSaved: typeof item.isSaved === "boolean" ? item.isSaved : undefined,
         profilePicUrl:
           typeof item.profilePicUrl === "string" ? item.profilePicUrl : undefined,
         lastMessage: {
@@ -481,6 +485,51 @@ export async function findChats(): Promise<EvolutionResult<ChatContact[]>> {
     });
 
   return { ok: true, status: result.status, data: chats };
+}
+
+export async function findContacts(): Promise<EvolutionResult<ChatContact[]>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  const result = await evolutionRequest<unknown>(
+    `/chat/findContacts/${EVOLUTION_INSTANCE}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ where: {} }),
+    }
+  );
+
+  if (!result.ok) {
+    return result;
+  }
+
+  const items = Array.isArray(result.data)
+    ? result.data
+    : Array.isArray((result.data as { records?: unknown[] })?.records)
+      ? (result.data as { records: unknown[] }).records
+      : [];
+
+  const contacts: ChatContact[] = items
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => {
+      const jid =
+        (typeof item.remoteJid === "string" && item.remoteJid) ||
+        (typeof item.id === "string" && item.id) ||
+        "";
+      const pushName = typeof item.pushName === "string" ? item.pushName : "";
+
+      return {
+        jid,
+        name: pushName || jid.replace(/@.*$/, "") || "Sin nombre",
+        pushName: pushName || undefined,
+        isSaved: typeof item.isSaved === "boolean" ? item.isSaved : undefined,
+        profilePicUrl:
+          typeof item.profilePicUrl === "string" ? item.profilePicUrl : undefined,
+      };
+    });
+
+  return { ok: true, status: result.status, data: contacts };
 }
 
 export interface ThreadMessage {
