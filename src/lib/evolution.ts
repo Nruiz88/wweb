@@ -164,3 +164,203 @@ export async function sendTextMessage(
     body: JSON.stringify(payload),
   });
 }
+
+export type PresenceType = "composing" | "recording" | "paused";
+
+export async function sendPresence(
+  number: string,
+  presence: PresenceType,
+  delay?: number
+): Promise<EvolutionResult<unknown>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  const payload: { number: string; presence: PresenceType; delay?: number } = {
+    number,
+    presence,
+  };
+  if (typeof delay === "number" && delay >= 0) {
+    payload.delay = delay;
+  }
+
+  return evolutionRequest<unknown>(`/chat/sendPresence/${EVOLUTION_INSTANCE}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function logoutInstance(): Promise<EvolutionResult<unknown>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  return evolutionRequest<unknown>(`/instance/logout/${EVOLUTION_INSTANCE}`, {
+    method: "DELETE",
+  });
+}
+
+export async function restartInstance(): Promise<EvolutionResult<unknown>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  return evolutionRequest<unknown>(`/instance/restart/${EVOLUTION_INSTANCE}`, {
+    method: "POST",
+  });
+}
+
+export type MediaType = "image" | "document" | "video" | "audio";
+
+export interface SendMediaPayload {
+  number: string;
+  mediatype: MediaType;
+  media: string;
+  mimetype?: string;
+  caption?: string;
+  fileName?: string;
+  delay?: number;
+}
+
+export interface SendMediaResult {
+  key?: {
+    id?: string;
+    remoteJid?: string;
+    fromMe?: boolean;
+  };
+  status?: string;
+}
+
+export async function sendMediaMessage(
+  payload: SendMediaPayload
+): Promise<EvolutionResult<SendMediaResult>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  return evolutionRequest<SendMediaResult>(
+    `/message/sendMedia/${EVOLUTION_INSTANCE}`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function sendWhatsAppAudio(
+  number: string,
+  audio: string,
+  delay?: number
+): Promise<EvolutionResult<SendMediaResult>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  const payload: { number: string; audio: string; delay?: number } = {
+    number,
+    audio,
+  };
+  if (typeof delay === "number" && delay >= 0) {
+    payload.delay = delay;
+  }
+
+  return evolutionRequest<SendMediaResult>(
+    `/message/sendWhatsAppAudio/${EVOLUTION_INSTANCE}`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export interface OnWhatsAppDto {
+  jid?: string;
+  exists: boolean;
+  number: string;
+  name?: string;
+  lid?: string;
+}
+
+export async function validateWhatsAppNumbers(
+  numbers: string[]
+): Promise<EvolutionResult<OnWhatsAppDto[]>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  const result = await evolutionRequest<unknown>(
+    `/chat/whatsappNumbers/${EVOLUTION_INSTANCE}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ numbers }),
+    }
+  );
+
+  if (!result.ok) {
+    return result;
+  }
+
+  const items = Array.isArray(result.data) ? result.data : [];
+  const normalized = items.filter(
+    (item): item is OnWhatsAppDto =>
+      typeof item === "object" && item !== null && "exists" in item
+  );
+
+  return { ok: true, status: result.status, data: normalized };
+}
+
+export interface WebhookEvent {
+  enabled: boolean;
+  url?: string;
+  events?: string[];
+  webhookByEvents?: boolean;
+  webhookBase64?: boolean;
+}
+
+export async function setInstanceWebhook(
+  url: string,
+  events: string[]
+): Promise<EvolutionResult<unknown>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  return evolutionRequest<unknown>(`/webhook/set/${EVOLUTION_INSTANCE}`, {
+    method: "POST",
+    body: JSON.stringify({
+      webhook: {
+        enabled: true,
+        url,
+        events,
+        byEvents: false,
+        base64: false,
+      },
+    }),
+  });
+}
+
+export async function findInstanceWebhook(): Promise<EvolutionResult<WebhookEvent>> {
+  if (!EVOLUTION_INSTANCE) {
+    return envError();
+  }
+
+  const result = await evolutionRequest<unknown>(
+    `/webhook/find/${EVOLUTION_INSTANCE}`
+  );
+
+  if (!result.ok) {
+    return result;
+  }
+
+  const record =
+    typeof result.data === "object" && result.data !== null
+      ? (result.data as Record<string, unknown>)
+      : {};
+  const webhook = record.webhook ?? result.data;
+
+  if (typeof webhook === "object" && webhook !== null) {
+    return { ok: true, status: result.status, data: webhook as unknown as WebhookEvent };
+  }
+
+  return { ok: true, status: result.status, data: { enabled: false } };
+}
