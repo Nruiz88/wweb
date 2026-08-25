@@ -1,14 +1,29 @@
 "use client";
 
 import { useState } from "react";
+import {
+  CheckIcon,
+  ClockIcon,
+  LoaderIcon,
+  MicIcon,
+  PenIcon,
+  SearchIcon,
+  SendIcon,
+  XIcon,
+} from "@/components/icons";
 
 type Presence = "" | "composing" | "recording";
 type Feedback = { kind: "success" | "error"; message: string } | null;
 
-const PRESENCE_LABELS: Record<Exclude<Presence, "">, string> = {
-  composing: "Escribiendo…",
-  recording: "Grabando audio…",
-};
+const PRESENCE_OPTIONS: {
+  value: Presence;
+  label: string;
+  icon: typeof PenIcon;
+}[] = [
+  { value: "", label: "Sin", icon: ClockIcon },
+  { value: "composing", label: "Escribiendo", icon: PenIcon },
+  { value: "recording", label: "Audio", icon: MicIcon },
+];
 
 export function SendMessageForm() {
   const [number, setNumber] = useState("");
@@ -96,7 +111,7 @@ export function SendMessageForm() {
       setFeedback({
         kind: "success",
         message: presence
-          ? `Mensaje enviado con presencia “${PRESENCE_LABELS[presence]}”.`
+          ? "Mensaje enviado con presencia simulada."
           : "Mensaje enviado correctamente.",
       });
       setText("");
@@ -107,16 +122,13 @@ export function SendMessageForm() {
     }
   }
 
-  const inputStyles =
-    "w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500";
-
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="number" className="text-sm font-medium text-slate-300">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2">
+        <label htmlFor="number" className="field-label">
           Número de WhatsApp
         </label>
-        <div className="flex gap-2">
+        <div className="relative">
           <input
             id="number"
             type="tel"
@@ -128,39 +140,47 @@ export function SendMessageForm() {
               setNumber(event.target.value);
               setValidation({ exists: null, name: null });
             }}
-            className={inputStyles}
+            className="field-input pr-24"
           />
           <button
             type="button"
             onClick={() => void handleValidate()}
             disabled={validating || number.trim() === ""}
-            className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-600 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-base absolute inset-y-1 right-1 border border-slate-700 bg-slate-800/80 px-3 text-xs text-slate-200 hover:border-slate-600 hover:bg-slate-700"
           >
-            {validating && (
-              <span
-                className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-400 border-t-slate-100"
-                aria-hidden
-              />
+            {validating ? (
+              <LoaderIcon className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <SearchIcon className="h-3.5 w-3.5" />
             )}
             Validar
           </button>
         </div>
 
-        <div className="flex items-center gap-2 text-xs">
-          {validation.exists === null ? (
-            <span className="text-slate-500">Con código de país, sin “+”.</span>
+        <div className="flex min-h-5 items-center gap-1.5 text-xs">
+          {validating ? (
+            <span className="text-slate-500">Verificando número…</span>
+          ) : validation.exists === null ? (
+            <span className="text-slate-500">
+              Con código de país, sin “+”.
+            </span>
           ) : validation.exists ? (
-            <span className="font-medium text-emerald-400">
-              Existe en WhatsApp{validation.name ? ` (${validation.name})` : ""}
+            <span className="inline-flex items-center gap-1.5 font-medium text-emerald-400">
+              <CheckIcon className="h-3.5 w-3.5" />
+              Existe en WhatsApp
+              {validation.name ? ` (${validation.name})` : ""}
             </span>
           ) : (
-            <span className="font-medium text-red-400">No existe en WhatsApp</span>
+            <span className="inline-flex items-center gap-1.5 font-medium text-red-400">
+              <XIcon className="h-3.5 w-3.5" />
+              No existe en WhatsApp
+            </span>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="text" className="text-sm font-medium text-slate-300">
+      <div className="flex flex-col gap-2">
+        <label htmlFor="text" className="field-label">
           Mensaje
         </label>
         <textarea
@@ -170,41 +190,48 @@ export function SendMessageForm() {
           placeholder="Escribe el mensaje a enviar…"
           value={text}
           onChange={(event) => setText(event.target.value)}
-          className={`${inputStyles} resize-none`}
+          className="field-input resize-none"
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="presence" className="text-sm font-medium text-slate-300">
-            Presencia (humanización)
-          </label>
-          <select
-            id="presence"
-            value={presence}
-            onChange={(event) => setPresence(event.target.value as Presence)}
-            className={inputStyles}
-          >
-            <option value="">Sin presencia</option>
-            <option value="composing">Escribiendo…</option>
-            <option value="recording">Grabando audio…</option>
-          </select>
+      <div className="flex flex-col gap-2">
+        <span className="field-label">Presencia (humanización)</span>
+        <div className="grid grid-cols-3 gap-2">
+          {PRESENCE_OPTIONS.map((option) => {
+            const Icon = option.icon;
+            const active = presence === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setPresence(option.value)}
+                className={`btn-base flex-col gap-1.5 border py-2.5 text-xs ${
+                  active
+                    ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-300 shadow-[0_0_16px_-4px_rgba(16,185,129,0.5)]"
+                    : "border-slate-700/80 bg-slate-900/40 text-slate-400 hover:border-slate-600 hover:text-slate-200"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {option.label}
+              </button>
+            );
+          })}
         </div>
 
         {presence && (
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="presenceSeconds" className="text-sm font-medium text-slate-300">
-              Duración (segundos)
-            </label>
+          <div className="fade-up flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3">
             <input
               id="presenceSeconds"
-              type="number"
+              type="range"
               min={1}
               max={8}
               value={presenceSeconds}
               onChange={(event) => setPresenceSeconds(Number(event.target.value))}
-              className={inputStyles}
+              className="h-1.5 flex-1 cursor-pointer"
             />
+            <span className="shrink-0 text-xs font-medium text-slate-300">
+              {presenceSeconds} s
+            </span>
           </div>
         )}
       </div>
@@ -212,13 +239,12 @@ export function SendMessageForm() {
       <button
         type="submit"
         disabled={sending}
-        className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+        className="btn-base bg-gradient-to-r from-emerald-600 to-emerald-500 px-4 py-3 text-white shadow-lg shadow-emerald-500/25 hover:brightness-110"
       >
-        {sending && (
-          <span
-            className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
-            aria-hidden
-          />
+        {sending ? (
+          <LoaderIcon className="h-4 w-4 animate-spin" />
+        ) : (
+          <SendIcon className="h-4 w-4" />
         )}
         {sending ? "Enviando…" : "Enviar mensaje"}
       </button>
@@ -226,12 +252,17 @@ export function SendMessageForm() {
       {feedback && (
         <p
           role="status"
-          className={`rounded-lg px-3 py-2 text-sm ${
+          className={`fade-up flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-sm ${
             feedback.kind === "success"
-              ? "bg-emerald-500/10 text-emerald-300"
-              : "bg-red-500/10 text-red-300"
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+              : "border-red-500/30 bg-red-500/10 text-red-300"
           }`}
         >
+          {feedback.kind === "success" ? (
+            <CheckIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <XIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
           {feedback.message}
         </p>
       )}

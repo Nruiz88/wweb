@@ -1,11 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { QrViewer } from "@/components/QrViewer";
 import { SendMessageForm } from "@/components/SendMessageForm";
 import { MediaMessageForm } from "@/components/MediaMessageForm";
 import { MessagesPanel, type MessageItem } from "@/components/MessagesPanel";
+import {
+  ClockIcon,
+  InboxIcon,
+  LoaderIcon,
+  MessageCircleIcon,
+  PowerIcon,
+  RefreshIcon,
+  RestartIcon,
+  SendIcon,
+  ShieldIcon,
+  UploadIcon,
+  ZapIcon,
+} from "@/components/icons";
 
 const STATUS_POLL_INTERVAL_MS = 15000;
 const MESSAGES_POLL_INTERVAL_MS = 10000;
@@ -16,6 +29,33 @@ interface InstanceStatus {
 }
 
 type ActionKind = "restart" | "logout" | "webhook" | null;
+
+function SectionHeader({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-emerald-300">
+          {icon}
+        </span>
+        <div>
+          <h2 className="text-base font-semibold text-slate-100">{title}</h2>
+          <p className="text-xs text-slate-400">{description}</p>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
 
 export default function Home() {
   const [status, setStatus] = useState<InstanceStatus | null>(null);
@@ -176,30 +216,34 @@ export default function Home() {
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-10">
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-100">
-            Panel WhatsApp
-          </h1>
-          <p className="text-sm text-slate-400">
-            Gestión de sesión, envío de mensajes y verificación de entrada
-          </p>
+      <header className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-4">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/30">
+            <MessageCircleIcon className="h-6 w-6" />
+          </span>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-100">
+              Panel WhatsApp
+            </h1>
+            <p className="text-sm text-slate-400">
+              Gestión de sesión, envío de mensajes y verificación de entrada
+            </p>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <ConnectionBadge state={status?.state ?? null} loading={loading} />
 
           <button
             type="button"
             onClick={() => void handleRestart()}
             disabled={action !== null}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-slate-600 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-base border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-600 hover:text-slate-100"
           >
-            {action === "restart" && (
-              <span
-                className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-400 border-t-slate-100"
-                aria-hidden
-              />
+            {action === "restart" ? (
+              <LoaderIcon className="h-4 w-4 animate-spin" />
+            ) : (
+              <RestartIcon className="h-4 w-4" />
             )}
             Reiniciar
           </button>
@@ -208,8 +252,9 @@ export default function Home() {
             type="button"
             onClick={() => void handleLogout()}
             disabled={action !== null}
-            className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-base border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
           >
+            <PowerIcon className="h-4 w-4" />
             Cerrar sesión
           </button>
 
@@ -217,35 +262,51 @@ export default function Home() {
             type="button"
             onClick={() => void loadStatus()}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-slate-600 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-base border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-600 hover:text-slate-100"
           >
-            <svg
-              className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-              <path d="M21 3v6h-6" />
-            </svg>
+            <RefreshIcon className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Actualizar
           </button>
         </div>
       </header>
 
+      <section className="grid gap-3 sm:grid-cols-3">
+        <div className="chip justify-between py-3">
+          <span className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+            <ShieldIcon className="h-4 w-4" />
+            Sesión
+          </span>
+          <ConnectionBadge state={status?.state ?? null} loading={loading} />
+        </div>
+
+        <div className="chip justify-between py-3">
+          <span className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+            <ClockIcon className="h-4 w-4" />
+            Última actualización
+          </span>
+          <span className="font-medium text-slate-200">
+            {lastUpdated ? lastUpdated.toLocaleTimeString() : "—"}
+          </span>
+        </div>
+
+        <div className="chip justify-between py-3">
+          <span className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+            <InboxIcon className="h-4 w-4" />
+            Mensajes en memoria
+          </span>
+          <span className="font-medium text-slate-200">{messages.length}</span>
+        </div>
+      </section>
+
       {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+        <div className="fade-up flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {error}
         </div>
       )}
 
       {actionMessage && (
         <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
+          className={`fade-up flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
             actionMessage.kind === "success"
               ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
               : actionMessage.kind === "error"
@@ -253,20 +314,24 @@ export default function Home() {
                 : "border-slate-700 bg-slate-800/50 text-slate-300"
           }`}
         >
+          {action === "webhook" && <LoaderIcon className="h-4 w-4 animate-spin" />}
           {actionMessage.text}
         </div>
       )}
 
       <section className="grid gap-6 lg:grid-cols-2">
-        <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-100">Conexión</h2>
+        <div className="glass-panel fade-up flex flex-col gap-5 p-6">
+          <SectionHeader
+            icon={<ShieldIcon className="h-5 w-5" />}
+            title="Conexión"
+            description="Estado de la instancia y código QR"
+          >
             {connected && (
-              <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-300">
+              <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300">
                 Activa
               </span>
             )}
-          </div>
+          </SectionHeader>
 
           <QrViewer
             qrcode={status?.qrcode ?? null}
@@ -274,62 +339,57 @@ export default function Home() {
             loading={loading}
           />
 
-          <div className="mt-auto flex flex-col gap-3 border-t border-slate-800 pt-4">
-            <div className="flex flex-col gap-1 text-xs text-slate-500">
-              <span>
-                Última actualización:{" "}
-                {lastUpdated ? lastUpdated.toLocaleTimeString() : "—"}
-              </span>
-              <span>
-                Polling automático cada {STATUS_POLL_INTERVAL_MS / 1000} segundos.
-              </span>
-            </div>
+          <div className="mt-auto flex flex-col gap-3 border-t border-white/5 pt-4">
+            <p className="text-xs text-slate-500">
+              Polling automático cada {STATUS_POLL_INTERVAL_MS / 1000} segundos.
+            </p>
 
             <button
               type="button"
               onClick={() => void handleWebhookSetup()}
               disabled={action !== null}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-600 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-base border border-slate-700 bg-slate-900/60 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-200"
             >
-              {action === "webhook" && (
-                <span
-                  className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-400 border-t-slate-100"
-                  aria-hidden
-                />
+              {action === "webhook" ? (
+                <LoaderIcon className="h-4 w-4 animate-spin" />
+              ) : (
+                <ZapIcon className="h-4 w-4" />
               )}
               Configurar webhook (recepción)
             </button>
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-100">Enviar mensaje</h2>
-            <p className="text-sm text-slate-400">
-              Texto con opción de simular presencia antes del envío.
-            </p>
-          </div>
+        <div className="glass-panel fade-up flex flex-col gap-5 p-6">
+          <SectionHeader
+            icon={<SendIcon className="h-5 w-5" />}
+            title="Enviar mensaje"
+            description="Texto con simulación de presencia"
+          />
 
           <SendMessageForm />
         </div>
       </section>
 
       <section className="grid gap-6 lg:grid-cols-2">
-        <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-100">Enviar archivo</h2>
-            <p className="text-sm text-slate-400">
-              Imágenes, documentos/PDF, video, audio y notas de voz (PTT).
-            </p>
-          </div>
+        <div className="glass-panel fade-up flex flex-col gap-5 p-6">
+          <SectionHeader
+            icon={<UploadIcon className="h-5 w-5" />}
+            title="Enviar archivo"
+            description="Imágenes, PDF, video, audio y notas de voz"
+          />
 
           <MediaMessageForm />
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
+        <div className="glass-panel fade-up flex flex-col gap-5 p-6">
           <MessagesPanel messages={messages} loading={messagesLoading} />
         </div>
       </section>
+
+      <footer className="pb-4 pt-2 text-center text-xs text-slate-600">
+        Proxy seguro · Evolution API v2 · las credenciales nunca salen del servidor
+      </footer>
     </main>
   );
 }

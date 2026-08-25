@@ -1,19 +1,29 @@
 "use client";
 
 import { useRef, useState } from "react";
+import {
+  AudioLinesIcon,
+  CheckIcon,
+  FileTextIcon,
+  ImageIcon,
+  LoaderIcon,
+  MicIcon,
+  SendIcon,
+  UploadIcon,
+  VideoIcon,
+  XIcon,
+} from "@/components/icons";
 
 type MediaKind = "image" | "document" | "video" | "audio" | "ptt";
 type Feedback = { kind: "success" | "error"; message: string } | null;
 
-const KIND_LABELS: Record<MediaKind, string> = {
-  image: "Imagen",
-  document: "Documento / PDF",
-  video: "Video",
-  audio: "Audio",
-  ptt: "Nota de voz (PTT)",
-};
-
-const MEDIA_KINDS = Object.entries(KIND_LABELS) as [MediaKind, string][];
+const KIND_OPTIONS: { value: MediaKind; label: string; icon: typeof ImageIcon }[] = [
+  { value: "image", label: "Imagen", icon: ImageIcon },
+  { value: "document", label: "PDF / Doc", icon: FileTextIcon },
+  { value: "video", label: "Video", icon: VideoIcon },
+  { value: "audio", label: "Audio", icon: AudioLinesIcon },
+  { value: "ptt", label: "Nota de voz", icon: MicIcon },
+];
 
 function dataUrlToBase64(dataUrl: string): string {
   const index = dataUrl.indexOf(",");
@@ -98,68 +108,95 @@ export function MediaMessageForm() {
     }
   }
 
-  const inputStyles =
-    "w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500";
-
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="media-number" className="text-sm font-medium text-slate-300">
-            Número de WhatsApp
-          </label>
-          <input
-            id="media-number"
-            type="tel"
-            required
-            autoComplete="off"
-            placeholder="573001234567"
-            value={number}
-            onChange={(event) => setNumber(event.target.value)}
-            className={inputStyles}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="media-kind" className="text-sm font-medium text-slate-300">
-            Tipo de archivo
-          </label>
-          <select
-            id="media-kind"
-            value={kind}
-            onChange={(event) => setKind(event.target.value as MediaKind)}
-            className={inputStyles}
-          >
-            {MEDIA_KINDS.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2">
+        <span className="field-label">Tipo de archivo</span>
+        <div className="grid grid-cols-5 gap-1.5">
+          {KIND_OPTIONS.map((option) => {
+            const Icon = option.icon;
+            const active = kind === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setKind(option.value)}
+                title={option.label}
+                className={`btn-base flex-col gap-1.5 rounded-xl border px-1 py-2.5 text-[10px] leading-tight ${
+                  active
+                    ? "border-sky-500/60 bg-sky-500/15 text-sky-300 shadow-[0_0_16px_-4px_rgba(14,165,233,0.5)]"
+                    : "border-slate-700/80 bg-slate-900/40 text-slate-400 hover:border-slate-600 hover:text-slate-200"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {option.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="media-file" className="text-sm font-medium text-slate-300">
+      <div className="flex flex-col gap-2">
+        <label htmlFor="media-number" className="field-label">
+          Número de WhatsApp
+        </label>
+        <input
+          id="media-number"
+          type="tel"
+          required
+          autoComplete="off"
+          placeholder="573001234567"
+          value={number}
+          onChange={(event) => setNumber(event.target.value)}
+          className="field-input"
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label htmlFor="media-file" className="field-label">
           Archivo
         </label>
         <input
           id="media-file"
           ref={fileInputRef}
           type="file"
+          className="sr-only"
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-          className={`${inputStyles} file:mr-3 file:rounded-md file:border-0 file:bg-slate-800 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-200 file:hover:bg-slate-700`}
         />
-        {file && (
-          <p className="text-xs text-slate-500">
-            {file.name} ({Math.round(file.size / 1024)} KB)
-          </p>
-        )}
+        <label
+          htmlFor="media-file"
+          className="flex cursor-pointer items-center gap-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/30 px-4 py-4 transition hover:border-sky-500/50 hover:bg-sky-500/5"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-300">
+            {file ? <CheckIcon className="h-5 w-5" /> : <UploadIcon className="h-5 w-5" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            {file ? (
+              <>
+                <span className="block truncate text-sm font-medium text-slate-200">
+                  {file.name}
+                </span>
+                <span className="block text-xs text-slate-500">
+                  {Math.round(file.size / 1024)} KB · toca para cambiar
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="block text-sm font-medium text-slate-300">
+                  Arrastra o selecciona un archivo
+                </span>
+                <span className="block text-xs text-slate-500">
+                  Imagen, PDF, video o audio
+                </span>
+              </>
+            )}
+          </span>
+        </label>
       </div>
 
       {(kind === "image" || kind === "document" || kind === "video") && (
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="media-caption" className="text-sm font-medium text-slate-300">
+        <div className="flex flex-col gap-2">
+          <label htmlFor="media-caption" className="field-label">
             Leyenda (caption)
           </label>
           <input
@@ -168,7 +205,7 @@ export function MediaMessageForm() {
             placeholder="Texto opcional para acompañar el archivo"
             value={caption}
             onChange={(event) => setCaption(event.target.value)}
-            className={inputStyles}
+            className="field-input"
           />
         </div>
       )}
@@ -176,26 +213,30 @@ export function MediaMessageForm() {
       <button
         type="submit"
         disabled={sending}
-        className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+        className="btn-base bg-gradient-to-r from-sky-600 to-sky-500 px-4 py-3 text-white shadow-lg shadow-sky-500/25 hover:brightness-110"
       >
-        {sending && (
-          <span
-            className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
-            aria-hidden
-          />
+        {sending ? (
+          <LoaderIcon className="h-4 w-4 animate-spin" />
+        ) : (
+          <SendIcon className="h-4 w-4" />
         )}
-        {sending ? "Enviando…" : `Enviar ${KIND_LABELS[kind].toLowerCase()}`}
+        {sending ? "Enviando…" : "Enviar archivo"}
       </button>
 
       {feedback && (
         <p
           role="status"
-          className={`rounded-lg px-3 py-2 text-sm ${
+          className={`fade-up flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-sm ${
             feedback.kind === "success"
-              ? "bg-emerald-500/10 text-emerald-300"
-              : "bg-red-500/10 text-red-300"
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+              : "border-red-500/30 bg-red-500/10 text-red-300"
           }`}
         >
+          {feedback.kind === "success" ? (
+            <CheckIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <XIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
           {feedback.message}
         </p>
       )}
