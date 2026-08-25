@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { getConnectionState, getQrCode, sendTextMessage } from "@/lib/evolution";
+import {
+  getConnectionState,
+  getQrCode,
+  sendPresence,
+  sendTextMessage,
+  type PresenceType,
+} from "@/lib/evolution";
 
 export const dynamic = "force-dynamic";
 
@@ -57,10 +63,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const { number, text, delay } = (body ?? {}) as {
+  const { number, text, delay, presence } = (body ?? {}) as {
     number?: unknown;
     text?: unknown;
     delay?: unknown;
+    presence?: { type?: unknown; duration?: unknown };
   };
 
   if (typeof number !== "string" || number.trim() === "") {
@@ -77,10 +84,36 @@ export async function POST(request: Request) {
     );
   }
 
+  const presenceType = presence?.type;
+  const wantsPresence =
+    presenceType === "composing" || presenceType === "recording";
+
+  if (wantsPresence) {
+    const duration =
+      typeof presence?.duration === "number"
+        ? Math.min(Math.max(presence.duration, 500), 15000)
+        : 3000;
+
+    const presenceResult = await sendPresence(
+      number.trim(),
+      presenceType as PresenceType,
+      duration
+    );
+
+    if (!presenceResult.ok) {
+      return NextResponse.json(
+        { status: "error", error: presenceResult.message, data: null },
+        { status: 502 }
+      );
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, Math.min(duration, 4000)));
+  }
+
   const result = await sendTextMessage(
     number.trim(),
     text.trim(),
-    typeof delay === "number" ? delay : undefined
+    wantsPresence ? 0 : typeof delay === "number" ? delay : undefined
   );
 
   if (!result.ok) {
