@@ -3,6 +3,9 @@ export interface Profile {
   email: string | null;
   full_name: string | null;
   role: "admin" | "user";
+  business_name: string | null;
+  phone: string | null;
+  address: string | null;
   created_at: string;
 }
 

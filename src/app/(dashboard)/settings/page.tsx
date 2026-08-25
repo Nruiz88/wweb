@@ -34,7 +34,7 @@ export default function SettingsPage() {
     if (payload.status === "success") {
       setInstances(payload.data);
       if (payload.role) {
-        setProfile({ id: "", email: null, full_name: null, role: payload.role, created_at: "" });
+        setProfile({ id: "", email: null, full_name: null, role: payload.role, business_name: null, phone: null, address: null, created_at: "" });
       }
     }
     setLoading(false);

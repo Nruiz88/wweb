@@ -11,6 +11,7 @@ import {
   SettingsIcon,
   LogOutIcon,
   ShieldIcon,
+  UserIcon,
 } from "@/components/icons";
 
 const USER_NAV = [
@@ -18,12 +19,17 @@ const USER_NAV = [
   { href: "/whatsapp", label: "Mi WhatsApp", icon: MessageCircleIcon },
   { href: "/auto-responses", label: "Auto-Respuestas", icon: ZapIcon },
   { href: "/logs", label: "Actividad", icon: ClockIcon },
+  { href: "/profile", label: "Mi Perfil", icon: UserIcon },
 ];
 
 const ADMIN_NAV = [
-  ...USER_NAV,
-  { href: "/settings", label: "Configuracion", icon: SettingsIcon },
+  { href: "/", label: "Inicio", icon: HomeIcon },
+  { href: "/whatsapp", label: "Mi WhatsApp", icon: MessageCircleIcon },
+  { href: "/auto-responses", label: "Auto-Respuestas", icon: ZapIcon },
+  { href: "/logs", label: "Actividad", icon: ClockIcon },
   { href: "/admin", label: "Admin", icon: ShieldIcon },
+  { href: "/settings", label: "Configuracion", icon: SettingsIcon },
+  { href: "/profile", label: "Mi Perfil", icon: UserIcon },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
