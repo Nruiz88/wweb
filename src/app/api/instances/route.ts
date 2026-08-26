@@ -1,8 +1,60 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { supabaseConfig } from "@/lib/supabase/config";
+import { getConnectionState } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
+
+interface InstanceRow {
+  id: string;
+  instance_name: string;
+  status: string;
+  created_at: string;
+  evolution_api_url?: string;
+  evolution_api_key?: string;
+}
+
+function sanitizeInstance(instance: InstanceRow) {
+  return {
+    id: instance.id,
+    instance_name: instance.instance_name,
+    status: instance.status,
+    created_at: instance.created_at,
+  };
+}
+
+async function withLiveStatus(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  instances: InstanceRow[]
+) {
+  return Promise.all(
+    instances.map(async (instance) => {
+      if (!instance.evolution_api_url || !instance.evolution_api_key) {
+        return sanitizeInstance(instance);
+      }
+
+      const state = await getConnectionState(
+        instance.evolution_api_url,
+        instance.evolution_api_key,
+        instance.instance_name
+      );
+
+      if (state.ok && state.data) {
+        try {
+          await supabase
+            .from("instances")
+            .update({ status: state.data })
+            .eq("id", instance.id);
+        } catch {
+          // Non-critical: keep serving even if DB update fails
+        }
+        return sanitizeInstance({ ...instance, status: state.data });
+      }
+
+      return sanitizeInstance(instance);
+    })
+  );
+}
 
 // GET: List instances
 export async function GET() {
@@ -36,7 +88,7 @@ export async function GET() {
   if (profile?.role === "admin") {
     const { data: instances, error } = await supabase
       .from("instances")
-      .select("id, instance_name, status, created_at")
+      .select("id, instance_name, status, created_at, evolution_api_url, evolution_api_key")
       .eq("admin_id", user.id)
       .order("created_at", { ascending: false });
 
@@ -44,7 +96,8 @@ export async function GET() {
       return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ status: "success", data: instances, role: "admin" });
+    const live = await withLiveStatus(supabase, instances as InstanceRow[]);
+    return NextResponse.json({ status: "success", data: live, role: "admin" });
   }
 
   const { data: assignments } = await supabase
@@ -58,14 +111,15 @@ export async function GET() {
 
   const { data: instances, error } = await supabase
     .from("instances")
-    .select("id, instance_name, status, created_at")
+    .select("id, instance_name, status, created_at, evolution_api_url, evolution_api_key")
     .in("id", assignments.map((a) => a.instance_id));
 
   if (error) {
     return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ status: "success", data: instances, role: "user" });
+  const live = await withLiveStatus(supabase, instances as InstanceRow[]);
+  return NextResponse.json({ status: "success", data: live, role: "user" });
 }
 
 // POST: Create new instance (admin only)
