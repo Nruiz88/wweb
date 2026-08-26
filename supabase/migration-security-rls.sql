@@ -11,8 +11,10 @@ REVOKE UPDATE (role) ON public.profiles FROM anon, authenticated;
 -- 2) EXPOSICION DE CLAVES:
 --    La RLS de "instances" permitia a usuarios asignados SELECT sobre
 --    toda la fila, incluyendo evolution_api_key (clave global de Evolution).
---    Se revoca la lectura de esa columna para roles publicos.
+--    Se revoca la lectura de esa columna y de la URL del servidor para
+--    roles publicos.
 REVOKE SELECT (evolution_api_key) ON public.instances FROM anon, authenticated;
+REVOKE SELECT (evolution_api_url) ON public.instances FROM anon, authenticated;
 
 -- 3) POLLUCION ENTRE INSTANCIAS:
 --    La politica de auto_responses solo verificaba user_id, permitiendo

@@ -13,6 +13,15 @@ import {
   XIcon,
 } from "@/components/icons";
 
+// Mask the server URL: show only the host (no protocol/path)
+function displayHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
 interface AssignmentWithUser extends UserInstance {
   profiles?: { id: string; email: string; full_name: string | null };
 }
@@ -283,7 +292,7 @@ export default function AdminPage() {
                             </span>
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium text-wa-text">Servidor</p>
-                              <p className="truncate text-[10px] text-wa-text-secondary/50">{server.server_url}</p>
+                              <p className="truncate text-[10px] text-wa-text-secondary/50">{displayHost(server.server_url)}</p>
                             </div>
                           </div>
                           <span
