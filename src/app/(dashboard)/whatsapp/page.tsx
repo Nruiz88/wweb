@@ -49,6 +49,8 @@ function DisconnectedIllustration() {
 
 export default function WhatsAppPage() {
   const [instance, setInstance] = useState<InstanceData | null>(null);
+  const [myInstances, setMyInstances] = useState<{ id: string; instance_name: string; status: string }[]>([]);
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +58,8 @@ export default function WhatsAppPage() {
 
   const loadStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/whatsapp");
+      const query = selectedInstanceId ? `?instanceId=${encodeURIComponent(selectedInstanceId)}` : "";
+      const res = await fetch(`/api/whatsapp${query}`);
       const payload = await res.json();
 
       if (payload.status === "success") {
@@ -72,7 +75,7 @@ export default function WhatsAppPage() {
       setError("No se pudo conectar al servidor");
     }
     return null;
-  }, []);
+  }, [selectedInstanceId]);
 
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -94,11 +97,29 @@ export default function WhatsAppPage() {
     return () => clearInterval(interval);
   }, [connecting, loadStatus]);
 
+  // Cargar lista de instancias del usuario (admin: varias, user: 1)
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/instances");
+        const payload = await res.json();
+        if (payload.status === "success" && payload.data?.length > 0) {
+          setMyInstances(payload.data);
+          if (payload.role === "admin" && !selectedInstanceId) {
+            setSelectedInstanceId(payload.data[0].id);
+          }
+        }
+      } catch { /* non-critical */ }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [selectedInstanceId]);
+
   async function handleConnect() {
     setConnecting(true);
     setError(null);
     try {
-      const res = await fetch("/api/whatsapp", { method: "POST" });
+      const query = selectedInstanceId ? `?instanceId=${encodeURIComponent(selectedInstanceId)}` : "";
+      const res = await fetch(`/api/whatsapp${query}`, { method: "POST" });
       const payload = await res.json();
       if (payload.status !== "success") {
         setError(payload.error);
@@ -115,7 +136,8 @@ export default function WhatsAppPage() {
   async function handleLogout() {
     if (!confirm("Tu WhatsApp se desconectara. Puedes volver a conectarlo despues.")) return;
     try {
-      await fetch("/api/whatsapp", { method: "DELETE" });
+      const query = selectedInstanceId ? `?instanceId=${encodeURIComponent(selectedInstanceId)}` : "";
+      await fetch(`/api/whatsapp${query}`, { method: "DELETE" });
       await loadStatus();
     } catch {
       setError("Error al desconectar");
@@ -135,6 +157,19 @@ export default function WhatsAppPage() {
               <span className="h-1.5 w-1.5 rounded-full bg-[#00a884]" />
               Conectado
             </span>
+          )}
+          {myInstances.length > 1 && (
+            <select
+              value={selectedInstanceId}
+              onChange={(e) => setSelectedInstanceId(e.target.value)}
+              className="ml-auto input-field max-w-[180px] text-xs"
+            >
+              {myInstances.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.instance_name}
+                </option>
+              ))}
+            </select>
           )}
         </div>
       </div>

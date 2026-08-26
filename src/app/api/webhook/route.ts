@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { sendTextMessage } from "@/lib/evolution-multi";
-import { rateLimitResponse } from "@/lib/rate-limit";
+import { getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { verifyWebhookSignature } from "@/lib/webhook-secret";
 import { isWithinSchedule, matchKeyword, matchRegex } from "@/lib/webhook-matching";
 
@@ -57,6 +57,7 @@ export async function POST(request: Request) {
 
   // Verify webhook signature
   if (!(await verifyWebhookSignature(request, rawBody))) {
+    console.warn("[webhook] firma invalida", { ip: getClientIp(request) });
     return NextResponse.json({ status: "error", error: "Invalid signature" }, { status: 401 });
   }
 
@@ -101,6 +102,7 @@ export async function POST(request: Request) {
     .single();
 
   if (!instance) {
+    console.error("[webhook] instancia no encontrada", { instance: instanceName, from: remoteJid });
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
@@ -140,6 +142,7 @@ export async function POST(request: Request) {
   }
 
   if (!matched) {
+    console.log("[webhook] sin match", { instance: instanceName, from: remoteJid, text: messageText.slice(0, 120) });
     return NextResponse.json({ status: "no_match" });
   }
 
@@ -164,11 +167,17 @@ export async function POST(request: Request) {
       incoming_message: messageText,
       matched_keyword: matchedKeyword,
     });
-  } catch {
-    // Non-critical
+  } catch (logErr) {
+    console.error("[webhook] error guardando log", { instance: instanceName, error: logErr });
   }
 
   if (sendResult.ok) {
+    console.log("[webhook] respuesta enviada", {
+      instance: instanceName,
+      from: remoteJid,
+      keyword: matchedKeyword,
+      ok: true,
+    });
     return NextResponse.json({
       status: "success",
       matched: matchedKeyword,
@@ -176,6 +185,12 @@ export async function POST(request: Request) {
     });
   }
 
+  console.error("[webhook] error enviando respuesta", {
+    instance: instanceName,
+    from: remoteJid,
+    keyword: matchedKeyword,
+    message: sendResult.message,
+  });
   return NextResponse.json(
     { status: "error", error: sendResult.message },
     { status: 500 }

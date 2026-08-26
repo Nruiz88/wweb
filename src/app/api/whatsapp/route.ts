@@ -59,6 +59,55 @@ function cacheKey(baseUrl: string, instanceName: string): string {
   return `${baseUrl}|${instanceName}`;
 }
 
+interface ResolvedInstance {
+  id: string;
+  instance_name: string;
+  evolution_api_url: string;
+  evolution_api_key: string;
+  status?: string;
+}
+
+// Resuelve la instancia del usuario:
+// - Admin: la primera que creo (admin_id)
+// - User: la asignada via user_instances
+async function resolveInstance(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  userId: string,
+  selectedInstanceId?: string | null
+): Promise<ResolvedInstance | null> {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .single();
+
+  if (profile?.role === "admin") {
+    let query = supabase
+      .from("instances")
+      .select("id, instance_name, evolution_api_url, evolution_api_key, status")
+      .eq("admin_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (selectedInstanceId) {
+      query = query.eq("id", selectedInstanceId);
+    }
+
+    const { data: instances } = await query.limit(1);
+    return instances?.[0] ?? null;
+  }
+
+  const { data: assignment } = await supabase
+    .from("user_instances")
+    .select("instance_id, instances(id, instance_name, evolution_api_url, evolution_api_key, status)")
+    .eq("user_id", userId)
+    .single();
+
+  if (!assignment || typeof assignment !== "object") return null;
+
+  const nested = (assignment as unknown as { instances?: ResolvedInstance | null }).instances;
+  return nested ?? null;
+}
+
 async function getAuthUser() {
   const { createServerClient: createSSRClient } = await import("@supabase/ssr");
   const { cookies } = await import("next/headers");
@@ -93,26 +142,14 @@ export async function GET(request: Request) {
   }
 
   const supabase = await createServerClient();
+  const { searchParams } = new URL(request.url);
+  const selectedInstanceId = searchParams.get("instanceId");
 
-  // Get user's assigned instance
-  const { data: assignment } = await supabase
-    .from("user_instances")
-    .select("instance_id, instances(id, instance_name, evolution_api_url, evolution_api_key, status)")
-    .eq("user_id", user.id)
-    .single();
+  const instance = await resolveInstance(supabase, user.id, selectedInstanceId);
 
-  if (!assignment) {
-    return NextResponse.json(
-      { status: "error", error: "No tienes una instancia asignada" },
-      { status: 404 }
-    );
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const instance = (assignment as any).instances;
   if (!instance) {
     return NextResponse.json(
-      { status: "error", error: "Instancia no encontrada" },
+      { status: "error", error: "No tienes una instancia asignada" },
       { status: 404 }
     );
   }
@@ -200,15 +237,11 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createServerClient();
+  const { searchParams } = new URL(request.url);
+  const selectedInstanceId = searchParams.get("instanceId");
 
-  const { data: assignment } = await supabase
-    .from("user_instances")
-    .select("instance_id, instances(id, instance_name, evolution_api_url, evolution_api_key)")
-    .eq("user_id", user.id)
-    .single();
+  const instance = await resolveInstance(supabase, user.id, selectedInstanceId);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const instance = (assignment as any)?.instances;
   if (!instance) {
     return NextResponse.json(
       { status: "error", error: "No tienes una instancia asignada" },
@@ -279,15 +312,11 @@ export async function DELETE(request: Request) {
   }
 
   const supabase = await createServerClient();
+  const { searchParams } = new URL(request.url);
+  const selectedInstanceId = searchParams.get("instanceId");
 
-  const { data: assignment } = await supabase
-    .from("user_instances")
-    .select("instance_id, instances(id, instance_name, evolution_api_url, evolution_api_key)")
-    .eq("user_id", user.id)
-    .single();
+  const instance = await resolveInstance(supabase, user.id, selectedInstanceId);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const instance = (assignment as any)?.instances;
   if (!instance) {
     return NextResponse.json(
       { status: "error", error: "No tienes una instancia asignada" },
