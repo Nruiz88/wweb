@@ -51,15 +51,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         if (user) {
           setUserName(user.user_metadata?.full_name || user.email || "");
-          // Determinar rol leyendo el perfil directo (sin pasar por
-          // /api/instances, que dispara llamadas a Evolution API)
+          // Determinar rol via /api/auth/me (usa service role, sin RLS
+          // ni llamadas a Evolution API)
           try {
-            const { data: profile } = await supabase
-              .from("profiles")
-              .select("role")
-              .eq("id", user.id)
-              .maybeSingle();
-            if (!cancelled && profile?.role === "admin") setIsAdmin(true);
+            const res = await fetch("/api/auth/me");
+            const payload = await res.json();
+            if (!cancelled && payload.status === "success" && payload.data?.role === "admin") {
+              setIsAdmin(true);
+              if (payload.data.full_name) setUserName(payload.data.full_name);
+            }
           } catch { /* non-critical */ }
         }
       } catch { /* auth error */ }
