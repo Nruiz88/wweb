@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Panel WhatsApp",
+  title: "Boti - Tu asistente de WhatsApp",
   description: "Panel de control seguro para Evolution API",
 };
 

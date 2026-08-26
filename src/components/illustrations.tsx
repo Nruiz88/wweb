@@ -25,7 +25,7 @@ export function HeroIllustration() {
             BOT
           </div>
           <div>
-            <p className="text-xs font-semibold text-white">Mi Bot WhatsApp</p>
+            <p className="text-xs font-semibold text-white">Mi Boti</p>
             <p className="text-[10px] text-[#00a884]">en linea</p>
           </div>
         </div>

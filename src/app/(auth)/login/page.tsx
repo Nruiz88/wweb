@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { LoaderIcon, ShieldIcon } from "@/components/icons";
+import { Logo } from "@/components/logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -37,12 +38,9 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3">
-          <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#00a884]/15 text-[#00a884]">
-            <ShieldIcon className="h-8 w-8" />
-          </span>
+          <Logo size="lg" className="mx-auto justify-center" />
           <div className="text-center">
-            <h1 className="text-xl font-semibold text-wa-text">Panel WhatsApp</h1>
-            <p className="text-sm text-wa-text-secondary">Inicia sesión para continuar</p>
+            <p className="text-sm text-wa-text-secondary">Inicia sesion para continuar</p>
           </div>
         </div>
 

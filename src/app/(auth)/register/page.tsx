@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { LoaderIcon, ShieldIcon } from "@/components/icons";
+import { Logo } from "@/components/logo";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -56,9 +57,7 @@ export default function RegisterPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <div className="w-full max-w-sm text-center">
-          <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#00a884]/15 text-[#00a884]">
-            <ShieldIcon className="h-8 w-8" />
-          </span>
+          <Logo size="lg" className="mx-auto justify-center" />
           <h1 className="mt-4 text-xl font-semibold text-wa-text">¡Cuenta creada!</h1>
           <p className="mt-2 text-sm text-wa-text-secondary">
             Revisa tu email para confirmar tu cuenta.
@@ -79,12 +78,9 @@ export default function RegisterPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3">
-          <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#00a884]/15 text-[#00a884]">
-            <ShieldIcon className="h-8 w-8" />
-          </span>
+          <Logo size="lg" className="mx-auto justify-center" />
           <div className="text-center">
-            <h1 className="text-xl font-semibold text-wa-text">Crear cuenta</h1>
-            <p className="text-sm text-wa-text-secondary">Regístrate para empezar</p>
+            <p className="text-sm text-wa-text-secondary">Registrate para empezar</p>
           </div>
         </div>
 

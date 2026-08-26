@@ -13,6 +13,7 @@ import {
   ShieldIcon,
   UserIcon,
 } from "@/components/icons";
+import { LogoMark } from "@/components/logo";
 
 const USER_NAV = [
   { href: "/dashboard", label: "Inicio", icon: HomeIcon },
@@ -85,10 +86,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="flex w-full items-center px-4 xl:px-6">
           {/* Logo */}
           <a href="/dashboard" className="flex items-center gap-2.5 py-3 pr-6 border-r border-wa-border mr-4">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#00a884]/15 text-[#00a884]">
-              <MessageCircleIcon className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-bold text-wa-text">Bot WhatsApp</span>
+            <LogoMark />
+            <span className="text-sm font-bold text-wa-text">Boti</span>
           </a>
 
           {/* Nav links */}
@@ -152,12 +151,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           </svg>
         </button>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00a884]/15 text-[#00a884]">
-          <MessageCircleIcon className="h-4 w-4" />
-        </span>
+        <LogoMark />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-bold text-wa-text">Bot WhatsApp</p>
+            <p className="truncate text-sm font-bold text-wa-text">Boti</p>
             {isAdmin && <span className="rounded-full bg-[#00a884]/10 px-1.5 py-0.5 text-[8px] font-semibold text-[#00a884]">Admin</span>}
           </div>
         </div>
