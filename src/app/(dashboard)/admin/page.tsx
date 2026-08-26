@@ -28,14 +28,20 @@ interface Stats {
   recentUsers7d: number;
 }
 
-interface InstanceCapacity {
+interface InstanceInfo {
   id: string;
   instance_name: string;
   status: string;
   user_count: number;
-  max_users: number;
-  remaining: number;
   users: { id: string; email: string; full_name: string | null }[];
+}
+
+interface ServerCapacity {
+  server_url: string;
+  instance_count: number;
+  max_instances: number;
+  remaining: number;
+  instances: InstanceInfo[];
 }
 
 // Stat card with gradient accent
@@ -79,7 +85,7 @@ function StatCard({
 export default function AdminPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [instances, setInstances] = useState<Instance[]>([]);
-  const [capacities, setCapacities] = useState<InstanceCapacity[]>([]);
+  const [capacities, setCapacities] = useState<ServerCapacity[]>([]);
   const [assignments, setAssignments] = useState<AssignmentWithUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [selectedInstance, setSelectedInstance] = useState<string>("");
@@ -253,21 +259,21 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Instances & capacity */}
+            {/* Servers & capacity (Railway) */}
             {capacities.length > 0 && (
               <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-wa-text">Instancias y cupos</h3>
-                  <span className="text-[10px] text-wa-text-secondary/50">máximo 10 usuarios por instancia</span>
+                  <h3 className="text-sm font-semibold text-wa-text">Servidores (Railway) y cupos</h3>
+                  <span className="text-[10px] text-wa-text-secondary/50">máximo 10 instancias por servidor</span>
                 </div>
 
                 <div className="mt-3 space-y-3">
-                  {capacities.map((cap) => {
-                    const pct = Math.min(100, (cap.user_count / cap.max_users) * 100);
-                    const full = cap.remaining === 0;
+                  {capacities.map((server) => {
+                    const pct = Math.min(100, (server.instance_count / server.max_instances) * 100);
+                    const full = server.remaining === 0;
                     return (
                       <div
-                        key={cap.id}
+                        key={server.server_url}
                         className="rounded-xl border border-wa-border/50 bg-wa-panel/50 p-4 transition hover:border-wa-border"
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -276,10 +282,8 @@ export default function AdminPage() {
                               <MessageCircleIcon className="h-4 w-4" />
                             </span>
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-wa-text">{cap.instance_name}</p>
-                              <p className="text-[10px] text-wa-text-secondary/50">
-                                {cap.status === "open" ? "Conectada" : "Desconectada"}
-                              </p>
+                              <p className="truncate text-sm font-medium text-wa-text">Servidor</p>
+                              <p className="truncate text-[10px] text-wa-text-secondary/50">{server.server_url}</p>
                             </div>
                           </div>
                           <span
@@ -289,7 +293,7 @@ export default function AdminPage() {
                                 : "bg-[#00a884]/10 text-[#00a884]"
                             }`}
                           >
-                            {full ? "Llena" : `${cap.remaining} cupos libres`}
+                            {full ? "Sin cupo" : `${server.remaining} cupos`}
                           </span>
                         </div>
 
@@ -300,24 +304,36 @@ export default function AdminPage() {
                           />
                         </div>
                         <p className="mt-1 text-[10px] text-wa-text-secondary/60">
-                          {cap.user_count}/{cap.max_users} usuarios asignados
+                          {server.instance_count}/{server.max_instances} instancias (WhatsApp) en este servidor
                         </p>
 
-                        {cap.users.length > 0 ? (
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            {cap.users.map((u) => (
-                              <span
-                                key={u.id}
-                                title={u.full_name || undefined}
-                                className="rounded-full border border-wa-border bg-wa-header px-2.5 py-1 text-[10px] text-wa-text-secondary"
-                              >
-                                {u.email}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="mt-3 text-[10px] text-wa-text-secondary/40">Sin usuarios asignados</p>
-                        )}
+                        <div className="mt-3 space-y-2">
+                          {server.instances.map((inst) => (
+                            <div key={inst.id} className="rounded-lg border border-wa-border/40 bg-wa-header/60 p-3">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-medium text-wa-text">{inst.instance_name}</p>
+                                <span className="text-[10px] text-wa-text-secondary/60">
+                                  {inst.status === "open" ? "Conectada" : "Desconectada"}
+                                </span>
+                              </div>
+                              {inst.users.length > 0 ? (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {inst.users.map((u) => (
+                                    <span
+                                      key={u.id}
+                                      title={u.full_name || undefined}
+                                      className="rounded-full border border-wa-border bg-wa-header px-2.5 py-1 text-[10px] text-wa-text-secondary"
+                                    >
+                                      {u.email}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="mt-2 text-[10px] text-wa-text-secondary/40">Sin usuario asignado</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     );
                   })}
