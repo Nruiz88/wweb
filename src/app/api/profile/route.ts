@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
+import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 // GET: Get current user's profile
 export async function GET() {
-  const supabase = await createServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
+
+  const supabase = await createServerClient();
 
   const { data: profile, error } = await supabase
     .from("profiles")
@@ -30,15 +28,13 @@ export async function GET() {
 
 // PUT: Update current user's profile
 export async function PUT(request: Request) {
-  const supabase = await createServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
+
+  const supabase = await createServerClient();
 
   let body: unknown;
   try {

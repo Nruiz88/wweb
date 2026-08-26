@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
+import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 // GET: List logs for user's instance
 export async function GET(request: Request) {
-  const supabase = await createServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
+
+  const supabase = await createServerClient();
 
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");

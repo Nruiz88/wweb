@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
+import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -28,15 +28,13 @@ async function verifyUserAccess(supabase: Awaited<ReturnType<typeof createServer
 
 // GET: List auto-responses for user's instance
 export async function GET(request: Request) {
-  const supabase = await createServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
+
+  const supabase = await createServerClient();
 
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");
@@ -71,15 +69,13 @@ export async function POST(request: Request) {
   const rateLimitErr = rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const supabase = await createServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
+
+  const supabase = await createServerClient();
 
   let body: unknown;
   try {
@@ -155,15 +151,13 @@ export async function PUT(request: Request) {
   const rateLimitErr = rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const supabase = await createServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
+
+  const supabase = await createServerClient();
 
   let body: unknown;
   try {
@@ -229,15 +223,13 @@ export async function DELETE(request: Request) {
   const rateLimitErr = rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const supabase = await createServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
+
+  const supabase = await createServerClient();
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
