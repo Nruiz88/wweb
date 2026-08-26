@@ -7,7 +7,7 @@ import {
   ArrowRightIcon,
   MessageCircleIcon,
 } from "@/components/icons";
-import { Logo, LogoMark, LogoFull } from "@/components/logo";
+import { Logo, LogoFull } from "@/components/logo";
 import {
   HeroIllustration,
   StepQRCode,
@@ -41,7 +41,7 @@ export default function HomePage() {
             <a href="/login" className="rounded-lg px-4 py-2 text-sm font-medium text-gray-300 transition hover:text-white">
               Iniciar sesion
             </a>
-            <a href="/register" className="rounded-lg bg-[#00a884] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#00a884]/90">
+            <a href="/register" className="rounded-lg bg-[#00a884] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#00a884]/90 hover:shadow-lg hover:shadow-[#00a884]/20">
               Registrarse
             </a>
           </div>
@@ -50,14 +50,19 @@ export default function HomePage() {
 
       {/* ===== HERO ===== */}
       <section className="relative overflow-hidden">
+        {/* Decorative elements */}
         <div className="absolute inset-0 bg-gradient-to-b from-[#00a884]/5 via-transparent to-transparent" />
         <div className="absolute left-1/2 top-0 h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-[#00a884]/8 blur-[120px]" />
+        <div className="absolute -right-20 top-20 h-40 w-40 rounded-full border border-[#00a884]/10" />
+        <div className="absolute -left-10 bottom-20 h-24 w-24 rounded-full border border-[#00a884]/5" />
+        <div className="absolute right-1/4 top-1/3 h-2 w-2 rounded-full bg-[#00a884]/30" />
+        <div className="absolute left-1/4 top-2/3 h-1.5 w-1.5 rounded-full bg-[#00a884]/20" />
 
         <div className="relative mx-auto max-w-6xl px-6 pb-16 pt-16 sm:pb-24 sm:pt-24">
           <div className="grid items-center gap-12 lg:grid-cols-2">
             {/* Text */}
             <div>
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#00a884]/20 bg-[#00a884]/10 px-4 py-1.5 text-xs font-medium text-[#00a884]">
+              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#00a884]/20 bg-[#00a884]/10 px-4 py-1.5 text-xs font-medium text-[#00a884] backdrop-blur-sm">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00a884] opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-[#00a884]" />
@@ -68,26 +73,26 @@ export default function HomePage() {
               <h1 className="text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
                 Tu negocio
                 <br />
-                <span className="bg-gradient-to-r from-[#00a884] to-[#25d366] bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-[#00a884] to-[#25d366] bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(0,168,132,0.3)]">
                   nunca duerme
                 </span>
               </h1>
 
               <p className="mt-6 max-w-lg text-base text-gray-400 sm:text-lg">
-                <strong className="text-white">Boti</strong> es tu asistente virtual de WhatsApp. Responde automatically tus clientes, 24 horas, los 7 dias. Sin contratar a nadie, sin saber de codigo.
+                <strong className="text-white">Boti</strong> es tu asistente virtual de WhatsApp. Responde automaticamente tus clientes, 24 horas, los 7 dias. Sin contratar a nadie, sin saber de codigo.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <a
                   href="/register"
-                  className="flex items-center justify-center gap-2 rounded-xl bg-[#00a884] px-8 py-4 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition hover:bg-[#00a884]/90"
+                  className="group flex items-center justify-center gap-2 rounded-xl bg-[#00a884] px-8 py-4 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition-all hover:bg-[#00a884]/90 hover:shadow-xl hover:shadow-[#00a884]/30 hover:scale-[1.02]"
                 >
                   Activar Boti gratis
-                  <ArrowRightIcon className="h-4 w-4" />
+                  <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                 </a>
                 <a
                   href="#como-funciona"
-                  className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-8 py-4 text-sm font-medium text-gray-300 transition hover:border-white/20 hover:bg-white/5"
+                  className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-8 py-4 text-sm font-medium text-gray-300 transition-all hover:border-white/20 hover:bg-white/5 hover:shadow-lg hover:shadow-white/5"
                 >
                   Ver como funciona
                 </a>
@@ -99,7 +104,7 @@ export default function HomePage() {
                   {["J", "M", "A", "L", "K"].map((letter, i) => (
                     <div
                       key={letter}
-                      className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[#111b21] bg-[#202c33] text-xs font-bold text-gray-300"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[#111b21] bg-gradient-to-br from-[#202c33] to-[#2a3942] text-xs font-bold text-gray-300 shadow-lg"
                       style={{ zIndex: 5 - i }}
                     >
                       {letter}
@@ -121,82 +126,104 @@ export default function HomePage() {
       </section>
 
       {/* ===== PAIN POINTS ===== */}
-      <section className="border-t border-white/5 bg-[#202c33]">
-        <div className="mx-auto max-w-6xl px-6 py-16 sm:py-20">
+      <section className="relative border-t border-white/5 bg-[#202c33]">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(0,168,132,0.03),_transparent_50%)]" />
+        <div className="relative mx-auto max-w-6xl px-6 py-16 sm:py-20">
           <div className="text-center">
-            <h2 className="text-2xl font-bold sm:text-3xl">Te suena esto?</h2>
+            <span className="inline-block rounded-full bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-400">Problema</span>
+            <h2 className="mt-4 text-2xl font-bold sm:text-3xl">Te suena esto?</h2>
           </div>
           <div className="mt-10 grid gap-4 sm:grid-cols-3">
             {[
-              { emoji: "😴", text: "Te escriben de noche y no contestas hasta la manana" },
-              { emoji: "🤯", text: "Te preguntan lo mismo 50 veces por dia: horarios, precios, direcciones" },
-              { emoji: "📱", text: "Perdes clientes porque no podes estar pegado al telefono todo el dia" },
+              { emoji: "😴", text: "Te escriben de noche y no contestas hasta la manana", color: "#ef4444" },
+              { emoji: "🤯", text: "Te preguntan lo mismo 50 veces por dia: horarios, precios, direcciones", color: "#f59e0b" },
+              { emoji: "📱", text: "Perdes clientes porque no podes estar pegado al telefono todo el dia", color: "#3b82f6" },
             ].map((item) => (
-              <div key={item.text} className="rounded-xl border border-white/5 bg-[#111b21] p-5 text-center">
-                <span className="text-3xl">{item.emoji}</span>
-                <p className="mt-3 text-sm text-gray-300">{item.text}</p>
+              <div key={item.text} className="group relative overflow-hidden rounded-xl border border-white/5 bg-[#111b21] p-5 text-center transition-all hover:border-white/10 hover:shadow-lg hover:shadow-black/20">
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-transparent transition-colors group-hover:from-white/[0.02]" />
+                <span className="relative text-3xl">{item.emoji}</span>
+                <p className="relative mt-3 text-sm text-gray-300">{item.text}</p>
+                <div className="absolute bottom-0 left-0 h-0.5 w-full bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
               </div>
             ))}
           </div>
           <div className="mt-10 text-center">
-            <p className="text-lg font-semibold text-white">
-              <span className="text-[#00a884]">Boti</span> resuelve todo eso por vos.
-            </p>
+            <div className="inline-flex items-center gap-2 rounded-full bg-[#00a884]/10 px-5 py-2">
+              <CheckIcon className="h-4 w-4 text-[#00a884]" />
+              <p className="text-sm font-semibold text-white">
+                <span className="text-[#00a884]">Boti</span> resuelve todo eso por vos.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
       {/* ===== HOW IT WORKS ===== */}
-      <section id="como-funciona" className="border-t border-white/5">
-        <div className="mx-auto max-w-6xl px-6 py-20 sm:py-28">
+      <section id="como-funciona" className="relative border-t border-white/5">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(0,168,132,0.03),_transparent_70%)]" />
+        <div className="relative mx-auto max-w-6xl px-6 py-20 sm:py-28">
           <div className="text-center">
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#00a884]">Simples 3 pasos</p>
-            <h2 className="mt-3 text-2xl font-bold sm:text-3xl">De cero a bot en 2 minutos</h2>
+            <span className="inline-block rounded-full bg-[#00a884]/10 px-3 py-1 text-xs font-semibold text-[#00a884]">Proceso</span>
+            <h2 className="mt-4 text-2xl font-bold sm:text-3xl">De cero a bot en 2 minutos</h2>
             <p className="mt-3 text-sm text-gray-400">No necesitas saber programar. Posta.</p>
           </div>
 
-          <div className="mt-16 grid gap-12 sm:grid-cols-3 sm:gap-8">
-            <div className="flex flex-col items-center text-center">
-              <StepQRCode />
-              <div className="mt-6">
-                <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#00a884]/15 text-lg font-bold text-[#00a884]">1</div>
-                <h3 className="text-lg font-semibold">Escanea el QR</h3>
-                <p className="mt-2 max-w-xs text-sm text-gray-400">
-                  Abri WhatsApp en tu celular, escanea el codigo y listo. Boti ya esta conectado.
-                </p>
-                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#00a884]">
-                  <ClockIcon className="h-3.5 w-3.5" />
-                  30 segundos
+          <div className="relative mt-16">
+            {/* Connection lines between steps */}
+            <div className="absolute left-[20%] top-24 hidden h-px w-[60%] bg-gradient-to-r from-[#00a884]/30 via-[#e6a44e]/30 to-[#53bdeb]/30 sm:block" />
+
+            <div className="grid gap-12 sm:grid-cols-3 sm:gap-8">
+              <div className="group relative flex flex-col items-center text-center">
+                <div className="relative">
+                  <div className="absolute -inset-4 rounded-2xl bg-[#00a884]/5 opacity-0 blur-xl transition-opacity group-hover:opacity-100" />
+                  <StepQRCode />
+                </div>
+                <div className="mt-6">
+                  <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#00a884]/15 text-lg font-bold text-[#00a884] ring-4 ring-[#111b21]">1</div>
+                  <h3 className="text-lg font-semibold">Escanea el QR</h3>
+                  <p className="mt-2 max-w-xs text-sm text-gray-400">
+                    Abri WhatsApp en tu celular, escanea el codigo y listo. Boti ya esta conectado.
+                  </p>
+                  <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#00a884]">
+                    <ClockIcon className="h-3.5 w-3.5" />
+                    30 segundos
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="flex flex-col items-center text-center">
-              <StepConfig />
-              <div className="mt-6">
-                <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#e6a44e]/15 text-lg font-bold text-[#e6a44e]">2</div>
-                <h3 className="text-lg font-semibold">Escribi las respuestas</h3>
-                <p className="mt-2 max-w-xs text-sm text-gray-400">
-                  &quot;Cuando te escriban precio, contesta esto...&quot; Asi de simple. O usa las plantillas que te dejamos.
-                </p>
-                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#e6a44e]">
-                  <ClockIcon className="h-3.5 w-3.5" />
-                  1 minuto
+              <div className="group relative flex flex-col items-center text-center">
+                <div className="relative">
+                  <div className="absolute -inset-4 rounded-2xl bg-[#e6a44e]/5 opacity-0 blur-xl transition-opacity group-hover:opacity-100" />
+                  <StepConfig />
+                </div>
+                <div className="mt-6">
+                  <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#e6a44e]/15 text-lg font-bold text-[#e6a44e] ring-4 ring-[#111b21]">2</div>
+                  <h3 className="text-lg font-semibold">Escribi las respuestas</h3>
+                  <p className="mt-2 max-w-xs text-sm text-gray-400">
+                    &quot;Cuando te escriban precio, contesta esto...&quot; Asi de simple. O usa las plantillas que te dejamos.
+                  </p>
+                  <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#e6a44e]">
+                    <ClockIcon className="h-3.5 w-3.5" />
+                    1 minuto
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="flex flex-col items-center text-center">
-              <StepActive />
-              <div className="mt-6">
-                <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#53bdeb]/15 text-lg font-bold text-[#53bdeb]">3</div>
-                <h3 className="text-lg font-semibold">Boti responde solo</h3>
-                <p className="mt-2 max-w-xs text-sm text-gray-400">
-                  Tu bot esta activo 24/7. Vos seguis con tu negocio y Boti atiende los mensajes.
-                </p>
-                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#53bdeb]">
-                  <ZapIcon className="h-3.5 w-3.5" />
-                  Siempre activo
+              <div className="group relative flex flex-col items-center text-center">
+                <div className="relative">
+                  <div className="absolute -inset-4 rounded-2xl bg-[#53bdeb]/5 opacity-0 blur-xl transition-opacity group-hover:opacity-100" />
+                  <StepActive />
+                </div>
+                <div className="mt-6">
+                  <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#53bdeb]/15 text-lg font-bold text-[#53bdeb] ring-4 ring-[#111b21]">3</div>
+                  <h3 className="text-lg font-semibold">Boti responde solo</h3>
+                  <p className="mt-2 max-w-xs text-sm text-gray-400">
+                    Tu bot esta activo 24/7. Vos seguis con tu negocio y Boti atiende los mensajes.
+                  </p>
+                  <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#53bdeb]">
+                    <ZapIcon className="h-3.5 w-3.5" />
+                    Siempre activo
+                  </div>
                 </div>
               </div>
             </div>
@@ -205,87 +232,52 @@ export default function HomePage() {
       </section>
 
       {/* ===== FEATURES ===== */}
-      <section id="features" className="border-t border-white/5 bg-[#202c33]">
-        <div className="mx-auto max-w-6xl px-6 py-20 sm:py-28">
+      <section id="features" className="relative border-t border-white/5 bg-[#202c33]">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_rgba(0,168,132,0.04),_transparent_60%)]" />
+        <div className="relative mx-auto max-w-6xl px-6 py-20 sm:py-28">
           <div className="text-center">
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#00a884]">Funcionalidades</p>
-            <h2 className="mt-3 text-2xl font-bold sm:text-3xl">Todo lo que tu negocio necesita</h2>
+            <span className="inline-block rounded-full bg-[#00a884]/10 px-3 py-1 text-xs font-semibold text-[#00a884]">Funcionalidades</span>
+            <h2 className="mt-4 text-2xl font-bold sm:text-3xl">Todo lo que tu negocio necesita</h2>
           </div>
 
           <div className="mt-14 grid gap-6 lg:grid-cols-2">
-            <div className="group overflow-hidden rounded-2xl border border-white/5 bg-[#111b21] transition hover:border-white/10">
-              <div className="p-6">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#00a884]/15 text-[#00a884]">
-                  <ZapIcon className="h-5 w-5" />
+            {[
+              { icon: <ZapIcon className="h-5 w-5" />, title: "Respuestas automaticas", desc: "Cuando alguien escribe \"horario\", \"precio\" o \"direccion\", Boti contesta solo. Automatico, sin que hagas nada.", color: "#00a884", illustration: <FeatureAutoResponses /> },
+              { icon: <UsersIcon className="h-5 w-5" />, title: "Para tu equipo", desc: "Si sos admin, podes crear cuentas para cada empleado. Cada uno tiene su propio Boti.", color: "#53bdeb", illustration: <FeatureMultiUser /> },
+              { icon: <MessageCircleIcon className="h-5 w-5" />, title: "Sabis quien te escribe", desc: "Ves en tiempo real cuantos mensajes contesto Boti, cuales funcionaron y cuales no.", color: "#e6a44e", illustration: <FeatureAnalytics /> },
+              { icon: <ShieldIcon className="h-5 w-5" />, title: "Seguro y confiable", desc: "Tus datos y los de tus clientes estan protegidos. Cada cuenta es independiente y segura.", color: "#00a884", illustration: <FeatureSecurity /> },
+            ].map((feature) => (
+              <div key={feature.title} className="group relative overflow-hidden rounded-2xl border border-white/5 bg-[#111b21] transition-all duration-300 hover:border-white/10 hover:shadow-2xl hover:shadow-black/30">
+                {/* Glow effect on hover */}
+                <div className="absolute -inset-px rounded-2xl bg-gradient-to-r from-transparent via-white/[0.03] to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+                
+                <div className="relative p-6">
+                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl transition-transform group-hover:scale-110" style={{ backgroundColor: `${feature.color}15`, color: feature.color }}>
+                    {feature.icon}
+                  </div>
+                  <h3 className="text-base font-semibold">{feature.title}</h3>
+                  <p className="mt-1.5 text-sm text-gray-400">{feature.desc}</p>
                 </div>
-                <h3 className="text-base font-semibold">Respuestas automaticas</h3>
-                <p className="mt-1.5 text-sm text-gray-400">
-                  Cuando alguien escribe &quot;horario&quot;, &quot;precio&quot; o &quot;direccion&quot;, Boti contesta solo. Automatico, sin que hagas nada.
-                </p>
-              </div>
-              <div className="border-t border-white/5 bg-[#111b21] p-4">
-                <FeatureAutoResponses />
-              </div>
-            </div>
-
-            <div className="group overflow-hidden rounded-2xl border border-white/5 bg-[#111b21] transition hover:border-white/10">
-              <div className="p-6">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#53bdeb]/15 text-[#53bdeb]">
-                  <UsersIcon className="h-5 w-5" />
+                <div className="relative border-t border-white/5 bg-[#0b141a] p-4 transition-colors group-hover:bg-[#0d181e]">
+                  {feature.illustration}
                 </div>
-                <h3 className="text-base font-semibold">Para tu equipo</h3>
-                <p className="mt-1.5 text-sm text-gray-400">
-                  Si sos admin, podes crear cuentas para cada empleado. Cada uno tiene su propio Boti.
-                </p>
               </div>
-              <div className="border-t border-white/5 bg-[#111b21] p-4">
-                <FeatureMultiUser />
-              </div>
-            </div>
-
-            <div className="group overflow-hidden rounded-2xl border border-white/5 bg-[#111b21] transition hover:border-white/10">
-              <div className="p-6">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#e6a44e]/15 text-[#e6a44e]">
-                  <MessageCircleIcon className="h-5 w-5" />
-                </div>
-                <h3 className="text-base font-semibold">Sabis quien te escribe</h3>
-                <p className="mt-1.5 text-sm text-gray-400">
-                  Ves en tiempo real cuantos mensajes contesto Boti, cuales funcionaron y cuales no.
-                </p>
-              </div>
-              <div className="border-t border-white/5 bg-[#111b21] p-4">
-                <FeatureAnalytics />
-              </div>
-            </div>
-
-            <div className="group overflow-hidden rounded-2xl border border-white/5 bg-[#111b21] transition hover:border-white/10">
-              <div className="p-6">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#00a884]/15 text-[#00a884]">
-                  <ShieldIcon className="h-5 w-5" />
-                </div>
-                <h3 className="text-base font-semibold">Seguro y confiable</h3>
-                <p className="mt-1.5 text-sm text-gray-400">
-                  Tus datos y los de tus clientes estan protegidos. Cada cuenta es independiente y segura.
-                </p>
-              </div>
-              <div className="border-t border-white/5 bg-[#111b21] p-4">
-                <FeatureSecurity />
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
       {/* ===== PRICING ===== */}
-      <section id="precios" className="border-t border-white/5">
-        <div className="mx-auto max-w-6xl px-6 py-20 sm:py-28">
+      <section id="precios" className="relative border-t border-white/5">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(0,168,132,0.03),_transparent_50%)]" />
+        <div className="relative mx-auto max-w-6xl px-6 py-20 sm:py-28">
           <div className="text-center">
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#00a884]">Precios</p>
-            <h2 className="mt-3 text-2xl font-bold sm:text-3xl">Simple, como todo deberia ser</h2>
+            <span className="inline-block rounded-full bg-[#00a884]/10 px-3 py-1 text-xs font-semibold text-[#00a884]">Precios</span>
+            <h2 className="mt-4 text-2xl font-bold sm:text-3xl">Simple, como todo deberia ser</h2>
           </div>
 
           <div className="mx-auto mt-14 grid max-w-lg gap-6 sm:grid-cols-2">
-            <div className="rounded-2xl border border-white/5 bg-[#202c33] p-8">
+            <div className="group relative overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] p-8 transition-all duration-300 hover:border-white/10 hover:shadow-xl hover:shadow-black/20">
               <p className="text-sm font-semibold text-gray-400">Para probar</p>
               <div className="mt-4 flex items-baseline gap-1">
                 <span className="text-4xl font-bold">$0</span>
@@ -302,23 +294,25 @@ export default function HomePage() {
               </ul>
               <a
                 href="/register"
-                className="mt-8 flex w-full items-center justify-center rounded-xl border border-white/10 py-3 text-sm font-semibold text-white transition hover:bg-white/5"
+                className="mt-8 flex w-full items-center justify-center rounded-xl border border-white/10 py-3 text-sm font-semibold text-white transition-all hover:border-white/20 hover:bg-white/5 hover:shadow-lg hover:shadow-white/5"
               >
                 Empezar gratis
               </a>
             </div>
 
-            <div className="relative rounded-2xl border border-[#00a884]/30 bg-[#202c33] p-8">
-              <div className="absolute -top-3 right-6 rounded-full bg-[#00a884] px-3 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+            <div className="group relative overflow-hidden rounded-2xl border border-[#00a884]/30 bg-[#202c33] p-8 transition-all duration-300 hover:border-[#00a884]/50 hover:shadow-xl hover:shadow-[#00a884]/10">
+              {/* Glow */}
+              <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-[#00a884]/10 via-transparent to-transparent opacity-50" />
+              <div className="absolute -top-3 right-6 rounded-full bg-gradient-to-r from-[#00a884] to-[#25d366] px-3 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg shadow-[#00a884]/30">
                 Recomendado
               </div>
-              <p className="text-sm font-semibold text-[#00a884]">Negocio</p>
-              <div className="mt-4 flex items-baseline gap-1">
+              <p className="relative text-sm font-semibold text-[#00a884]">Negocio</p>
+              <div className="relative mt-4 flex items-baseline gap-1">
                 <span className="text-4xl font-bold">$9.990</span>
                 <span className="text-sm text-gray-500">/mes</span>
               </div>
-              <p className="mt-2 text-xs text-gray-500">Para negocios serios</p>
-              <ul className="mt-6 space-y-3">
+              <p className="relative mt-2 text-xs text-gray-500">Para negocios serios</p>
+              <ul className="relative mt-6 space-y-3">
                 {[
                   "5 numeros de WhatsApp",
                   "Respuestas ilimitadas",
@@ -335,7 +329,7 @@ export default function HomePage() {
               </ul>
               <a
                 href="/register"
-                className="mt-8 flex w-full items-center justify-center rounded-xl bg-[#00a884] py-3 text-sm font-semibold text-white transition hover:bg-[#00a884]/90"
+                className="relative mt-8 flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] py-3 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition-all hover:shadow-xl hover:shadow-[#00a884]/35 hover:scale-[1.02]"
               >
                 Elegir Negocio
               </a>
@@ -345,8 +339,12 @@ export default function HomePage() {
       </section>
 
       {/* ===== CTA ===== */}
-      <section className="border-t border-white/5 bg-[#202c33]">
-        <div className="mx-auto max-w-6xl px-6 py-20 sm:py-28 text-center">
+      <section className="relative border-t border-white/5 bg-[#202c33] overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(0,168,132,0.06),_transparent_60%)]" />
+        <div className="absolute -left-20 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full border border-[#00a884]/10" />
+        <div className="absolute -right-20 top-1/2 h-60 w-60 -translate-y-1/2 rounded-full border border-[#00a884]/5" />
+        
+        <div className="relative mx-auto max-w-6xl px-6 py-20 sm:py-28 text-center">
           <Logo size="lg" className="mx-auto mb-6 justify-center" />
           <h2 className="text-3xl font-bold sm:text-4xl">
             Deja de perder clientes
@@ -356,10 +354,10 @@ export default function HomePage() {
           </p>
           <a
             href="/register"
-            className="mt-8 inline-flex items-center gap-2 rounded-xl bg-[#00a884] px-10 py-4 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition hover:bg-[#00a884]/90"
+            className="group mt-8 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] px-10 py-4 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition-all hover:shadow-xl hover:shadow-[#00a884]/40 hover:scale-[1.02]"
           >
             Crear cuenta gratis
-            <ArrowRightIcon className="h-4 w-4" />
+            <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </a>
           <p className="mt-4 text-xs text-gray-500">Sin tarjeta de credito. Sin compromiso.</p>
         </div>
