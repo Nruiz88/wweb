@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
+import { isSafeRegex } from "@/lib/regex-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +115,13 @@ export async function POST(request: Request) {
   if (!keyword && !regexPattern) {
     return NextResponse.json(
       { status: "error", error: "Either keyword or regexPattern is required" },
+      { status: 400 }
+    );
+  }
+
+  if (regexPattern && !isSafeRegex(regexPattern)) {
+    return NextResponse.json(
+      { status: "error", error: "El patrón regex es inválido, muy largo o potencialmente peligroso" },
       { status: 400 }
     );
   }

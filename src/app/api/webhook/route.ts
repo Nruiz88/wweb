@@ -3,6 +3,7 @@ import { createServerClient } from "@/lib/supabase/server";
 import { sendTextMessage } from "@/lib/evolution-multi";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { verifyWebhookSignature } from "@/lib/webhook-secret";
+import { isSafeRegex } from "@/lib/regex-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,9 @@ function matchKeyword(messageText: string, keyword: string): boolean {
 }
 
 function matchRegex(messageText: string, pattern: string): boolean {
+  if (!isSafeRegex(pattern)) {
+    return false;
+  }
   try {
     const regex = new RegExp(pattern, "i");
     return regex.test(messageText);

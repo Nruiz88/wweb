@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { supabaseConfig } from "@/lib/supabase/config";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import {
   connectInstance,
   createInstance,
@@ -148,7 +149,13 @@ export async function GET() {
 }
 
 // POST: Connect instance (get QR)
-export async function POST() {
+export async function POST(request: Request) {
+  const rateLimitErr = rateLimitResponse(request, "whatsapp-connect", {
+    maxRequests: 20,
+    windowMs: 60_000,
+  });
+  if (rateLimitErr) return rateLimitErr;
+
   const user = await getAuthUser();
   if (!user) {
     return NextResponse.json(
@@ -218,7 +225,13 @@ export async function POST() {
 }
 
 // DELETE: Logout instance
-export async function DELETE() {
+export async function DELETE(request: Request) {
+  const rateLimitErr = rateLimitResponse(request, "whatsapp-logout", {
+    maxRequests: 20,
+    windowMs: 60_000,
+  });
+  if (rateLimitErr) return rateLimitErr;
+
   const user = await getAuthUser();
   if (!user) {
     return NextResponse.json(
