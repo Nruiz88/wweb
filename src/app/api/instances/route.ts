@@ -23,14 +23,28 @@ function sanitizeInstance(instance: InstanceRow) {
   };
 }
 
+// Caché del estado en vivo: evita llamar a Evolution API en cada request.
+// Solo se refresca si el dato tiene mas de TTL_MS de antiguedad.
+const statusCache = new Map<string, { status: string; at: number }>();
+const STATUS_TTL_MS = 10_000;
+
 async function withLiveStatus(
   supabase: Awaited<ReturnType<typeof createServerClient>>,
   instances: InstanceRow[]
 ) {
+  const now = Date.now();
+
   return Promise.all(
     instances.map(async (instance) => {
       if (!instance.evolution_api_url || !instance.evolution_api_key) {
         return sanitizeInstance(instance);
+      }
+
+      const cacheKey = `${instance.evolution_api_url}|${instance.instance_name}`;
+      const cached = statusCache.get(cacheKey);
+
+      if (cached && now - cached.at < STATUS_TTL_MS) {
+        return sanitizeInstance({ ...instance, status: cached.status });
       }
 
       const state = await getConnectionState(
@@ -40,6 +54,7 @@ async function withLiveStatus(
       );
 
       if (state.ok && state.data) {
+        statusCache.set(cacheKey, { status: state.data, at: Date.now() });
         try {
           await supabase
             .from("instances")

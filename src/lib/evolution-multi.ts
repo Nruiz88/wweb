@@ -27,11 +27,16 @@ async function evolutionRequest<T>(
   headers.set("apikey", apiKey);
   headers.set("Content-Type", "application/json");
 
+  // Timeout de 5s: evita colgar el request si Railway duerme o no responde
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
   try {
     const res = await fetch(`${baseUrl}${path}`, {
       ...options,
       cache: "no-store",
       headers,
+      signal: controller.signal,
     });
 
     const raw = await res.text();
@@ -47,6 +52,13 @@ async function evolutionRequest<T>(
 
     return { ok: true, status: res.status, data: data as T };
   } catch (error) {
+    if (controller.signal.aborted) {
+      return {
+        ok: false,
+        status: null,
+        message: "Timeout: Evolution API no respondió en 5s",
+      };
+    }
     return {
       ok: false,
       status: null,
@@ -55,6 +67,8 @@ async function evolutionRequest<T>(
           ? `Error de red: ${error.message}`
           : "Error de red hacia Evolution API",
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
