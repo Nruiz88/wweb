@@ -283,8 +283,12 @@ export default function HomePage() {
           <div className="mx-auto mt-14 grid max-w-4xl gap-6 lg:grid-cols-3">
             {/* Starter */}
             <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] p-6 transition-all duration-300 hover:border-[#53bdeb]/30 hover:shadow-xl hover:shadow-black/20">
-              <p className="text-sm font-semibold text-[#53bdeb]">Starter</p>
-              <p className="text-[10px] text-gray-500">Comercio / Atencion Basica</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-[#53bdeb]">Starter</p>
+                <span className="rounded-full bg-[#53bdeb]/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#53bdeb]">
+                  Atencion Basica
+                </span>
+              </div>
               <div className="mt-4 flex items-baseline gap-1">
                 <span className="text-4xl font-bold">$12.000</span>
                 <span className="text-sm text-gray-500">ARS/mes</span>
@@ -316,11 +320,12 @@ export default function HomePage() {
             {/* Pro */}
             <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-[#00a884]/30 bg-[#202c33] p-6 transition-all duration-300 hover:border-[#00a884]/50 hover:shadow-xl hover:shadow-[#00a884]/10">
               <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-[#00a884]/10 via-transparent to-transparent opacity-50" />
-              <div className="absolute -top-3 right-6 rounded-full bg-gradient-to-r from-[#00a884] to-[#25d366] px-3 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg shadow-[#00a884]/30">
-                Recomendado
+              <div className="relative flex items-center justify-between">
+                <p className="text-sm font-semibold text-[#00a884]">Pro</p>
+                <span className="rounded-full bg-gradient-to-r from-[#00a884] to-[#25d366] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg shadow-[#00a884]/30">
+                  Recomendado
+                </span>
               </div>
-              <p className="relative text-sm font-semibold text-[#00a884]">Pro</p>
-              <p className="relative text-[10px] text-gray-500">Turnos &amp; Agenda</p>
               <div className="relative mt-4 flex items-baseline gap-1">
                 <span className="text-4xl font-bold">$22.000</span>
                 <span className="text-sm text-gray-500">ARS/mes</span>
@@ -352,8 +357,12 @@ export default function HomePage() {
 
             {/* Community */}
             <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] p-6 transition-all duration-300 hover:border-[#e6a44e]/30 hover:shadow-xl hover:shadow-black/20">
-              <p className="text-sm font-semibold text-[#e6a44e]">Community</p>
-              <p className="text-[10px] text-gray-500">Grupos &amp; Difusion</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-[#e6a44e]">Community</p>
+                <span className="rounded-full bg-[#e6a44e]/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#e6a44e]">
+                  Grupos &amp; Difusion
+                </span>
+              </div>
               <div className="mt-4 flex items-baseline gap-1">
                 <span className="text-4xl font-bold">$35.000</span>
                 <span className="text-sm text-gray-500">ARS/mes</span>
