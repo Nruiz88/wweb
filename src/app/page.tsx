@@ -7,6 +7,16 @@ import {
   UsersIcon,
   ArrowRightIcon,
 } from "@/components/icons";
+import {
+  HeroIllustration,
+  StepQRCode,
+  StepConfig,
+  StepActive,
+  FeatureAutoResponses,
+  FeatureMultiUser,
+  FeatureAnalytics,
+  FeatureSecurity,
+} from "@/components/illustrations";
 
 export default function HomePage() {
   return (
@@ -44,64 +54,72 @@ export default function HomePage() {
 
       {/* ===== HERO ===== */}
       <section className="relative overflow-hidden">
-        {/* Background gradient */}
         <div className="absolute inset-0 bg-gradient-to-b from-[#00a884]/5 via-transparent to-transparent" />
         <div className="absolute left-1/2 top-0 h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-[#00a884]/8 blur-[120px]" />
 
-        <div className="relative mx-auto max-w-6xl px-6 pb-20 pt-20 text-center sm:pb-28 sm:pt-32">
-          {/* Badge */}
-          <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-[#00a884]/20 bg-[#00a884]/10 px-4 py-1.5 text-xs font-medium text-[#00a884]">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00a884] opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-[#00a884]" />
-            </span>
-            Version 1.0 disponible
-          </div>
+        <div className="relative mx-auto max-w-6xl px-6 pb-16 pt-16 sm:pb-24 sm:pt-24">
+          <div className="grid items-center gap-12 lg:grid-cols-2">
+            {/* Text */}
+            <div>
+              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#00a884]/20 bg-[#00a884]/10 px-4 py-1.5 text-xs font-medium text-[#00a884]">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00a884] opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#00a884]" />
+                </span>
+                Version 1.0 disponible
+              </div>
 
-          <h1 className="text-4xl font-extrabold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-            Automatiza tu
-            <br />
-            <span className="bg-gradient-to-r from-[#00a884] to-[#25d366] bg-clip-text text-transparent">
-              WhatsApp
-            </span>
-          </h1>
+              <h1 className="text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
+                Automatiza tu
+                <br />
+                <span className="bg-gradient-to-r from-[#00a884] to-[#25d366] bg-clip-text text-transparent">
+                  WhatsApp
+                </span>
+              </h1>
 
-          <p className="mx-auto mt-6 max-w-xl text-base text-gray-400 sm:text-lg">
-            Crea respuestas automaticas para tu negocio. Sin programar, sin complicaciones. Tu bot responde 24/7 mientras vos haces otra cosa.
-          </p>
+              <p className="mt-6 max-w-lg text-base text-gray-400 sm:text-lg">
+                Crea respuestas automaticas para tu negocio. Sin programar, sin complicaciones. Tu bot responde 24/7 mientras vos haces otra cosa.
+              </p>
 
-          <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <a
-              href="/register"
-              className="flex items-center gap-2 rounded-xl bg-[#00a884] px-8 py-4 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition hover:bg-[#00a884]/90 hover:shadow-[#00a884]/35"
-            >
-              Empezar gratis
-              <ArrowRightIcon className="h-4 w-4" />
-            </a>
-            <a
-              href="#como-funciona"
-              className="flex items-center gap-2 rounded-xl border border-white/10 px-8 py-4 text-sm font-medium text-gray-300 transition hover:border-white/20 hover:bg-white/5 hover:text-white"
-            >
-              Ver como funciona
-            </a>
-          </div>
-
-          {/* Social proof */}
-          <div className="mt-16 flex flex-col items-center gap-4">
-            <div className="flex -space-x-2">
-              {["J", "M", "A", "L", "K"].map((letter, i) => (
-                <div
-                  key={letter}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[#111b21] bg-[#202c33] text-xs font-bold text-gray-300"
-                  style={{ zIndex: 5 - i }}
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <a
+                  href="/register"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-[#00a884] px-8 py-4 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition hover:bg-[#00a884]/90"
                 >
-                  {letter}
+                  Empezar gratis
+                  <ArrowRightIcon className="h-4 w-4" />
+                </a>
+                <a
+                  href="#como-funciona"
+                  className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-8 py-4 text-sm font-medium text-gray-300 transition hover:border-white/20 hover:bg-white/5"
+                >
+                  Ver como funciona
+                </a>
+              </div>
+
+              {/* Social proof */}
+              <div className="mt-10 flex items-center gap-4">
+                <div className="flex -space-x-2">
+                  {["J", "M", "A", "L", "K"].map((letter, i) => (
+                    <div
+                      key={letter}
+                      className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[#111b21] bg-[#202c33] text-xs font-bold text-gray-300"
+                      style={{ zIndex: 5 - i }}
+                    >
+                      {letter}
+                    </div>
+                  ))}
                 </div>
-              ))}
+                <p className="text-xs text-gray-500">
+                  <span className="font-semibold text-gray-300">150+</span> emprendimientos
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-gray-500">
-              <span className="font-semibold text-gray-300">150+</span> emprendimientos ya confian en nosotros
-            </p>
+
+            {/* Hero illustration */}
+            <div className="flex justify-center lg:justify-end">
+              <HeroIllustration />
+            </div>
           </div>
         </div>
       </section>
@@ -115,51 +133,55 @@ export default function HomePage() {
             <p className="mt-3 text-sm text-gray-400">No necesitas saber programar</p>
           </div>
 
-          <div className="relative mt-16">
-            {/* Connection line */}
-            <div className="absolute left-8 top-8 hidden h-[calc(100%-64px)] w-px bg-gradient-to-b from-[#00a884] via-[#e6a44e] to-[#53bdeb] sm:left-1/2 sm:block" />
-
-            <div className="space-y-12 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-8">
-              {/* Step 1 */}
-              <div className="relative flex flex-col items-center text-center">
-                <div className="relative z-10 mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#00a884]/15 text-2xl font-bold text-[#00a884] ring-4 ring-[#202c33]">
+          <div className="mt-16 grid gap-12 sm:grid-cols-3 sm:gap-8">
+            {/* Step 1 */}
+            <div className="flex flex-col items-center text-center">
+              <StepQRCode />
+              <div className="mt-6">
+                <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#00a884]/15 text-lg font-bold text-[#00a884]">
                   1
                 </div>
                 <h3 className="text-lg font-semibold">Conecta tu WhatsApp</h3>
                 <p className="mt-2 max-w-xs text-sm text-gray-400">
                   Escanea un codigo QR desde tu telefono. Tu WhatsApp queda vinculado al bot.
                 </p>
-                <div className="mt-4 flex items-center gap-1.5 text-xs text-[#00a884]">
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#00a884]">
                   <ClockIcon className="h-3.5 w-3.5" />
                   30 segundos
                 </div>
               </div>
+            </div>
 
-              {/* Step 2 */}
-              <div className="relative flex flex-col items-center text-center">
-                <div className="relative z-10 mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#e6a44e]/15 text-2xl font-bold text-[#e6a44e] ring-4 ring-[#202c33]">
+            {/* Step 2 */}
+            <div className="flex flex-col items-center text-center">
+              <StepConfig />
+              <div className="mt-6">
+                <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#e6a44e]/15 text-lg font-bold text-[#e6a44e]">
                   2
                 </div>
                 <h3 className="text-lg font-semibold">Configura respuestas</h3>
                 <p className="mt-2 max-w-xs text-sm text-gray-400">
                   Escribe que palabras clave deben activar una respuesta. Usa plantillas o crea las tuyas.
                 </p>
-                <div className="mt-4 flex items-center gap-1.5 text-xs text-[#e6a44e]">
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#e6a44e]">
                   <ClockIcon className="h-3.5 w-3.5" />
                   1 minuto
                 </div>
               </div>
+            </div>
 
-              {/* Step 3 */}
-              <div className="relative flex flex-col items-center text-center">
-                <div className="relative z-10 mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#53bdeb]/15 text-2xl font-bold text-[#53bdeb] ring-4 ring-[#202c33]">
+            {/* Step 3 */}
+            <div className="flex flex-col items-center text-center">
+              <StepActive />
+              <div className="mt-6">
+                <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#53bdeb]/15 text-lg font-bold text-[#53bdeb]">
                   3
                 </div>
                 <h3 className="text-lg font-semibold">Bot activo</h3>
                 <p className="mt-2 max-w-xs text-sm text-gray-400">
                   Tu bot esta respondiendo mensajes automaticamente. Vos monitoreas desde el panel.
                 </p>
-                <div className="mt-4 flex items-center gap-1.5 text-xs text-[#53bdeb]">
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#53bdeb]">
                   <ZapIcon className="h-3.5 w-3.5" />
                   24/7
                 </div>
@@ -178,59 +200,70 @@ export default function HomePage() {
             <p className="mt-3 text-sm text-gray-400">Herramientas pensadas para emprendedores</p>
           </div>
 
-          <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              {
-                icon: <ZapIcon className="h-5 w-5" />,
-                title: "Respuestas automaticas",
-                desc: "Por palabra clave o expresion regular. Configura en segundos.",
-                color: "#00a884",
-              },
-              {
-                icon: <ClockIcon className="h-5 w-5" />,
-                title: "Horarios personalizados",
-                desc: "Que tu bot solo responda en el horario que vos elijas.",
-                color: "#e6a44e",
-              },
-              {
-                icon: <UsersIcon className="h-5 w-5" />,
-                title: "Multi-usuario",
-                desc: "Cada usuario tiene su propia instancia de WhatsApp.",
-                color: "#53bdeb",
-              },
-              {
-                icon: <ShieldIcon className="h-5 w-5" />,
-                title: "Seguro y privado",
-                desc: "Tus datos estan protegidos. Cada instancia es independiente.",
-                color: "#00a884",
-              },
-              {
-                icon: <MessageCircleIcon className="h-5 w-5" />,
-                title: "Panel de control",
-                desc: "Ve la actividad, logs y estadisticas en tiempo real.",
-                color: "#e6a44e",
-              },
-              {
-                icon: <CheckIcon className="h-5 w-5" />,
-                title: "Sin codigo",
-                desc: "Interfaz simple que cualquier persona puede usar.",
-                color: "#53bdeb",
-              },
-            ].map((feature) => (
-              <div
-                key={feature.title}
-                className="group rounded-2xl border border-white/5 bg-[#202c33] p-6 transition hover:border-white/10 hover:bg-[#2a3942]"
-              >
-                <div
-                  className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl"
-                  style={{ backgroundColor: `${feature.color}15`, color: feature.color }}
-                >
-                  {feature.icon}
+          <div className="mt-14 grid gap-6 lg:grid-cols-2">
+            {/* Feature 1: Auto Responses */}
+            <div className="group overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] transition hover:border-white/10">
+              <div className="p-6">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#00a884]/15 text-[#00a884]">
+                  <ZapIcon className="h-5 w-5" />
                 </div>
-                <h3 className="text-base font-semibold">{feature.title}</h3>
-                <p className="mt-1.5 text-sm text-gray-400">{feature.desc}</p>
+                <h3 className="text-base font-semibold">Respuestas automaticas</h3>
+                <p className="mt-1.5 text-sm text-gray-400">
+                  Por palabra clave o expresion regular. Configura en segundos y tu bot empieza a responder solo.
+                </p>
               </div>
-            ))}
+              <div className="border-t border-white/5 bg-[#111b21] p-4">
+                <FeatureAutoResponses />
+              </div>
+            </div>
+
+            {/* Feature 2: Multi-user */}
+            <div className="group overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] transition hover:border-white/10">
+              <div className="p-6">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#53bdeb]/15 text-[#53bdeb]">
+                  <UsersIcon className="h-5 w-5" />
+                </div>
+                <h3 className="text-base font-semibold">Multi-usuario</h3>
+                <p className="mt-1.5 text-sm text-gray-400">
+                  Administra multiples usuarios, cada uno con su propia instancia de WhatsApp independiente.
+                </p>
+              </div>
+              <div className="border-t border-white/5 bg-[#111b21] p-4">
+                <FeatureMultiUser />
+              </div>
+            </div>
+
+            {/* Feature 3: Analytics */}
+            <div className="group overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] transition hover:border-white/10">
+              <div className="p-6">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#e6a44e]/15 text-[#e6a44e]">
+                  <MessageCircleIcon className="h-5 w-5" />
+                </div>
+                <h3 className="text-base font-semibold">Panel de control</h3>
+                <p className="mt-1.5 text-sm text-gray-400">
+                  Estadisticas en tiempo real, logs de actividad y metricas de rendimiento de tu bot.
+                </p>
+              </div>
+              <div className="border-t border-white/5 bg-[#111b21] p-4">
+                <FeatureAnalytics />
+              </div>
+            </div>
+
+            {/* Feature 4: Security */}
+            <div className="group overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] transition hover:border-white/10">
+              <div className="p-6">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#00a884]/15 text-[#00a884]">
+                  <ShieldIcon className="h-5 w-5" />
+                </div>
+                <h3 className="text-base font-semibold">Seguro y privado</h3>
+                <p className="mt-1.5 text-sm text-gray-400">
+                  Encriptacion, autenticacion JWT, rate limiting y webhook HMAC. Tus datos estan protegidos.
+                </p>
+              </div>
+              <div className="border-t border-white/5 bg-[#111b21] p-4">
+                <FeatureSecurity />
+              </div>
+            </div>
           </div>
         </div>
       </section>
