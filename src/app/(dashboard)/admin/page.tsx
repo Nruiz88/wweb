@@ -8,7 +8,6 @@ import {
   LoaderIcon,
   MessageCircleIcon,
   ShieldIcon,
-  UserIcon,
   UsersIcon,
   ZapIcon,
   XIcon,
@@ -27,6 +26,44 @@ interface Stats {
   totalLogs: number;
   recentLogs24h: number;
   recentUsers7d: number;
+}
+
+// Stat card with gradient accent
+function StatCard({
+  icon,
+  value,
+  label,
+  accent,
+  sub,
+}: {
+  icon: React.ReactNode;
+  value: number;
+  label: string;
+  accent: string;
+  sub?: string;
+}) {
+  return (
+    <div className="group relative overflow-hidden rounded-2xl border border-wa-border bg-wa-header p-4 transition-all hover:border-white/10 hover:shadow-lg hover:shadow-black/20">
+      <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full opacity-10 blur-2xl transition-opacity group-hover:opacity-20" style={{ backgroundColor: accent }} />
+      <div className="relative flex items-center gap-3">
+        <div
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-transform group-hover:scale-110"
+          style={{ backgroundColor: `${accent}15`, color: accent }}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <p className="text-2xl font-bold text-wa-text">{value}</p>
+          <p className="text-[11px] text-wa-text-secondary">{label}</p>
+        </div>
+      </div>
+      {sub && (
+        <p className="relative mt-2 text-[10px] font-medium" style={{ color: accent }}>
+          {sub}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function AdminPage() {
@@ -143,10 +180,10 @@ export default function AdminPage() {
       {/* Feedback */}
       {feedback && (
         <div
-          className={`mx-4 mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
+          className={`mx-4 mt-2 flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium ${
             feedback.kind === "success"
-              ? "bg-[#00a884]/10 text-[#00a884]"
-              : "bg-red-500/10 text-red-400"
+              ? "bg-[#00a884]/10 text-[#00a884] border border-[#00a884]/20"
+              : "bg-red-500/10 text-red-400 border border-red-500/20"
           }`}
         >
           {feedback.kind === "success" ? <CheckIcon className="h-3.5 w-3.5" /> : <XIcon className="h-3.5 w-3.5" />}
@@ -165,84 +202,48 @@ export default function AdminPage() {
             {/* Stats Grid */}
             {stats && (
               <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-                {/* Users */}
-                <div className="rounded-xl border border-wa-border bg-wa-header p-3 sm:p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-lg bg-[#53bdeb]/10 text-[#53bdeb]">
-                      <UsersIcon className="h-4 w-4 sm:h-5 sm:w-5" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-xl sm:text-2xl font-bold text-wa-text">{stats.totalUsers}</p>
-                      <p className="text-[10px] sm:text-xs text-wa-text-secondary truncate">Usuarios</p>
-                    </div>
-                  </div>
-                  {stats.recentUsers7d > 0 && (
-                    <p className="mt-2 text-[10px] text-[#53bdeb]">
-                      +{stats.recentUsers7d} esta semana
-                    </p>
-                  )}
-                </div>
-
-                {/* Instances */}
-                <div className="rounded-xl border border-wa-border bg-wa-header p-3 sm:p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-lg bg-[#00a884]/10 text-[#00a884]">
-                      <MessageCircleIcon className="h-4 w-4 sm:h-5 sm:w-5" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-xl sm:text-2xl font-bold text-wa-text">{stats.totalInstances}</p>
-                      <p className="text-[10px] sm:text-xs text-wa-text-secondary truncate">Instancias</p>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-[10px] text-[#00a884]">
-                    {stats.connectedInstances} conectada{stats.connectedInstances !== 1 ? "s" : ""}
-                  </p>
-                </div>
-
-                {/* Auto Responses */}
-                <div className="rounded-xl border border-wa-border bg-wa-header p-3 sm:p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/10 text-[#e6a44e]">
-                      <ZapIcon className="h-4 w-4 sm:h-5 sm:w-5" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-xl sm:text-2xl font-bold text-wa-text">{stats.totalAutoResponses}</p>
-                      <p className="text-[10px] sm:text-xs text-wa-text-secondary truncate">Auto-respuestas</p>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-[10px] text-[#e6a44e]">
-                    {stats.activeAutoResponses} activa{stats.activeAutoResponses !== 1 ? "s" : ""}
-                  </p>
-                </div>
-
-                {/* Responses sent */}
-                <div className="rounded-xl border border-wa-border bg-wa-header p-3 sm:p-4">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-lg bg-[#00a884]/10 text-[#00a884]">
-                      <ClockIcon className="h-4 w-4 sm:h-5 sm:w-5" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-xl sm:text-2xl font-bold text-wa-text">{stats.totalLogs}</p>
-                      <p className="text-[10px] sm:text-xs text-wa-text-secondary truncate">Respuestas enviadas</p>
-                    </div>
-                  </div>
-                  {stats.recentLogs24h > 0 && (
-                    <p className="mt-2 text-[10px] text-[#00a884]">
-                      +{stats.recentLogs24h} en 24h
-                    </p>
-                  )}
-                </div>
+                <StatCard
+                  icon={<UsersIcon className="h-5 w-5" />}
+                  value={stats.totalUsers}
+                  label="Usuarios"
+                  accent="#53bdeb"
+                  sub={stats.recentUsers7d > 0 ? `+${stats.recentUsers7d} esta semana` : undefined}
+                />
+                <StatCard
+                  icon={<MessageCircleIcon className="h-5 w-5" />}
+                  value={stats.totalInstances}
+                  label="Instancias"
+                  accent="#00a884"
+                  sub={`${stats.connectedInstances} conectada${stats.connectedInstances !== 1 ? "s" : ""}`}
+                />
+                <StatCard
+                  icon={<ZapIcon className="h-5 w-5" />}
+                  value={stats.totalAutoResponses}
+                  label="Auto-respuestas"
+                  accent="#e6a44e"
+                  sub={`${stats.activeAutoResponses} activa${stats.activeAutoResponses !== 1 ? "s" : ""}`}
+                />
+                <StatCard
+                  icon={<ClockIcon className="h-5 w-5" />}
+                  value={stats.totalLogs}
+                  label="Respuestas enviadas"
+                  accent="#00a884"
+                  sub={stats.recentLogs24h > 0 ? `+${stats.recentLogs24h} en 24h` : undefined}
+                />
               </div>
             )}
 
             {/* Instance selector */}
             {instances.length > 0 ? (
-              <div className="rounded-xl border border-wa-border bg-wa-header p-3 sm:p-4">
-                <h3 className="mb-2 sm:mb-3 text-xs sm:text-sm font-semibold text-wa-text">Seleccionar instancia</h3>
+              <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-wa-text">Instancia activa</h3>
+                  <span className="text-[10px] text-wa-text-secondary/50">{instances.length} total</span>
+                </div>
                 <select
                   value={selectedInstance}
                   onChange={(event) => setSelectedInstance(event.target.value)}
-                  className="input-field w-full max-w-xs text-sm"
+                  className="mt-3 input-field w-full max-w-xs text-sm"
                 >
                   {instances.map((inst) => (
                     <option key={inst.id} value={inst.id}>
@@ -252,21 +253,23 @@ export default function AdminPage() {
                 </select>
               </div>
             ) : (
-              <div className="rounded-xl border border-wa-border bg-wa-header p-6 text-center">
-                <ShieldIcon className="mx-auto h-10 w-10 sm:h-12 sm:w-12 text-wa-text-secondary/20" />
-                <p className="mt-2 text-sm text-wa-text-secondary">No hay instancias creadas</p>
-                <p className="text-xs text-wa-text-secondary/60">Crea una en Configuracion primero</p>
+              <div className="rounded-2xl border border-dashed border-wa-border bg-wa-header p-8 text-center">
+                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-wa-text-secondary/10">
+                  <ShieldIcon className="h-7 w-7 text-wa-text-secondary/30" />
+                </div>
+                <p className="text-sm font-medium text-wa-text-secondary">No hay instancias creadas</p>
+                <p className="mt-1 text-xs text-wa-text-secondary/50">Crea una en Configuracion primero</p>
               </div>
             )}
 
-            {/* Users list with assign buttons */}
+            {/* Users list */}
             {selectedInstance && (
-              <div className="rounded-xl border border-wa-border bg-wa-header p-3 sm:p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-xs sm:text-sm font-semibold text-wa-text truncate">
-                    Usuarios — {selectedInst?.instance_name}
+              <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-wa-text">
+                    Usuarios en {selectedInst?.instance_name}
                   </h3>
-                  <span className="text-[10px] sm:text-xs text-wa-text-secondary shrink-0 ml-2">
+                  <span className="rounded-full bg-[#00a884]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#00a884]">
                     {assignedUserIds.size} asignados
                   </span>
                 </div>
@@ -283,18 +286,20 @@ export default function AdminPage() {
                       return (
                         <div
                           key={user.id}
-                          className="flex items-center justify-between gap-2 rounded-lg border border-wa-border/50 px-3 py-2.5"
+                          className="group flex items-center justify-between gap-3 rounded-xl border border-wa-border/50 bg-wa-panel/50 px-4 py-3 transition-all hover:border-wa-border hover:bg-wa-panel"
                         >
                           <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <span className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-full bg-[#53bdeb]/10 text-[#53bdeb] text-xs font-bold">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#53bdeb]/20 to-[#53bdeb]/5 text-xs font-bold text-[#53bdeb]">
                               {user.email?.[0]?.toUpperCase() || "?"}
-                            </span>
+                            </div>
                             <div className="min-w-0 flex-1">
-                              <p className="text-xs sm:text-sm text-wa-text truncate">{user.email}</p>
+                              <p className="text-sm text-wa-text truncate">{user.email}</p>
                               <p className="text-[10px] text-wa-text-secondary/50 truncate">
                                 {user.full_name || "Sin nombre"}
                                 {isAdmin && (
-                                  <span className="ml-1 text-[#00a884]">• Admin</span>
+                                  <span className="ml-1.5 inline-flex items-center gap-0.5 text-[#00a884]">
+                                    <ShieldIcon className="h-2.5 w-2.5" /> Admin
+                                  </span>
                                 )}
                               </p>
                             </div>
@@ -311,18 +316,18 @@ export default function AdminPage() {
                                 : void handleAssign(user.id)
                             }
                             disabled={isCurrentlyAssigning || isAdmin}
-                            className={`shrink-0 min-w-[70px] sm:min-w-[90px] rounded-lg px-2 sm:px-3 py-1.5 text-[10px] sm:text-xs font-medium transition ${
+                            className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                               isAdmin
                                 ? "cursor-not-allowed opacity-40 border border-wa-border bg-wa-header text-wa-text-secondary"
                                 : isAssigned
                                 ? "border border-[#00a884]/30 bg-[#00a884]/10 text-[#00a884] hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30"
-                                : "border border-wa-border bg-wa-header text-wa-text-secondary hover:bg-wa-hover"
+                                : "border border-wa-border bg-wa-header text-wa-text-secondary hover:bg-wa-hover hover:text-wa-text"
                             }`}
                           >
                             {isCurrentlyAssigning ? (
                               <LoaderIcon className="mx-auto h-3.5 w-3.5 animate-spin" />
                             ) : isAssigned ? (
-                              "Asignado ✓"
+                              <span className="flex items-center gap-1"><CheckIcon className="h-3 w-3" /> Asignado</span>
                             ) : isAdmin ? (
                               "Admin"
                             ) : (

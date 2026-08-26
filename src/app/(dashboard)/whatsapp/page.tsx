@@ -8,6 +8,7 @@ import {
   LogOutIcon,
   CheckIcon,
   XIcon,
+  ArrowRightIcon,
 } from "@/components/icons";
 
 type ConnectionState = "open" | "close" | "connecting" | "qrcode" | "unknown";
@@ -17,6 +18,32 @@ interface InstanceData {
   instanceName: string;
   connectionState: ConnectionState;
   qrCode: string | null;
+}
+
+// Connected illustration
+function ConnectedIllustration() {
+  return (
+    <div className="relative">
+      <div className="absolute inset-0 animate-pulse rounded-full bg-[#00a884]/20 blur-2xl" />
+      <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-[#00a884]/20 to-[#00a884]/5 ring-4 ring-[#00a884]/10">
+        <CheckIcon className="h-12 w-12 text-[#00a884]" />
+      </div>
+      <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-[#00a884] shadow-lg shadow-[#00a884]/30">
+        <svg className="h-3 w-3 text-white" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// Disconnected illustration
+function DisconnectedIllustration() {
+  return (
+    <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-wa-header to-wa-panel ring-4 ring-wa-border/30">
+      <MessageCircleIcon className="h-12 w-12 text-wa-text-secondary/20" />
+    </div>
+  );
 }
 
 export default function WhatsAppPage() {
@@ -51,7 +78,6 @@ export default function WhatsAppPage() {
     loadStatus().finally(() => setLoading(false));
   }, [loadStatus]);
 
-  // Poll when connecting
   useEffect(() => {
     if (!connecting) return;
     const interval = setInterval(async () => {
@@ -98,7 +124,15 @@ export default function WhatsAppPage() {
     <div className="flex h-full flex-col bg-wa-panel">
       {/* Header */}
       <div className="border-b border-wa-border bg-wa-header px-4 py-2.5">
-        <span className="text-[0.9375rem] font-normal text-wa-text">Mi WhatsApp</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[0.9375rem] font-normal text-wa-text">Mi WhatsApp</span>
+          {isConnected && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#00a884]/10 px-2 py-0.5 text-[10px] font-semibold text-[#00a884]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#00a884]" />
+              Conectado
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Content */}
@@ -109,9 +143,7 @@ export default function WhatsAppPage() {
           </div>
         ) : noInstance ? (
           <div className="flex flex-col items-center gap-4 py-16 text-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-wa-header">
-              <MessageCircleIcon className="h-10 w-10 text-wa-text-secondary/30" />
-            </div>
+            <DisconnectedIllustration />
             <div>
               <p className="text-lg font-semibold text-wa-text">Sin instancia asignada</p>
               <p className="mt-2 max-w-xs text-sm text-wa-text-secondary">
@@ -124,10 +156,10 @@ export default function WhatsAppPage() {
 
             {/* Error */}
             {error && (
-              <div className="flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+              <div className="flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-xs text-red-400">
                 <XIcon className="h-3.5 w-3.5 shrink-0" />
-                <span>{error}</span>
-                <button onClick={() => setError(null)} className="ml-auto">
+                <span className="flex-1">{error}</span>
+                <button onClick={() => setError(null)} className="shrink-0">
                   <XIcon className="h-3 w-3" />
                 </button>
               </div>
@@ -136,23 +168,26 @@ export default function WhatsAppPage() {
             {/* Connected */}
             {isConnected ? (
               <div className="space-y-4">
-                <div className="rounded-xl border border-[#00a884]/30 bg-[#00a884]/5 p-6 text-center">
-                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#00a884]/15">
-                    <CheckIcon className="h-7 w-7 text-[#00a884]" />
+                <div className="relative overflow-hidden rounded-2xl border border-[#00a884]/20 bg-gradient-to-br from-[#00a884]/10 to-[#00a884]/5 p-8 text-center">
+                  <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-[#00a884]/5 blur-2xl" />
+                  <div className="relative">
+                    <ConnectedIllustration />
+                    <p className="mt-4 text-xl font-bold text-wa-text">Conectado</p>
+                    <p className="mt-1 text-sm text-wa-text-secondary">{instance?.instanceName}</p>
+                    <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#00a884]/15 px-3 py-1">
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00a884] opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-[#00a884]" />
+                      </span>
+                      <span className="text-xs font-medium text-[#00a884]">En linea</span>
+                    </div>
                   </div>
-                  <p className="text-lg font-semibold text-wa-text">Conectado</p>
-                  <p className="mt-1 text-sm text-wa-text-secondary">
-                    {instance?.instanceName}
-                  </p>
-                  <p className="mt-2 text-xs text-[#00a884]">
-                    Tu WhatsApp esta activo y recibiendo mensajes
-                  </p>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => void loadStatus()}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-wa-border px-4 py-2.5 text-sm text-wa-text-secondary transition hover:bg-wa-hover"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-wa-border bg-wa-header px-4 py-3 text-sm text-wa-text-secondary transition-all hover:bg-wa-hover hover:text-wa-text"
                 >
                   <RefreshIcon className="h-4 w-4" />
                   Verificar estado
@@ -161,7 +196,7 @@ export default function WhatsAppPage() {
                 <button
                   type="button"
                   onClick={() => void handleLogout()}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400 transition hover:bg-red-500/20"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400 transition-all hover:bg-red-500/10"
                 >
                   <LogOutIcon className="h-4 w-4" />
                   Desconectar
@@ -171,7 +206,7 @@ export default function WhatsAppPage() {
             /* QR Code */
             ) : instance?.qrCode ? (
               <div className="space-y-4">
-                <div className="rounded-xl border border-wa-border bg-wa-header p-6 text-center">
+                <div className="rounded-2xl border border-wa-border bg-wa-header p-6 text-center">
                   <p className="mb-1 text-base font-semibold text-wa-text">
                     Escanea el codigo QR
                   </p>
@@ -182,7 +217,7 @@ export default function WhatsAppPage() {
                     <span className="font-medium text-wa-text">Vincular dispositivo</span>
                   </p>
 
-                  <div className="mx-auto w-56 rounded-lg bg-white p-2">
+                  <div className="mx-auto w-56 overflow-hidden rounded-xl bg-white p-2 shadow-lg shadow-black/20">
                     <img
                       src={instance.qrCode}
                       alt="Codigo QR para conectar WhatsApp"
@@ -201,43 +236,45 @@ export default function WhatsAppPage() {
                 <button
                   type="button"
                   onClick={() => void loadStatus()}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-wa-border px-4 py-2.5 text-sm text-wa-text-secondary transition hover:bg-wa-hover"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-wa-border bg-wa-header px-4 py-3 text-sm text-wa-text-secondary transition-all hover:bg-wa-hover hover:text-wa-text"
                 >
                   <RefreshIcon className="h-4 w-4" />
                   Actualizar codigo
                 </button>
               </div>
 
-            /* Disconnected - Ready to connect */
+            /* Disconnected */
             ) : (
               <div className="space-y-4">
-                <div className="rounded-xl border border-wa-border bg-wa-header p-6 text-center">
-                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-wa-text-secondary/10">
-                    <MessageCircleIcon className="h-7 w-7 text-wa-text-secondary/40" />
+                <div className="relative overflow-hidden rounded-2xl border border-wa-border bg-wa-header p-8 text-center">
+                  <div className="absolute -left-8 -bottom-8 h-24 w-24 rounded-full bg-wa-text-secondary/5 blur-2xl" />
+                  <div className="relative">
+                    <DisconnectedIllustration />
+                    <p className="mt-4 text-lg font-semibold text-wa-text">Conecta tu WhatsApp</p>
+                    <p className="mt-1 text-sm text-wa-text-secondary">{instance?.instanceName}</p>
+                    <p className="mt-2 text-xs text-wa-text-secondary/50">
+                      Necesitas tu telefono para escanear el codigo QR
+                    </p>
                   </div>
-                  <p className="text-base font-semibold text-wa-text">
-                    Conecta tu WhatsApp
-                  </p>
-                  <p className="mt-1 text-sm text-wa-text-secondary">
-                    {instance?.instanceName}
-                  </p>
-                  <p className="mt-2 text-xs text-wa-text-secondary/60">
-                    Necesitas tu telefono para escanear el codigo QR
-                  </p>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => void handleConnect()}
                   disabled={connecting}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#00a884] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#00a884]/90 disabled:opacity-50"
+                  className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition-all hover:shadow-xl hover:shadow-[#00a884]/35 hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {connecting ? (
                     <LoaderIcon className="h-4 w-4 animate-spin" />
                   ) : (
-                    <RefreshIcon className="h-4 w-4" />
+                    <>
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+                      </svg>
+                    </>
                   )}
-                  {connecting ? "Conectando..." : "Conectar"}
+                  {connecting ? "Conectando..." : "Conectar WhatsApp"}
+                  {!connecting && <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-1" />}
                 </button>
               </div>
             )}
