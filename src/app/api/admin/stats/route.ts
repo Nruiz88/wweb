@@ -53,6 +53,13 @@ export async function GET() {
     supabase.from("auto_responses").select("id", { count: "exact", head: true }).eq("is_active", true),
   ]);
 
+  // Total de bots extra (suma de quantity de add-ons activos)
+  const { data: addons } = await supabase
+    .from("instance_addons")
+    .select("quantity")
+    .eq("status", "active");
+  const totalAddonBots = (addons ?? []).reduce((sum, a) => sum + (a.quantity ?? 0), 0);
+
   // Recent activity (last 24h)
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { count: recentLogs } = await supabase
@@ -78,6 +85,7 @@ export async function GET() {
       totalLogs: logsCount.count ?? 0,
       recentLogs24h: recentLogs ?? 0,
       recentUsers7d: recentUsers ?? 0,
+      totalAddonBots,
     },
   });
 }

@@ -73,6 +73,25 @@ export async function POST(request: Request) {
   const { data: existing } = await supabase.from("user_instances").select("id").eq("user_id", targetUser.id).eq("instance_id", instanceId).single();
   if (existing) return NextResponse.json({ status: "error", error: "User already assigned" }, { status: 409 });
 
+  // Validar limite de bots del plan: base (1) + add-ons activos
+  const { data: effectiveMax, error: maxError } = await supabase
+    .rpc("get_effective_max_instances", { p_user_id: targetUser.id });
+  if (maxError) return NextResponse.json({ status: "error", error: maxError.message }, { status: 500 });
+
+  const { count: currentCount } = await supabase
+    .from("user_instances")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", targetUser.id);
+
+  const max = Number(effectiveMax ?? 1);
+  const current = Number(currentCount ?? 0);
+  if (current >= max) {
+    return NextResponse.json(
+      { status: "error", error: `El usuario alcanzo su limite de ${max} bots. Contrata add-ons para ampliarlo.` },
+      { status: 409 }
+    );
+  }
+
   const { data: assignment, error } = await supabase.from("user_instances").insert({ user_id: targetUser.id, instance_id: instanceId }).select().single();
   if (error) return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
 

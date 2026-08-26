@@ -5,6 +5,26 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PATHS = ["/login", "/register"];
 const PUBLIC_API = ["/api/webhook", "/api/health"];
 
+function withSecurityHeaders(response: NextResponse): NextResponse {
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  response.headers.set(
+    "Content-Security-Policy",
+    "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+      "style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data: https: blob:; " +
+      "font-src 'self' data:; " +
+      "connect-src 'self' https: wss:; " +
+      "frame-ancestors 'none'; " +
+      "base-uri 'self'; " +
+      "form-action 'self'"
+  );
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
@@ -39,32 +59,33 @@ export async function middleware(request: NextRequest) {
   // API routes
   if (pathname.startsWith("/api")) {
     if (PUBLIC_API.some((p) => pathname.startsWith(p))) {
-      return response;
+      return withSecurityHeaders(response);
     }
     if (!user) {
-      return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+      return withSecurityHeaders(
+        NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 })
+      );
     }
-    return response;
+    return withSecurityHeaders(response);
   }
 
   // Pages: authenticated user on public paths -> dashboard
   if (user && PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return withSecurityHeaders(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
   // Pages: unauthenticated user on protected paths -> login
   if (!user && !PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     const redirectUrl = new URL("/login", request.url);
     redirectUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(redirectUrl);
+    return withSecurityHeaders(NextResponse.redirect(redirectUrl));
   }
 
-  return response;
+  return withSecurityHeaders(response);
 }
 
 export const config = {
   matcher: [
-    // Proteger pages (excluye _next, favicon, assets estaticos)
-    "/((?!_next|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?)$).*)",
   ],
 };

@@ -53,6 +53,36 @@ interface ServerCapacity {
   instances: InstanceInfo[];
 }
 
+interface PlanDistribution {
+  starter: number;
+  pro: number;
+  community: number;
+}
+
+interface PlansPayload {
+  plan_distribution: PlanDistribution;
+  active_subscriptions: number;
+  total_addons: number;
+  users: {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    role: string;
+    created_at: string;
+    plan: string;
+    status: string;
+    max_instances: number;
+    addons: number;
+    used_instances: number;
+  }[];
+}
+
+const PLAN_META: Record<string, { label: string; accent: string; features: string[] }> = {
+  starter: { label: "Starter", accent: "#53bdeb", features: ["1 bot", "Keywords"] },
+  pro: { label: "Pro", accent: "#00a884", features: ["1 bot base", "Horarios", "Regex"] },
+  community: { label: "Community", accent: "#e6a44e", features: ["1 bot base", "Moderación", "Broadcasts"] },
+};
+
 // Stat card with gradient accent
 function StatCard({
   icon,
@@ -98,6 +128,7 @@ export default function AdminPage() {
   const [assignments, setAssignments] = useState<AssignmentWithUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [selectedInstance, setSelectedInstance] = useState<string>("");
+  const [plans, setPlans] = useState<PlansPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [assigning, setAssigning] = useState<string | null>(null);
@@ -105,17 +136,19 @@ export default function AdminPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, instRes, statsRes, capRes] = await Promise.all([
+      const [usersRes, instRes, statsRes, capRes, plansRes] = await Promise.all([
         fetch("/api/admin/users"),
         fetch("/api/instances"),
         fetch("/api/admin/stats"),
         fetch("/api/admin/instances-with-users"),
+        fetch("/api/admin/plans"),
       ]);
 
       const usersPayload = await usersRes.json();
       const instPayload = await instRes.json();
       const statsPayload = await statsRes.json();
       const capPayload = await capRes.json();
+      const plansPayload = await plansRes.json();
 
       if (usersPayload.status === "success") setUsers(usersPayload.data);
       if (instPayload.status === "success") {
@@ -126,6 +159,7 @@ export default function AdminPage() {
       }
       if (statsPayload.status === "success") setStats(statsPayload.data);
       if (capPayload.status === "success") setCapacities(capPayload.data);
+      if (plansPayload.status === "success") setPlans(plansPayload.data);
     } catch {
       setFeedback({ kind: "error", message: "Error cargando datos" });
     }
@@ -265,6 +299,120 @@ export default function AdminPage() {
                   accent="#00a884"
                   sub={stats.recentLogs24h > 0 ? `+${stats.recentLogs24h} en 24h` : undefined}
                 />
+              </div>
+            )}
+
+            {/* Planes de suscripcion */}
+            {plans && (
+              <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-wa-text">Planes de suscripcion</h3>
+                  <span className="text-[10px] text-wa-text-secondary/50">
+                    {plans.active_subscriptions} activas · {plans.total_addons} bots extra
+                  </span>
+                </div>
+
+                {/* Distribucion de planes */}
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {(["starter", "pro", "community"] as const).map((key) => {
+                    const meta = PLAN_META[key];
+                    const count = plans.plan_distribution[key] ?? 0;
+                    const total = Object.values(plans.plan_distribution).reduce((a, b) => a + b, 0) || 1;
+                    const pct = Math.round((count / total) * 100);
+                    return (
+                      <div
+                        key={key}
+                        className="rounded-xl border border-wa-border/50 bg-wa-panel/50 p-3.5 transition hover:border-wa-border"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span
+                            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                            style={{ backgroundColor: `${meta.accent}15`, color: meta.accent }}
+                          >
+                            {meta.label}
+                          </span>
+                          <span className="text-lg font-bold text-wa-text">{count}</span>
+                        </div>
+                        <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-wa-text-secondary/10">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${pct}%`, backgroundColor: meta.accent }}
+                          />
+                        </div>
+                        <p className="mt-1.5 text-[10px] text-wa-text-secondary/60">
+                          {meta.features.join(" · ")}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Tabla usuarios: plan + limite */}
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-wa-border text-[10px] uppercase tracking-wide text-wa-text-secondary/50">
+                        <th className="py-2 pr-3 font-medium">Usuario</th>
+                        <th className="py-2 pr-3 font-medium">Plan</th>
+                        <th className="py-2 pr-3 font-medium">Bots usados</th>
+                        <th className="py-2 pr-3 font-medium">Limite</th>
+                        <th className="py-2 font-medium">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {plans.users
+                        .filter((u) => u.role !== "admin")
+                        .map((u) => {
+                          const meta = PLAN_META[u.plan] ?? PLAN_META.starter;
+                          const usagePct = Math.min(100, (u.used_instances / u.max_instances) * 100);
+                          const full = u.used_instances >= u.max_instances;
+                          return (
+                            <tr key={u.id} className="border-b border-wa-border/40 last:border-0">
+                              <td className="py-2.5 pr-3">
+                                <p className="truncate font-medium text-wa-text">{u.email ?? u.full_name}</p>
+                                {u.addons > 0 && (
+                                  <p className="text-[10px] text-[#e6a44e]">+{u.addons} bot{u.addons !== 1 ? "s" : ""} add-on</p>
+                                )}
+                              </td>
+                              <td className="py-2.5 pr-3">
+                                <span
+                                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                                  style={{ backgroundColor: `${meta.accent}15`, color: meta.accent }}
+                                >
+                                  {meta.label}
+                                </span>
+                              </td>
+                              <td className="py-2.5 pr-3 text-wa-text">
+                                {u.used_instances}
+                                <span className="text-wa-text-secondary/50">/{u.max_instances}</span>
+                              </td>
+                              <td className="py-2.5 pr-3">
+                                <div className="w-24">
+                                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-wa-text-secondary/10">
+                                    <div
+                                      className="h-full rounded-full"
+                                      style={{ width: `${usagePct}%`, backgroundColor: full ? "#ef4444" : "#00a884" }}
+                                    />
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-2.5">
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                    u.status === "active"
+                                      ? "bg-[#00a884]/10 text-[#00a884]"
+                                      : "bg-red-500/10 text-red-400"
+                                  }`}
+                                >
+                                  {u.status}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 

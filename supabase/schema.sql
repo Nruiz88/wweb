@@ -148,14 +148,12 @@ CREATE TABLE user_instances (
 );
 
 -- Auto-assign: cada usuario recibe SU PROPIA instancia
--- en el server menos cargado (max 10 conexiones por server)
-CREATE OR REPLACE FUNCTION public.auto_assign_instance()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
+-- en el server menos cargado (max 10 conexiones por server).
+-- Funcion reutilizable: tambien se usa para backfill de usuarios existentes.
+CREATE OR REPLACE FUNCTION public.assign_instance_for_user(p_user_id UUID)
+RETURNS UUID AS $$
 DECLARE
+  v_role text;
   v_max_per_server CONSTANT integer := 10;
   v_server_url text;
   v_server_key text;
@@ -165,8 +163,24 @@ DECLARE
   v_instance_name text;
   v_instance_id uuid;
 BEGIN
-  IF NEW.role <> 'user' THEN
-    RETURN NEW;
+  -- Solo usuarios regulares (el admin gestiona manualmente)
+  SELECT role INTO v_role FROM public.profiles WHERE id = p_user_id;
+  IF v_role IS DISTINCT FROM 'user' THEN
+    RETURN NULL;
+  END IF;
+
+  -- Ya tiene instancia asignada
+  IF EXISTS (
+    SELECT 1 FROM public.user_instances WHERE user_id = p_user_id
+  ) THEN
+    RETURN NULL;
+  END IF;
+
+  -- Limite efectivo del plan: bot base (1) + add-ons activos
+  IF public.get_effective_max_instances(p_user_id) <= (
+    SELECT COUNT(*) FROM public.user_instances WHERE user_id = p_user_id
+  ) THEN
+    RETURN NULL;
   END IF;
 
   SELECT i.evolution_api_url, i.evolution_api_key, i.admin_id
@@ -178,7 +192,7 @@ BEGIN
    LIMIT 1;
 
   IF v_server_url IS NULL THEN
-    RETURN NEW;
+    RETURN NULL;
   END IF;
 
   SELECT instance_name INTO v_base_name
@@ -189,7 +203,7 @@ BEGIN
    LIMIT 1;
 
   IF v_base_name IS NULL THEN
-    RETURN NEW;
+    RETURN NULL;
   END IF;
 
   SELECT COUNT(*) + 1 INTO v_count
@@ -204,8 +218,20 @@ BEGIN
   RETURNING id INTO v_instance_id;
 
   INSERT INTO user_instances (user_id, instance_id)
-  VALUES (NEW.id, v_instance_id);
+  VALUES (p_user_id, v_instance_id);
 
+  RETURN v_instance_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.auto_assign_instance()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  PERFORM public.assign_instance_for_user(NEW.id);
   RETURN NEW;
 END;
 $$;

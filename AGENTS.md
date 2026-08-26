@@ -116,6 +116,8 @@ CREATE TRIGGER trg_auto_assign_instance
   AFTER INSERT ON public.profiles
   FOR EACH ROW EXECUTE FUNCTION public.auto_assign_instance();
 ```
+Logica reutilizable en `public.assign_instance_for_user(user_id)`
+(tambien usada para backfill de usuarios existentes sin instancia).
 
 ### RLS (Row Level Security)
 - profiles: cada usuario ve/edita el suyo (`role` solo via service_role)
