@@ -34,9 +34,8 @@
   --font-mono: var(--font-geist-mono);
 }
 
-html, body, #__next {
+html, body {
   height: 100%;
-  overflow: hidden;
 }
 
 body {
