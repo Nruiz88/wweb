@@ -404,7 +404,7 @@ export default function AutoResponsesPage() {
       {/* ===== Modal ===== */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <div className="mx-4 w-full max-w-md overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-5 py-4">
               <div>
@@ -444,7 +444,7 @@ export default function AutoResponsesPage() {
             </div>
 
             {/* Form */}
-            <div className="flex flex-col gap-4 p-5">
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
               {/* Keyword */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-wa-text-secondary">

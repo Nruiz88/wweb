@@ -196,14 +196,14 @@ export default function SettingsPage() {
       {/* Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <div className="mx-4 w-full max-w-md overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-5 py-4">
               <h3 className="text-base font-semibold text-wa-text">Nueva instancia</h3>
               <button type="button" onClick={() => setShowForm(false)} className="rounded-lg p-1 text-wa-text-secondary hover:text-wa-text">
                 <XIcon className="h-5 w-5" />
               </button>
             </div>
-            <div className="flex flex-col gap-4 p-5">
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-wa-text-secondary">Nombre de instancia</label>
                 <input type="text" placeholder="mi-whatsapp" value={instanceName} onChange={(e) => setInstanceName(e.target.value)} className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none transition" />

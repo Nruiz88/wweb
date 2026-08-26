@@ -96,6 +96,9 @@ body {
   justify-content: center;
   background-color: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
+  padding: 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .modal-panel {
   background-color: var(--wa-panel);
@@ -103,8 +106,9 @@ body {
   border-radius: 0.75rem;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   max-width: 24rem;
-  width: 90%;
+  width: 100%;
   padding: 2rem;
+  margin: auto;
 }
 
 /* Animations */
