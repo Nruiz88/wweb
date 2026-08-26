@@ -6,6 +6,7 @@ import {
   UsersIcon,
   ArrowRightIcon,
   MessageCircleIcon,
+  PlusIcon,
 } from "@/components/icons";
 import { Logo, LogoFull } from "@/components/logo";
 import {
@@ -274,65 +275,133 @@ export default function HomePage() {
           <div className="text-center">
             <span className="inline-block rounded-full bg-[#00a884]/10 px-3 py-1 text-xs font-semibold text-[#00a884]">Precios</span>
             <h2 className="mt-4 text-2xl font-bold sm:text-3xl">Simple, como todo deberia ser</h2>
+            <p className="mt-3 text-sm text-gray-400">
+              Todos los planes incluyen <strong className="text-white">1 bot / numero de WhatsApp</strong> por defecto
+            </p>
           </div>
 
-          <div className="mx-auto mt-14 grid max-w-lg gap-6 sm:grid-cols-2">
-            <div className="group relative overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] p-8 transition-all duration-300 hover:border-white/10 hover:shadow-xl hover:shadow-black/20">
-              <p className="text-sm font-semibold text-gray-400">Para probar</p>
+          <div className="mx-auto mt-14 grid max-w-4xl gap-6 lg:grid-cols-3">
+            {/* Starter */}
+            <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] p-6 transition-all duration-300 hover:border-[#53bdeb]/30 hover:shadow-xl hover:shadow-black/20">
+              <p className="text-sm font-semibold text-[#53bdeb]">Starter</p>
+              <p className="text-[10px] text-gray-500">Comercio / Atencion Basica</p>
               <div className="mt-4 flex items-baseline gap-1">
-                <span className="text-4xl font-bold">$0</span>
-                <span className="text-sm text-gray-500">/mes</span>
+                <span className="text-4xl font-bold">$12.000</span>
+                <span className="text-sm text-gray-500">ARS/mes</span>
               </div>
-              <p className="mt-2 text-xs text-gray-500">Gratis, sin tarjeta</p>
-              <ul className="mt-6 space-y-3">
-                {["1 numero de WhatsApp", "10 respuestas automaticas", "100 mensajes por mes", "Soporte por email"].map((item) => (
-                  <li key={item} className="flex items-center gap-2 text-sm text-gray-300">
-                    <CheckIcon className="h-4 w-4 shrink-0 text-[#00a884]" />
+              <p className="mt-2 text-xs text-gray-500">1 bot / numero de WhatsApp</p>
+              <ul className="mt-6 flex-1 space-y-3">
+                {[
+                  "Respuestas automaticas por palabras clave (Keywords)",
+                  "Menu de botones interactivos (hasta 3 opciones y submenus)",
+                  "Mensaje de bienvenida y respuesta fuera de horario comercial",
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
+                    <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#53bdeb]" />
                     {item}
                   </li>
                 ))}
               </ul>
+              <p className="mt-4 rounded-lg bg-white/[0.03] px-3 py-2 text-[10px] leading-relaxed text-gray-500">
+                <span className="font-semibold text-gray-400">Ideal para:</span> Showrooms, comercios minoristas, locales gastronomicos, repartidores
+              </p>
               <a
                 href="/register"
-                className="mt-8 flex w-full items-center justify-center rounded-xl border border-white/10 py-3 text-sm font-semibold text-white transition-all hover:border-white/20 hover:bg-white/5 hover:shadow-lg hover:shadow-white/5"
+                className="mt-5 flex w-full items-center justify-center rounded-xl border border-white/10 py-3 text-sm font-semibold text-white transition-all hover:border-[#53bdeb]/30 hover:bg-white/5 hover:shadow-lg hover:shadow-white/5"
               >
-                Empezar gratis
+                Empezar con Starter
               </a>
             </div>
 
-            <div className="group relative overflow-hidden rounded-2xl border border-[#00a884]/30 bg-[#202c33] p-8 transition-all duration-300 hover:border-[#00a884]/50 hover:shadow-xl hover:shadow-[#00a884]/10">
-              {/* Glow */}
+            {/* Pro */}
+            <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-[#00a884]/30 bg-[#202c33] p-6 transition-all duration-300 hover:border-[#00a884]/50 hover:shadow-xl hover:shadow-[#00a884]/10">
               <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-[#00a884]/10 via-transparent to-transparent opacity-50" />
               <div className="absolute -top-3 right-6 rounded-full bg-gradient-to-r from-[#00a884] to-[#25d366] px-3 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg shadow-[#00a884]/30">
                 Recomendado
               </div>
-              <p className="relative text-sm font-semibold text-[#00a884]">Negocio</p>
+              <p className="relative text-sm font-semibold text-[#00a884]">Pro</p>
+              <p className="relative text-[10px] text-gray-500">Turnos &amp; Agenda</p>
               <div className="relative mt-4 flex items-baseline gap-1">
-                <span className="text-4xl font-bold">$9.990</span>
-                <span className="text-sm text-gray-500">/mes</span>
+                <span className="text-4xl font-bold">$22.000</span>
+                <span className="text-sm text-gray-500">ARS/mes</span>
               </div>
-              <p className="relative mt-2 text-xs text-gray-500">Para negocios serios</p>
-              <ul className="relative mt-6 space-y-3">
+              <p className="relative mt-2 text-xs text-gray-500">1 bot / numero de WhatsApp</p>
+              <ul className="relative mt-6 flex-1 space-y-3">
                 {[
-                  "5 numeros de WhatsApp",
-                  "Respuestas ilimitadas",
-                  "Mensajes ilimitados",
-                  "Soporte prioritario por WhatsApp",
-                  "Multiples usuarios",
-                  "Estadisticas avanzadas",
+                  "Todas las funciones del plan Starter",
+                  "Modulo de calendario y agenda con asignacion de turnos",
+                  "Confirmacion de citas en tiempo real en la base de datos (Supabase)",
+                  "Recordatorio automatico 24 hs antes por WhatsApp con botones (Confirmar / Cancelar)",
                 ].map((item) => (
-                  <li key={item} className="flex items-center gap-2 text-sm text-gray-300">
-                    <CheckIcon className="h-4 w-4 shrink-0 text-[#00a884]" />
+                  <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
+                    <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#00a884]" />
                     {item}
                   </li>
                 ))}
               </ul>
+              <p className="relative mt-4 rounded-lg bg-white/[0.03] px-3 py-2 text-[10px] leading-relaxed text-gray-500">
+                <span className="font-semibold text-gray-400">Ideal para:</span> Barberias, centros de estetica, consultorios medicos/odontologicos, canchas de padel o futbol, entrenadores personales
+              </p>
               <a
                 href="/register"
-                className="relative mt-8 flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] py-3 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition-all hover:shadow-xl hover:shadow-[#00a884]/35 hover:scale-[1.02]"
+                className="relative mt-5 flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] py-3 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition-all hover:shadow-xl hover:shadow-[#00a884]/35 hover:scale-[1.02]"
               >
-                Elegir Negocio
+                Elegir Pro
               </a>
+            </div>
+
+            {/* Community */}
+            <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] p-6 transition-all duration-300 hover:border-[#e6a44e]/30 hover:shadow-xl hover:shadow-black/20">
+              <p className="text-sm font-semibold text-[#e6a44e]">Community</p>
+              <p className="text-[10px] text-gray-500">Grupos &amp; Difusion</p>
+              <div className="mt-4 flex items-baseline gap-1">
+                <span className="text-4xl font-bold">$35.000</span>
+                <span className="text-sm text-gray-500">ARS/mes</span>
+              </div>
+              <p className="mt-2 text-xs text-gray-500">1 bot / numero de WhatsApp</p>
+              <ul className="mt-6 flex-1 space-y-3">
+                {[
+                  "Todas las funciones del plan Starter",
+                  "Bienvenida automatica en grupos etiquetando al usuario (@usuario)",
+                  "Moderacion y filtro anti-spam (eliminacion de links no autorizados)",
+                  "Programador de comunicados / notificaciones masivas a varios grupos",
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
+                    <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#e6a44e]" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-4 rounded-lg bg-white/[0.03] px-3 py-2 text-[10px] leading-relaxed text-gray-500">
+                <span className="font-semibold text-gray-400">Ideal para:</span> Profesores, academias, gimnasios, clubes, administradores de comunidades o senales
+              </p>
+              <a
+                href="/register"
+                className="mt-5 flex w-full items-center justify-center rounded-xl border border-white/10 py-3 text-sm font-semibold text-white transition-all hover:border-[#e6a44e]/30 hover:bg-white/5 hover:shadow-lg hover:shadow-white/5"
+              >
+                Elegir Community
+              </a>
+            </div>
+          </div>
+
+          {/* Add-on */}
+          <div className="mx-auto mt-6 max-w-4xl">
+            <div className="flex flex-col items-center justify-between gap-4 rounded-2xl border border-dashed border-[#e6a44e]/30 bg-[#202c33]/50 p-6 sm:flex-row">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#e6a44e]/15 text-[#e6a44e]">
+                  <PlusIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">Bot / Instancia extra (Add-on)</p>
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    Conecta un numero adicional cuando necesites separar canales (ej. Ventas y Soporte, o distintas sucursales)
+                  </p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-baseline gap-1">
+                <span className="text-2xl font-bold text-[#e6a44e]">+$6.000</span>
+                <span className="text-sm text-gray-500">ARS/mes por bot</span>
+              </div>
             </div>
           </div>
         </div>
