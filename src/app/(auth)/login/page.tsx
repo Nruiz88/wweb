@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { LoaderIcon } from "@/components/icons";
 import { Logo } from "@/components/logo";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/dashboard";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -29,8 +31,8 @@ export default function LoginPage() {
       return;
     }
 
-    // Navigate to dashboard; middleware refreshes the session cookies
-    router.replace("/dashboard");
+    // Navigate to intended page; middleware refreshes the session cookies
+    router.replace(next);
   }
 
   return (

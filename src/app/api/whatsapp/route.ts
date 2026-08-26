@@ -183,7 +183,7 @@ export async function GET(request: Request) {
 
 // POST: Connect instance (get QR)
 export async function POST(request: Request) {
-  const rateLimitErr = rateLimitResponse(request, "whatsapp-connect", {
+  const rateLimitErr = await rateLimitResponse(request, "whatsapp-connect", {
     maxRequests: 20,
     windowMs: 60_000,
   });
@@ -264,7 +264,7 @@ export async function POST(request: Request) {
 
 // DELETE: Logout instance
 export async function DELETE(request: Request) {
-  const rateLimitErr = rateLimitResponse(request, "whatsapp-logout", {
+  const rateLimitErr = await rateLimitResponse(request, "whatsapp-logout", {
     maxRequests: 20,
     windowMs: 60_000,
   });

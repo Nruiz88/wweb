@@ -1,3 +1,45 @@
+export type PlanType = "starter" | "pro" | "community";
+export type SubscriptionStatus = "active" | "past_due" | "canceled";
+export type InstanceStatus = "open" | "close" | "connecting" | "qrcode";
+
+export interface Subscription {
+  id: string;
+  user_id: string;
+  plan_type: PlanType;
+  status: SubscriptionStatus;
+  max_instances: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InstanceAddon {
+  id: string;
+  user_id: string;
+  quantity: number;
+  status: "active" | "canceled";
+  created_at: string;
+  updated_at: string;
+}
+
+export type PlanFeature =
+  | "keywords"
+  | "menus"
+  | "calendar"
+  | "appointments"
+  | "reminders"
+  | "group_moderation"
+  | "broadcasts";
+
+export const PLAN_FEATURES: Record<PlanType, PlanFeature[]> = {
+  starter: ["keywords", "menus"],
+  pro: ["keywords", "menus", "calendar", "appointments", "reminders"],
+  community: ["keywords", "menus", "group_moderation", "broadcasts"],
+};
+
+export function hasPlanFeature(plan: PlanType, feature: PlanFeature): boolean {
+  return PLAN_FEATURES[plan].includes(feature);
+}
+
 export interface Profile {
   id: string;
   email: string | null;
@@ -15,7 +57,7 @@ export interface Instance {
   instance_name: string;
   evolution_api_url: string;
   evolution_api_key: string;
-  status: "open" | "close" | "connecting" | "qrcode";
+  status: InstanceStatus;
   created_at: string;
 }
 
@@ -23,7 +65,7 @@ export interface Instance {
 export interface InstancePublic {
   id: string;
   instance_name: string;
-  status: "open" | "close" | "connecting" | "qrcode";
+  status: InstanceStatus;
   created_at: string;
 }
 

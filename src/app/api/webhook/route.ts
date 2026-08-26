@@ -81,18 +81,26 @@ function matchRegex(messageText: string, pattern: string): boolean {
 
 export async function POST(request: Request) {
   // Rate limit: 100 requests per minute per IP
-  const rateLimitErr = rateLimitResponse(request, "webhook", { maxRequests: 100, windowMs: 60_000 });
+  const rateLimitErr = await rateLimitResponse(request, "webhook", { maxRequests: 100, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
+  // Read the raw body ONCE (needed for both HMAC verification and JSON parse)
+  let rawBody: string;
+  try {
+    rawBody = await request.text();
+  } catch {
+    return NextResponse.json({ status: "error", error: "Invalid body" }, { status: 400 });
+  }
+
   // Verify webhook signature
-  if (!verifyWebhookSignature(request)) {
+  if (!(await verifyWebhookSignature(request, rawBody))) {
     return NextResponse.json({ status: "error", error: "Invalid signature" }, { status: 401 });
   }
 
   let body: WebhookPayload;
 
   try {
-    body = await request.json();
+    body = JSON.parse(rawBody) as WebhookPayload;
   } catch {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }

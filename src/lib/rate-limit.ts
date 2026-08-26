@@ -1,14 +1,29 @@
-// In-memory rate limiter for API routes
-// Reseta automáticamente cuando se llena (sliding window)
+// Rate limiter distribuido para API routes.
+// Usa Upstash Redis (escala en serverless) con fallback en memoria
+// si no hay credenciales configuradas (dev local).
+
+import { Redis } from "@upstash/redis";
 
 interface RateLimitEntry {
   count: number;
   resetAt: number;
 }
 
+const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL || "";
+const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
+
+let redis: Redis | null = null;
+if (UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN) {
+  redis = new Redis({
+    url: UPSTASH_REDIS_REST_URL,
+    token: UPSTASH_REDIS_REST_TOKEN,
+  });
+}
+
+// Fallback en memoria (solo dev / sin Upstash)
 const store = new Map<string, RateLimitEntry>();
 
-// Cleanup old entries every 5 minutes
+// Cleanup old entries every 5 minutes (fallback only)
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of store) {
@@ -31,26 +46,41 @@ export interface RateLimitResult {
 
 /**
  * Check rate limit for a given key (usually IP + route)
- * 
- * @example
- * const limit = checkRateLimit(request, { maxRequests: 30, windowMs: 60_000 });
- * if (!limit.allowed) {
- *   return NextResponse.json({ error: "Too many requests" }, { status: 429 });
- * }
+ * Uses Upstash Redis when configured, otherwise in-memory fallback.
  */
-export function checkRateLimit(
+export async function checkRateLimit(
   identifier: string,
   config: RateLimitConfig
-): RateLimitResult {
+): Promise<RateLimitResult> {
   const { maxRequests, windowMs = 60_000 } = config;
   const now = Date.now();
-  const key = identifier;
 
-  const existing = store.get(key);
+  if (redis) {
+    const key = `rl:${identifier}`;
+    const ttlSeconds = Math.ceil(windowMs / 1000);
+
+    const [count, ttl] = await Promise.all([
+      redis.incr(key),
+      redis.ttl(key).then((v) => v ?? -1),
+    ]);
+
+    // Primer request de la ventana: setear expiracion
+    if (count === 1 || ttl === -1) {
+      await redis.expire(key, ttlSeconds);
+    }
+
+    const resetAt = now + windowMs;
+    if (count > maxRequests) {
+      return { allowed: false, remaining: 0, resetAt };
+    }
+    return { allowed: true, remaining: Math.max(0, maxRequests - count), resetAt };
+  }
+
+  // Fallback en memoria
+  const existing = store.get(identifier);
 
   if (!existing || now > existing.resetAt) {
-    // New window
-    store.set(key, { count: 1, resetAt: now + windowMs });
+    store.set(identifier, { count: 1, resetAt: now + windowMs });
     return { allowed: true, remaining: maxRequests - 1, resetAt: now + windowMs };
   }
 
@@ -68,7 +98,7 @@ export function checkRateLimit(
 export function getClientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim();
-  
+
   const realIp = request.headers.get("x-real-ip");
   if (realIp) return realIp;
 
@@ -79,13 +109,13 @@ export function getClientIp(request: Request): string {
  * Apply rate limit to a request and return error response if exceeded
  * Returns null if allowed
  */
-export function rateLimitResponse(
+export async function rateLimitResponse(
   request: Request,
   route: string,
   config: RateLimitConfig
-): Response | null {
+): Promise<Response | null> {
   const ip = getClientIp(request);
-  const result = checkRateLimit(`${ip}:${route}`, config);
+  const result = await checkRateLimit(`${ip}:${route}`, config);
 
   if (!result.allowed) {
     return new Response(

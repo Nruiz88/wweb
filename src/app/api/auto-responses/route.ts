@@ -67,7 +67,7 @@ export async function GET(request: Request) {
 
 // POST: Create new auto-response
 export async function POST(request: Request) {
-  const rateLimitErr = rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
+  const rateLimitErr = await rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
   const user = await getCurrentUser();
@@ -156,7 +156,7 @@ export async function POST(request: Request) {
 
 // PUT: Update auto-response
 export async function PUT(request: Request) {
-  const rateLimitErr = rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
+  const rateLimitErr = await rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
   const user = await getCurrentUser();
@@ -228,7 +228,7 @@ export async function PUT(request: Request) {
 
 // DELETE: Delete auto-response
 export async function DELETE(request: Request) {
-  const rateLimitErr = rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
+  const rateLimitErr = await rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
   const user = await getCurrentUser();
