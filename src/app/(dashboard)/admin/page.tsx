@@ -28,6 +28,16 @@ interface Stats {
   recentUsers7d: number;
 }
 
+interface InstanceCapacity {
+  id: string;
+  instance_name: string;
+  status: string;
+  user_count: number;
+  max_users: number;
+  remaining: number;
+  users: { id: string; email: string; full_name: string | null }[];
+}
+
 // Stat card with gradient accent
 function StatCard({
   icon,
@@ -69,6 +79,7 @@ function StatCard({
 export default function AdminPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [capacities, setCapacities] = useState<InstanceCapacity[]>([]);
   const [assignments, setAssignments] = useState<AssignmentWithUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [selectedInstance, setSelectedInstance] = useState<string>("");
@@ -79,15 +90,17 @@ export default function AdminPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, instRes, statsRes] = await Promise.all([
+      const [usersRes, instRes, statsRes, capRes] = await Promise.all([
         fetch("/api/admin/users"),
         fetch("/api/instances"),
         fetch("/api/admin/stats"),
+        fetch("/api/admin/instances-with-users"),
       ]);
 
       const usersPayload = await usersRes.json();
       const instPayload = await instRes.json();
       const statsPayload = await statsRes.json();
+      const capPayload = await capRes.json();
 
       if (usersPayload.status === "success") setUsers(usersPayload.data);
       if (instPayload.status === "success") {
@@ -97,6 +110,7 @@ export default function AdminPage() {
         }
       }
       if (statsPayload.status === "success") setStats(statsPayload.data);
+      if (capPayload.status === "success") setCapacities(capPayload.data);
     } catch {
       setFeedback({ kind: "error", message: "Error cargando datos" });
     }
@@ -236,6 +250,78 @@ export default function AdminPage() {
                   accent="#00a884"
                   sub={stats.recentLogs24h > 0 ? `+${stats.recentLogs24h} en 24h` : undefined}
                 />
+              </div>
+            )}
+
+            {/* Instances & capacity */}
+            {capacities.length > 0 && (
+              <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-wa-text">Instancias y cupos</h3>
+                  <span className="text-[10px] text-wa-text-secondary/50">máximo 10 usuarios por instancia</span>
+                </div>
+
+                <div className="mt-3 space-y-3">
+                  {capacities.map((cap) => {
+                    const pct = Math.min(100, (cap.user_count / cap.max_users) * 100);
+                    const full = cap.remaining === 0;
+                    return (
+                      <div
+                        key={cap.id}
+                        className="rounded-xl border border-wa-border/50 bg-wa-panel/50 p-4 transition hover:border-wa-border"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#00a884]/10 text-[#00a884]">
+                              <MessageCircleIcon className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-wa-text">{cap.instance_name}</p>
+                              <p className="text-[10px] text-wa-text-secondary/50">
+                                {cap.status === "open" ? "Conectada" : "Desconectada"}
+                              </p>
+                            </div>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                              full
+                                ? "bg-red-500/10 text-red-400"
+                                : "bg-[#00a884]/10 text-[#00a884]"
+                            }`}
+                          >
+                            {full ? "Llena" : `${cap.remaining} cupos libres`}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-wa-text-secondary/10">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${pct}%`, backgroundColor: full ? "#ef4444" : "#00a884" }}
+                          />
+                        </div>
+                        <p className="mt-1 text-[10px] text-wa-text-secondary/60">
+                          {cap.user_count}/{cap.max_users} usuarios asignados
+                        </p>
+
+                        {cap.users.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            {cap.users.map((u) => (
+                              <span
+                                key={u.id}
+                                title={u.full_name || undefined}
+                                className="rounded-full border border-wa-border bg-wa-header px-2.5 py-1 text-[10px] text-wa-text-secondary"
+                              >
+                                {u.email}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-[10px] text-wa-text-secondary/40">Sin usuarios asignados</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
