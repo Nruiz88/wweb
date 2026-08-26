@@ -121,7 +121,7 @@ export async function POST(request: Request) {
   // Find the instance
   const { data: instance } = await supabase
     .from("instances")
-    .select("id, evolution_api_url, evolution_api_key")
+    .select("id, instance_name, evolution_api_url, evolution_api_key")
     .eq("instance_name", instanceName)
     .single();
 
@@ -173,6 +173,7 @@ export async function POST(request: Request) {
   const sendResult = await sendTextMessage(
     instance.evolution_api_url,
     instance.evolution_api_key,
+    instance.instance_name,
     phoneNumber,
     matched.response_text,
     1500 // 1.5s delay to seem natural

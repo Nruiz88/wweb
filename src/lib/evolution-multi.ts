@@ -182,6 +182,7 @@ export interface SendTextResult {
 export async function sendTextMessage(
   baseUrl: string,
   apiKey: string,
+  instanceName: string,
   number: string,
   text: string,
   delay?: number
@@ -194,7 +195,7 @@ export async function sendTextMessage(
   return evolutionRequest<SendTextResult>(
     baseUrl,
     apiKey,
-    `/message/sendText/${number}`,
+    `/message/sendText/${instanceName}`,
     {
       method: "POST",
       body: JSON.stringify(payload),
