@@ -147,6 +147,19 @@ export async function restartInstance(
   );
 }
 
+export async function createInstance(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string
+): Promise<EvolutionResult<unknown>> {
+  return evolutionRequest<unknown>(
+    baseUrl,
+    apiKey,
+    `/instance/create/${instanceName}`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+}
+
 export async function setWebhook(
   baseUrl: string,
   apiKey: string,

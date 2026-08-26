@@ -3,6 +3,7 @@ import { createServerClient } from "@/lib/supabase/server";
 import { supabaseConfig } from "@/lib/supabase/config";
 import {
   connectInstance,
+  createInstance,
   getConnectionState,
   logoutInstance,
 } from "@/lib/evolution-multi";
@@ -13,6 +14,16 @@ export const dynamic = "force-dynamic";
 // Cachear el QR evita invalidarlo con cada polling del panel.
 const qrCache = new Map<string, { base64: string; at: number }>();
 const QR_TTL_MS = 20000;
+
+// Evolution requiere que la instancia exista antes de conectar.
+// En instancias auto-creadas (overflow), la registramos en Evolution si falta.
+async function ensureInstanceExists(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string
+) {
+  await createInstance(baseUrl, apiKey, instanceName);
+}
 
 function cacheKey(baseUrl: string, instanceName: string): string {
   return `${baseUrl}|${instanceName}`;
@@ -101,6 +112,12 @@ export async function GET() {
     if (cached && Date.now() - cached.at < QR_TTL_MS) {
       qrCode = cached.base64;
     } else {
+      await ensureInstanceExists(
+        instance.evolution_api_url,
+        instance.evolution_api_key,
+        instance.instance_name
+      );
+
       const qrResult = await connectInstance(
         instance.evolution_api_url,
         instance.evolution_api_key,
@@ -156,6 +173,12 @@ export async function POST() {
       { status: 404 }
     );
   }
+
+  await ensureInstanceExists(
+    instance.evolution_api_url,
+    instance.evolution_api_key,
+    instance.instance_name
+  );
 
   const result = await connectInstance(
     instance.evolution_api_url,
