@@ -9,6 +9,15 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// Evolution regenera el QR en cada /instance/connect.
+// Cachear el QR evita invalidarlo con cada polling del panel.
+const qrCache = new Map<string, { base64: string; at: number }>();
+const QR_TTL_MS = 20000;
+
+function cacheKey(baseUrl: string, instanceName: string): string {
+  return `${baseUrl}|${instanceName}`;
+}
+
 async function getAuthUser() {
   const { createServerClient: createSSRClient } = await import("@supabase/ssr");
   const { cookies } = await import("next/headers");
@@ -86,16 +95,26 @@ export async function GET(request: Request) {
   // If state is qrcode or close, try to connect and get QR
   let qrCode: string | null = null;
   if (currentState === "close" || currentState === "qrcode" || currentState === "connecting") {
-    const qrResult = await connectInstance(
-      instance.evolution_api_url,
-      instance.evolution_api_key,
-      instance.instance_name
-    );
+    const key = cacheKey(instance.evolution_api_url, instance.instance_name);
+    const cached = qrCache.get(key);
 
-    if (qrResult.ok && qrResult.data) {
-      qrCode = qrResult.data.base64 || qrResult.data.b64 || null;
-      if (qrCode && !qrCode.startsWith("data:")) {
-        qrCode = `data:image/png;base64,${qrCode}`;
+    if (cached && Date.now() - cached.at < QR_TTL_MS) {
+      qrCode = cached.base64;
+    } else {
+      const qrResult = await connectInstance(
+        instance.evolution_api_url,
+        instance.evolution_api_key,
+        instance.instance_name
+      );
+
+      if (qrResult.ok && qrResult.data) {
+        qrCode = qrResult.data.base64 || qrResult.data.b64 || null;
+        if (qrCode && !qrCode.startsWith("data:")) {
+          qrCode = `data:image/png;base64,${qrCode}`;
+        }
+        if (qrCode) {
+          qrCache.set(key, { base64: qrCode, at: Date.now() });
+        }
       }
     }
   }
@@ -162,6 +181,13 @@ export async function POST(request: Request) {
     qrCode = `data:image/png;base64,${qrCode}`;
   }
 
+  if (qrCode) {
+    qrCache.set(
+      cacheKey(instance.evolution_api_url, instance.instance_name),
+      { base64: qrCode, at: Date.now() }
+    );
+  }
+
   return NextResponse.json({
     status: "success",
     data: { qrCode },
@@ -213,6 +239,8 @@ export async function DELETE() {
     .from("instances")
     .update({ status: "close" })
     .eq("id", instance.id);
+
+  qrCache.delete(cacheKey(instance.evolution_api_url, instance.instance_name));
 
   return NextResponse.json({ status: "success" });
 }

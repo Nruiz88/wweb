@@ -29,6 +29,9 @@ export default function AutoResponsesPage() {
   const [keyword, setKeyword] = useState("");
   const [responseText, setResponseText] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleFrom, setScheduleFrom] = useState("09:00");
+  const [scheduleTo, setScheduleTo] = useState("18:00");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
@@ -70,6 +73,9 @@ export default function AutoResponsesPage() {
     setKeyword("");
     setResponseText("");
     setIsActive(true);
+    setScheduleEnabled(false);
+    setScheduleFrom("09:00");
+    setScheduleTo("18:00");
     setEditingResponse(null);
     setShowForm(true);
   }
@@ -79,6 +85,9 @@ export default function AutoResponsesPage() {
     setKeyword(r.keyword || "");
     setResponseText(r.response_text);
     setIsActive(r.is_active);
+    setScheduleEnabled(Boolean(r.schedule?.from && r.schedule?.to));
+    setScheduleFrom(r.schedule?.from || "09:00");
+    setScheduleTo(r.schedule?.to || "18:00");
     setShowForm(true);
   }
 
@@ -88,10 +97,14 @@ export default function AutoResponsesPage() {
     setFeedback(null);
 
     try {
+      const schedule = scheduleEnabled && scheduleFrom && scheduleTo
+        ? { from: scheduleFrom, to: scheduleTo }
+        : null;
+
       const method = editingResponse ? "PUT" : "POST";
       const body = editingResponse
-        ? { id: editingResponse.id, keyword, responseText, isActive }
-        : { instanceId, keyword, responseText, isActive };
+        ? { id: editingResponse.id, keyword, responseText, isActive, schedule }
+        : { instanceId, keyword, responseText, isActive, schedule };
 
       const res = await fetch("/api/auto-responses", {
         method,
@@ -245,6 +258,11 @@ export default function AutoResponsesPage() {
                     <span className="text-[10px] text-wa-text-secondary/60">
                       {r.is_active ? "Activa" : "Pausada"}
                     </span>
+                    {r.schedule?.from && r.schedule?.to && (
+                      <span className="rounded-full bg-[#e6a44e]/15 px-2 py-0.5 text-[10px] font-medium text-[#e6a44e]">
+                        Horario {r.schedule.from}-{r.schedule.to}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -338,6 +356,47 @@ export default function AutoResponsesPage() {
                   onChange={(e) => setResponseText(e.target.value)}
                   className="resize-none rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
                 />
+              </div>
+
+              {/* Schedule */}
+              <div className="flex flex-col gap-2 rounded-xl border border-wa-border bg-wa-input px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-wa-text">Horario de activacion</span>
+                  <button
+                    type="button"
+                    onClick={() => setScheduleEnabled(!scheduleEnabled)}
+                    className={`relative h-6 w-11 rounded-full transition-colors ${scheduleEnabled ? "bg-[#00a884]" : "bg-wa-text-secondary/30"}`}
+                  >
+                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${scheduleEnabled ? "translate-x-5" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+
+                {scheduleEnabled && (
+                  <div className="fade-up flex items-center gap-3">
+                    <label className="flex flex-1 flex-col gap-1">
+                      <span className="text-[10px] text-wa-text-secondary/60">Desde</span>
+                      <input
+                        type="time"
+                        value={scheduleFrom}
+                        onChange={(e) => setScheduleFrom(e.target.value)}
+                        className="rounded-lg border border-wa-border bg-wa-panel px-3 py-2 text-sm text-wa-text focus:border-[#00a884] focus:outline-none"
+                      />
+                    </label>
+                    <span className="mt-4 text-wa-text-secondary/50">a</span>
+                    <label className="flex flex-1 flex-col gap-1">
+                      <span className="text-[10px] text-wa-text-secondary/60">Hasta</span>
+                      <input
+                        type="time"
+                        value={scheduleTo}
+                        onChange={(e) => setScheduleTo(e.target.value)}
+                        className="rounded-lg border border-wa-border bg-wa-panel px-3 py-2 text-sm text-wa-text focus:border-[#00a884] focus:outline-none"
+                      />
+                    </label>
+                  </div>
+                )}
+                <p className="text-[10px] text-wa-text-secondary/50">
+                  Si lo activas, la regla solo respondera dentro de esa franja horaria
+                </p>
               </div>
 
               {/* Active toggle */}
