@@ -357,8 +357,8 @@ export default function AutoResponsesPage() {
                         r.is_active ? "bg-[#00a884]" : "bg-wa-text-secondary/30"
                       }`}
                     >
-                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                        r.is_active ? "translate-x-5" : "translate-x-0.5"
+                      <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                        r.is_active ? "translate-x-[22px]" : "translate-x-0.5"
                       }`} />
                     </button>
                   </div>
@@ -485,7 +485,7 @@ export default function AutoResponsesPage() {
                     onClick={() => setScheduleEnabled(!scheduleEnabled)}
                     className={`relative h-6 w-11 rounded-full transition-colors ${scheduleEnabled ? "bg-[#00a884]" : "bg-wa-text-secondary/30"}`}
                   >
-                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${scheduleEnabled ? "translate-x-5" : "translate-x-0.5"}`} />
+                    <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${scheduleEnabled ? "translate-x-[22px]" : "translate-x-0.5"}`} />
                   </button>
                 </div>
 
@@ -525,7 +525,7 @@ export default function AutoResponsesPage() {
                   onClick={() => setIsActive(!isActive)}
                   className={`relative h-6 w-11 rounded-full transition-colors ${isActive ? "bg-[#00a884]" : "bg-wa-text-secondary/30"}`}
                 >
-                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${isActive ? "translate-x-5" : "translate-x-0.5"}`} />
+                  <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${isActive ? "translate-x-[22px]" : "translate-x-0.5"}`} />
                 </button>
               </div>
 
