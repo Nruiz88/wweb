@@ -72,13 +72,19 @@ export default function DashboardPage() {
     }
   }, []);
 
-  useEffect(() => { void loadStatus(); }, [loadStatus]);
+  useEffect(() => {
+    const t = setTimeout(() => void loadStatus(), 0);
+    return () => clearTimeout(t);
+  }, [loadStatus]);
 
   useEffect(() => {
-    const done = localStorage.getItem("onboarding_done");
-    if (!done && status.hasInstance && !status.loading) {
-      setShowWizard(true);
-    }
+    const t = setTimeout(() => {
+      const done = localStorage.getItem("onboarding_done");
+      if (!done && status.hasInstance && !status.loading) {
+        setShowWizard(true);
+      }
+    }, 0);
+    return () => clearTimeout(t);
   }, [status.hasInstance, status.loading]);
 
   function handleWizardComplete() {

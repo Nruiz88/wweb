@@ -6,7 +6,6 @@ import {
   CheckIcon,
   LoaderIcon,
   PlusIcon,
-  TrashIcon,
   XIcon,
   ZapIcon,
 } from "@/components/icons";
@@ -59,7 +58,8 @@ export default function AutoResponsesPage() {
   }, []);
 
   useEffect(() => {
-    void loadData();
+    const t = setTimeout(() => void loadData(), 0);
+    return () => clearTimeout(t);
   }, [loadData]);
 
   useEffect(() => {

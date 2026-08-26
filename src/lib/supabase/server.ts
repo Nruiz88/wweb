@@ -12,7 +12,7 @@ export async function createServerClient() {
 }
 
 // For getting the current user from cookies
-export async function getCurrentUser(requestCookies?: string) {
+export async function getCurrentUser() {
   const { createServerClient: createSSRClient } = await import("@supabase/ssr");
   const cookieStore = await import("next/headers").then((m) => m.cookies());
 

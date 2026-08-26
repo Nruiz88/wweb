@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import {
   MessageCircleIcon,
   LoaderIcon,
@@ -74,8 +75,11 @@ export default function WhatsAppPage() {
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    loadStatus().finally(() => setLoading(false));
+    const t = setTimeout(async () => {
+      await loadStatus();
+      setLoading(false);
+    }, 0);
+    return () => clearTimeout(t);
   }, [loadStatus]);
 
   useEffect(() => {
@@ -218,9 +222,12 @@ export default function WhatsAppPage() {
                   </p>
 
                   <div className="mx-auto w-56 overflow-hidden rounded-xl bg-white p-2 shadow-lg shadow-black/20">
-                    <img
+                    <Image
                       src={instance.qrCode}
                       alt="Codigo QR para conectar WhatsApp"
+                      width={208}
+                      height={208}
+                      unoptimized
                       className="h-auto w-full"
                     />
                   </div>

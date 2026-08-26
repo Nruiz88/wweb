@@ -57,7 +57,7 @@ async function checkEvolutionApi(): Promise<CheckResult> {
 
   const start = Date.now();
   try {
-    const res = await fetch(`${evolutionUrl}/`, {
+    await fetch(`${evolutionUrl}/`, {
       method: "GET",
       signal: AbortSignal.timeout(5000),
     });

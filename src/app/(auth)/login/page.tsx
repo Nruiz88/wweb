@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { LoaderIcon, ShieldIcon } from "@/components/icons";
+import { LoaderIcon } from "@/components/icons";
 import { Logo } from "@/components/logo";
 
 export default function LoginPage() {
@@ -29,8 +29,8 @@ export default function LoginPage() {
       return;
     }
 
-    // Full reload to ensure middleware picks up the new session cookies
-    window.location.href = "/dashboard";
+    // Navigate to dashboard; middleware refreshes the session cookies
+    router.replace("/dashboard");
   }
 
   return (

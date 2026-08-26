@@ -112,8 +112,14 @@ export default function AdminPage() {
     } catch { /* silently fail */ }
   }, [selectedInstance]);
 
-  useEffect(() => { void loadData(); }, [loadData]);
-  useEffect(() => { void loadAssignments(); }, [loadAssignments]);
+  useEffect(() => {
+    const t = setTimeout(() => void loadData(), 0);
+    return () => clearTimeout(t);
+  }, [loadData]);
+  useEffect(() => {
+    const t = setTimeout(() => void loadAssignments(), 0);
+    return () => clearTimeout(t);
+  }, [loadAssignments]);
   useEffect(() => {
     if (feedback) {
       const t = setTimeout(() => setFeedback(null), 3000);

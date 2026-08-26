@@ -85,7 +85,10 @@ export default function SettingsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(() => {
+    const t = setTimeout(() => void loadData(), 0);
+    return () => clearTimeout(t);
+  }, [loadData]);
   useEffect(() => {
     if (feedback) {
       const t = setTimeout(() => setFeedback(null), 3000);

@@ -41,7 +41,7 @@ async function getAuthUser() {
 }
 
 // GET: Get instance status + QR code
-export async function GET(request: Request) {
+export async function GET() {
   const user = await getAuthUser();
   if (!user) {
     return NextResponse.json(
@@ -131,7 +131,7 @@ export async function GET(request: Request) {
 }
 
 // POST: Connect instance (get QR)
-export async function POST(request: Request) {
+export async function POST() {
   const user = await getAuthUser();
   if (!user) {
     return NextResponse.json(

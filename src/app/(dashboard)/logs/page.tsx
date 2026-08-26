@@ -93,8 +93,14 @@ export default function LogsPage() {
     setLoading(false);
   }, [selectedInstance]);
 
-  useEffect(() => { void loadInstances(); }, [loadInstances]);
-  useEffect(() => { void loadLogs(); }, [loadLogs]);
+  useEffect(() => {
+    const t = setTimeout(() => void loadInstances(), 0);
+    return () => clearTimeout(t);
+  }, [loadInstances]);
+  useEffect(() => {
+    const t = setTimeout(() => void loadLogs(), 0);
+    return () => clearTimeout(t);
+  }, [loadLogs]);
 
   return (
     <div className="flex h-full flex-col bg-wa-panel">

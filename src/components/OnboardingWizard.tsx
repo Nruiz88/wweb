@@ -67,24 +67,31 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   }, []);
 
   useEffect(() => {
-    void checkStatus();
+    const t = setTimeout(() => void checkStatus(), 0);
     const interval = setInterval(() => void checkStatus(), 4000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(t);
+      clearInterval(interval);
+    };
   }, [checkStatus]);
 
   // Auto-advance when step is completed
   useEffect(() => {
     if (!status) return;
 
-    if (step === 0 && status.whatsappConnected) {
-      // Step 1 done, advance to step 2
-      saveStep(1);
-      setStep(1);
-    } else if (step === 1 && status.autoResponses > 0) {
-      // Step 2 done, advance to step 3 (done screen)
-      saveStep(2);
-      setStep(2);
-    }
+    const t = setTimeout(() => {
+      if (step === 0 && status.whatsappConnected) {
+        // Step 1 done, advance to step 2
+        saveStep(1);
+        setStep(1);
+      } else if (step === 1 && status.autoResponses > 0) {
+        // Step 2 done, advance to step 3 (done screen)
+        saveStep(2);
+        setStep(2);
+      }
+    }, 0);
+
+    return () => clearTimeout(t);
   }, [status, step]);
 
   const steps = [

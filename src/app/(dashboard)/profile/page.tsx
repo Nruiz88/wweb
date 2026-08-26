@@ -77,7 +77,10 @@ export default function ProfilePage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { void loadProfile(); }, [loadProfile]);
+  useEffect(() => {
+    const t = setTimeout(() => void loadProfile(), 0);
+    return () => clearTimeout(t);
+  }, [loadProfile]);
   useEffect(() => {
     if (feedback) {
       const t = setTimeout(() => setFeedback(null), 3000);

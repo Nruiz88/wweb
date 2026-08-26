@@ -5,7 +5,7 @@ import { supabaseConfig } from "@/lib/supabase/config";
 export const dynamic = "force-dynamic";
 
 // GET: List instances
-export async function GET(request: Request) {
+export async function GET() {
   // Use SSR client to read session from request cookies
   const { createServerClient: createSSRClient } = await import("@supabase/ssr");
   const { cookies } = await import("next/headers");
