@@ -40,18 +40,26 @@ export async function proxy(request: NextRequest) {
   // Public routes that don't require auth
   const publicRoutes = ["/login", "/register"];
   const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
+  const isLandingPage = pathname === "/";
 
-  // Redirect unauthenticated users to login
-  if (!user && !isPublicRoute) {
+  // Redirect unauthenticated users to login (but not landing page)
+  if (!user && !isPublicRoute && !isLandingPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users away from auth pages
+  // Redirect authenticated users away from auth pages to dashboard
   if (user && isPublicRoute) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  // Redirect authenticated users from landing page to dashboard
+  if (user && isLandingPage) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 

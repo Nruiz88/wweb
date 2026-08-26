@@ -29,7 +29,7 @@ export default function LoginPage() {
     }
 
     // Full reload to ensure middleware picks up the new session cookies
-    window.location.href = "/";
+    window.location.href = "/dashboard";
   }
 
   return (

@@ -326,3 +326,12 @@ export function TrashIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function ArrowRightIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </svg>
+  );
+}

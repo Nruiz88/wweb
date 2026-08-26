@@ -15,7 +15,7 @@ import {
 } from "@/components/icons";
 
 const USER_NAV = [
-  { href: "/", label: "Inicio", icon: HomeIcon },
+  { href: "/dashboard", label: "Inicio", icon: HomeIcon },
   { href: "/whatsapp", label: "Mi WhatsApp", icon: MessageCircleIcon },
   { href: "/auto-responses", label: "Auto-Respuestas", icon: ZapIcon },
   { href: "/logs", label: "Actividad", icon: ClockIcon },
@@ -23,7 +23,7 @@ const USER_NAV = [
 ];
 
 const ADMIN_NAV = [
-  { href: "/", label: "Inicio", icon: HomeIcon },
+  { href: "/dashboard", label: "Inicio", icon: HomeIcon },
   { href: "/whatsapp", label: "Mi WhatsApp", icon: MessageCircleIcon },
   { href: "/auto-responses", label: "Auto-Respuestas", icon: ZapIcon },
   { href: "/logs", label: "Actividad", icon: ClockIcon },
@@ -84,7 +84,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <header className="hidden border-b border-wa-border bg-wa-panel lg:flex">
         <div className="flex w-full items-center px-4 xl:px-6">
           {/* Logo */}
-          <a href="/" className="flex items-center gap-2.5 py-3 pr-6 border-r border-wa-border mr-4">
+          <a href="/dashboard" className="flex items-center gap-2.5 py-3 pr-6 border-r border-wa-border mr-4">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#00a884]/15 text-[#00a884]">
               <MessageCircleIcon className="h-4 w-4" />
             </span>

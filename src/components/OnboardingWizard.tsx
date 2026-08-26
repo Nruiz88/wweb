@@ -128,7 +128,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
       ],
       icon: <CheckIcon className="h-8 w-8" />,
       color: "#53bdeb",
-      href: "/",
+      href: "/dashboard",
     },
   ];
 
