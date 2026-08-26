@@ -7,6 +7,7 @@ import {
   createInstance,
   getConnectionState,
   logoutInstance,
+  setWebhook,
 } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
@@ -16,14 +17,42 @@ export const dynamic = "force-dynamic";
 const qrCache = new Map<string, { base64: string; at: number }>();
 const QR_TTL_MS = 20000;
 
-// Evolution requiere que la instancia exista antes de conectar.
-// En instancias auto-creadas (overflow), la registramos en Evolution si falta.
-async function ensureInstanceExists(
+// Cada instancia = una conexion WhatsApp (RAM en Railway).
+// Al preparar una instancia la registramos en Evolution (si falta) y
+// configuramos su webhook para que las auto-respuestas funcionen.
+async function prepareInstance(
   baseUrl: string,
   apiKey: string,
-  instanceName: string
+  instanceName: string,
+  webhookUrl: string
 ) {
   await createInstance(baseUrl, apiKey, instanceName);
+
+  const secret = process.env.WEBHOOK_SECRET;
+  const result = await setWebhook(
+    baseUrl,
+    apiKey,
+    instanceName,
+    webhookUrl,
+    ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+    secret ? { "x-webhook-secret": secret } : {}
+  );
+
+  if (!result.ok && result.status === 401) {
+    // La instancia puede no soportar /webhook/set con esta clave; no es bloqueante.
+    return;
+  }
+}
+
+function buildWebhookUrl(request: Request): string {
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
+  const proto = request.headers.get("x-forwarded-proto") ?? "https";
+
+  if (host.includes("localhost") || host.startsWith("127.") || host.startsWith("192.168.")) {
+    return "";
+  }
+
+  return `${proto}://${host}/api/webhook`;
 }
 
 function cacheKey(baseUrl: string, instanceName: string): string {
@@ -53,7 +82,8 @@ async function getAuthUser() {
 }
 
 // GET: Get instance status + QR code
-export async function GET() {
+export async function GET(request: Request) {
+  const webhookUrl = buildWebhookUrl(request);
   const user = await getAuthUser();
   if (!user) {
     return NextResponse.json(
@@ -113,11 +143,14 @@ export async function GET() {
     if (cached && Date.now() - cached.at < QR_TTL_MS) {
       qrCode = cached.base64;
     } else {
-      await ensureInstanceExists(
-        instance.evolution_api_url,
-        instance.evolution_api_key,
-        instance.instance_name
-      );
+      if (webhookUrl) {
+        await prepareInstance(
+          instance.evolution_api_url,
+          instance.evolution_api_key,
+          instance.instance_name,
+          webhookUrl
+        );
+      }
 
       const qrResult = await connectInstance(
         instance.evolution_api_url,
@@ -156,6 +189,8 @@ export async function POST(request: Request) {
   });
   if (rateLimitErr) return rateLimitErr;
 
+  const webhookUrl = buildWebhookUrl(request);
+
   const user = await getAuthUser();
   if (!user) {
     return NextResponse.json(
@@ -181,11 +216,14 @@ export async function POST(request: Request) {
     );
   }
 
-  await ensureInstanceExists(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name
-  );
+  if (webhookUrl) {
+    await prepareInstance(
+      instance.evolution_api_url,
+      instance.evolution_api_key,
+      instance.instance_name,
+      webhookUrl
+    );
+  }
 
   const result = await connectInstance(
     instance.evolution_api_url,

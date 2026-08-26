@@ -165,7 +165,8 @@ export async function setWebhook(
   apiKey: string,
   instanceName: string,
   webhookUrl: string,
-  events: string[]
+  events: string[],
+  headers?: Record<string, string>
 ): Promise<EvolutionResult<unknown>> {
   return evolutionRequest<unknown>(
     baseUrl,
@@ -178,6 +179,7 @@ export async function setWebhook(
           enabled: true,
           url: webhookUrl,
           events,
+          headers: headers ?? {},
           byEvents: false,
           base64: false,
         },
