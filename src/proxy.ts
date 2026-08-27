@@ -75,7 +75,9 @@ export async function proxy(request: NextRequest) {
   }
 
   // Pages: unauthenticated user on protected paths -> login
-  if (!user && !PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+  // Landing page (/) is always public
+  const isLandingPage = pathname === "/";
+  if (!user && !isLandingPage && !PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     const redirectUrl = new URL("/login", request.url);
     redirectUrl.searchParams.set("next", pathname);
     return withSecurityHeaders(NextResponse.redirect(redirectUrl));
