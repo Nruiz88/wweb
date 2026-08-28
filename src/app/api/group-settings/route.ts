@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
+import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -20,13 +21,8 @@ export async function GET(request: Request) {
   }
 
   // Verify access
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("id")
-    .eq("id", instanceId)
-    .single();
-
-  if (!instance) {
+  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
+  if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
@@ -37,7 +33,7 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: settings });
@@ -117,7 +113,7 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: settings });
@@ -164,7 +160,7 @@ export async function DELETE(request: Request) {
 
   const { error } = await supabase.from("group_settings").delete().eq("id", id);
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success" });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin/auth";
+import { safeErrorMessage } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export async function GET() {
     .order("created_at", { ascending: false });
 
   if (profilesError) {
-    return NextResponse.json({ status: "error", error: profilesError.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(profilesError) }, { status: 500 });
   }
 
   const [subs, addons, assignments] = await Promise.all([

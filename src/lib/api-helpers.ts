@@ -1,6 +1,5 @@
 /**
- * Shared API helpers for safe error responses.
- * Usage: import { apiError } from "@/lib/api-helpers";
+ * Shared API helpers for safe error responses and instance access checks.
  */
 
 /** Log error server-side and return safe generic message */
@@ -16,7 +15,30 @@ export function safeErrorMessage(error: unknown): string {
   return "An unexpected error occurred";
 }
 
-/** Create a standardized error JSON response */
-export function apiError(message: string, status = 500) {
-  return Response.json({ status: "error", error: message }, { status });
+/**
+ * Verify a user has access to an instance (owner or assigned via user_instances).
+ * Centralized to avoid IDOR across API routes.
+ */
+export async function verifyUserAccess(
+  supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createServerClient>>,
+  userId: string,
+  instanceId: string,
+): Promise<boolean> {
+  // Owner: admin of the instance
+  const { data: adminInstance } = await supabase
+    .from("instances")
+    .select("id")
+    .eq("id", instanceId)
+    .eq("admin_id", userId)
+    .single();
+  if (adminInstance) return true;
+
+  // Assigned user via user_instances
+  const { data: assignment } = await supabase
+    .from("user_instances")
+    .select("id")
+    .eq("instance_id", instanceId)
+    .eq("user_id", userId)
+    .single();
+  return !!assignment;
 }

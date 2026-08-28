@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
-import { rateLimitResponse } from "@/lib/rate-limit";
+import { verifyUserAccess } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +17,11 @@ export async function GET(request: Request) {
 
   if (!instanceId) {
     return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
+  }
+
+  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
+  if (!hasAccess) {
+    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
   // Get groups that are discovered but NOT yet configured in group_settings
@@ -56,6 +61,22 @@ export async function DELETE(request: Request) {
 
   if (!id) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
+  }
+
+  // Verify the discovered group belongs to an instance the user can access
+  const { data: group } = await supabase
+    .from("discovered_groups")
+    .select("instance_id")
+    .eq("id", id)
+    .single();
+
+  if (!group) {
+    return NextResponse.json({ status: "error", error: "Group not found" }, { status: 404 });
+  }
+
+  const hasAccess = await verifyUserAccess(supabase, user.id, group.instance_id);
+  if (!hasAccess) {
+    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
   }
 
   const { error } = await supabase

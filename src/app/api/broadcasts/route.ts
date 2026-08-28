@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
+import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 import { sendGroupMessage } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
@@ -21,12 +22,8 @@ export async function GET(request: Request) {
   }
 
   // Verify user has access to this instance
-  const { data: inst } = await supabase
-    .from("instances")
-    .select("id")
-    .eq("id", instanceId)
-    .single();
-  if (!inst) {
+  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
+  if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
@@ -103,7 +100,7 @@ export async function POST(request: Request) {
     .single();
 
   if (broadcastError) {
-    return NextResponse.json({ status: "error", error: broadcastError.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(broadcastError) }, { status: 500 });
   }
 
   // Create recipients
@@ -230,7 +227,7 @@ export async function PATCH(request: Request) {
 
   const { error } = await supabase.from("broadcasts").update({ status }).eq("id", id);
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success" });

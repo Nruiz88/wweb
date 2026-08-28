@@ -3,6 +3,7 @@ import { createServerClient } from "@/lib/supabase/server";
 import { supabaseConfig } from "@/lib/supabase/config";
 import { getConnectionState } from "@/lib/evolution-multi";
 import { validateEvolutionUrl, sanitizeString } from "@/lib/validation";
+import { safeErrorMessage } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -109,7 +110,7 @@ export async function GET() {
       .order("created_at", { ascending: false });
 
     if (error) {
-      return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+      return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
     }
 
     const live = await withLiveStatus(supabase, instances as InstanceRow[]);
@@ -131,7 +132,7 @@ export async function GET() {
     .in("id", assignments.map((a) => a.instance_id));
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   const live = await withLiveStatus(supabase, instances as InstanceRow[]);
@@ -201,7 +202,7 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: instance });
@@ -241,7 +242,7 @@ export async function DELETE(request: Request) {
   }
 
   const { error } = await supabase.from("instances").delete().eq("id", id);
-  if (error) return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
 
   return NextResponse.json({ status: "success" });
 }

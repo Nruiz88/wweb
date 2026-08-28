@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
+import { safeErrorMessage } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -102,7 +103,7 @@ export async function PUT(request: Request) {
     .eq("id", instanceId);
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success" });

@@ -2,30 +2,9 @@ import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { isSafeRegex } from "@/lib/regex-guard";
+import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
-
-async function verifyUserAccess(supabase: Awaited<ReturnType<typeof createServerClient>>, userId: string, instanceId: string) {
-  // Check if user is admin (owns the instance)
-  const { data: adminInstance } = await supabase
-    .from("instances")
-    .select("id")
-    .eq("id", instanceId)
-    .eq("admin_id", userId)
-    .single();
-
-  if (adminInstance) return true;
-
-  // Check if user is assigned to the instance
-  const { data: assignment } = await supabase
-    .from("user_instances")
-    .select("id")
-    .eq("instance_id", instanceId)
-    .eq("user_id", userId)
-    .single();
-
-  return !!assignment;
-}
 
 // GET: List auto-responses for user's instance
 export async function GET(request: Request) {
@@ -59,7 +38,7 @@ export async function GET(request: Request) {
     .order("priority", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: responses });
@@ -172,7 +151,7 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: response });
@@ -250,7 +229,7 @@ export async function PUT(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: response });
@@ -294,7 +273,7 @@ export async function DELETE(request: Request) {
   const { error } = await supabase.from("auto_responses").delete().eq("id", id);
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success" });

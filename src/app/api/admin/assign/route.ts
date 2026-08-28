@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin/auth";
 import { rateLimitResponse } from "@/lib/rate-limit";
+import { safeErrorMessage } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
     .from("user_instances").select("id, user_id, assigned_at, profiles:user_id(id, email, full_name)")
     .eq("instance_id", instanceId);
 
-  if (error) return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   return NextResponse.json({ status: "success", data: assignments });
 }
 
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
   if (existing) return NextResponse.json({ status: "error", error: "User already assigned" }, { status: 409 });
 
   const { data: effectiveMax, error: maxError } = await supabase.rpc("get_effective_max_instances", { p_user_id: targetUser.id });
-  if (maxError) return NextResponse.json({ status: "error", error: maxError.message }, { status: 500 });
+  if (maxError) return NextResponse.json({ status: "error", error: safeErrorMessage(maxError) }, { status: 500 });
 
   const { count: currentCount } = await supabase.from("user_instances").select("id", { count: "exact", head: true }).eq("user_id", targetUser.id);
 
@@ -67,7 +68,7 @@ export async function POST(request: Request) {
   }
 
   const { data: assignment, error } = await supabase.from("user_instances").insert({ user_id: targetUser.id, instance_id: instanceId }).select().single();
-  if (error) return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
 
   return NextResponse.json({ status: "success", data: assignment });
 }
@@ -92,7 +93,7 @@ export async function DELETE(request: Request) {
   if (!inst) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
 
   const { error } = await supabase.from("user_instances").delete().eq("id", assignmentId);
-  if (error) return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
 
   return NextResponse.json({ status: "success" });
 }

@@ -55,17 +55,3 @@ export async function verifyWebhookSignature(
     return false;
   }
 }
-
-/**
- * Sign a payload with HMAC-SHA256 (for testing or outgoing webhooks)
- */
-export function signPayload(payload: string): string {
-  return createHmac("sha256", WEBHOOK_SECRET).update(payload).digest("hex");
-}
-
-/**
- * Get the configured webhook secret (for setup instructions)
- */
-export function getWebhookSecret(): string {
-  return WEBHOOK_SECRET;
-}

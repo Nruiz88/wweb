@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { sendButtonMessage } from "@/lib/evolution-multi";
 import type { ButtonItem } from "@/lib/evolution-multi";
+import { safeErrorMessage } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ async function processReminders() {
     .lte("appointment_date", dateStr30h);
 
   if (error) {
-    return { status: "error" as const, error: error.message };
+    return { status: "error" as const, error: safeErrorMessage(error) };
   }
 
   if (!appointments || appointments.length === 0) {
@@ -121,7 +122,7 @@ async function previewReminders(instanceId: string) {
     .order("appointment_time", { ascending: true });
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: appointments });

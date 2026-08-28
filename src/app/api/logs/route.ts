@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
+import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -26,14 +27,8 @@ export async function GET(request: Request) {
   }
 
   // Verify instance belongs to user
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("id")
-    .eq("id", instanceId)
-    .eq("user_id", user.id)
-    .single();
-
-  if (!instance) {
+  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
+  if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
@@ -45,7 +40,7 @@ export async function GET(request: Request) {
     .range(offset, offset + limit - 1);
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   // Get total count
