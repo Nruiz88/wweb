@@ -56,15 +56,26 @@ async function runDiscovery(
 
   // Confirmar admin + nombre real por grupo (findGroupInfos trae participants
   // y el phoneNumber del bot → detección admin correcta, incluso con LID).
-  // Concurrencia limitada para no saturar Evolution.
-  const verified = await mapLimit(groupJids, 6, async ({ jid, name }) => {
-    const info = await findGroupInfos(
+  // Concurrencia moderada + reintento único para evitar que un timeout/429
+  // transitorio deje afuera grupos que SÍ son admin (la lista era inconsistente).
+  const verified = await mapLimit(groupJids, 4, async ({ jid, name }) => {
+    let info = await findGroupInfos(
       instance.evolution_api_url,
       instance.evolution_api_key,
       instance.instance_name,
       jid,
       ownerJid ?? undefined,
     );
+    if (!info.ok) {
+      await new Promise((r) => setTimeout(r, 300));
+      info = await findGroupInfos(
+        instance.evolution_api_url,
+        instance.evolution_api_key,
+        instance.instance_name,
+        jid,
+        ownerJid ?? undefined,
+      );
+    }
     if (info.ok && info.data) {
       return { jid, name: info.data.name || name, isAdmin: info.data.isAdmin === true };
     }

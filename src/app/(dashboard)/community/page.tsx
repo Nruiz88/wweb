@@ -104,6 +104,7 @@ export default function CommunityPage() {
   const loadDiscoveredGroups = useCallback(async () => {
     if (!instanceId) return;
     setSearchingGroups(true);
+    setFeedback(null);
     try {
       const discRes = await fetch("/api/discovered-groups", {
         method: "POST",
@@ -113,9 +114,14 @@ export default function CommunityPage() {
       const discPayload = await discRes.json();
       if (discPayload.status === "success") {
         setDiscoveredGroups(discPayload.data);
+        if (discPayload.data?.length === 0) {
+          setFeedback({ kind: "error", message: "No se encontraron grupos donde el bot sea admin" });
+        }
+      } else {
+        setFeedback({ kind: "error", message: discPayload.error || "No se pudo buscar grupos" });
       }
     } catch {
-      // Non-critical
+      setFeedback({ kind: "error", message: "La búsqueda tardó demasiado. Intentá de nuevo." });
     } finally {
       setSearchingGroups(false);
     }
