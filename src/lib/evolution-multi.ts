@@ -456,6 +456,51 @@ function jidsMatch(a: string, b: string): boolean {
 }
 
 /**
+ * Fetch details for a single group (reliable `subject` name).
+ * GET /group/findGroupInfos/{instance}?groupJid=... → subject, participants.
+ * Used when fetchAllGroups omits the subject for some groups.
+ */
+export async function findGroupInfos(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string,
+  groupJid: string,
+): Promise<EvolutionResult<EvolutionGroup>> {
+  const result = await evolutionRequest<Record<string, unknown>>(
+    baseUrl,
+    apiKey,
+    `/group/findGroupInfos/${instanceName}?groupJid=${encodeURIComponent(groupJid)}`,
+  );
+  if (!result.ok) return result;
+
+  const g = result.data;
+  const id = String(g.id ?? groupJid).trim();
+  const name = String(g.name ?? g.subject ?? "").trim();
+
+  let isAdmin = false;
+  if (Array.isArray(g.participants)) {
+    const participants = g.participants as Array<Record<string, unknown>>;
+    const ownerField = String(g.owner ?? "").trim();
+    const candidate = ownerField
+      ? participants.find((p) => jidsMatch(String(p.id ?? ""), ownerField))
+      : undefined;
+    isAdmin = !!candidate && isParticipantAdmin(candidate);
+  }
+
+  return {
+    ok: true,
+    status: result.status,
+    data: {
+      id,
+      name,
+      isAdmin: isAdmin || undefined,
+      communityId: typeof g.communityId === "string" ? g.communityId : undefined,
+      isCommunity: g.isCommunity === true || undefined,
+    },
+  };
+}
+
+/**
  * Fetch all groups the bot is in for an instance.
  * Requires getParticipants=true so we can tell if the bot is admin.
  * Response shape varies across Evolution versions, so we normalize:

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
-import { fetchAllGroups, fetchInstanceOwnerJid } from "@/lib/evolution-multi";
+import { fetchAllGroups, fetchInstanceOwnerJid, findGroupInfos } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 
@@ -57,8 +57,24 @@ export async function GET(request: Request) {
   );
 
   if (result.ok) {
-    const adminGroups = result.data
-      .filter((g) => g.isAdmin === true)
+    const adminGroups = result.data.filter((g) => g.isAdmin === true);
+
+    // Resolve missing names individually (fetchAllGroups may omit subject).
+    await Promise.all(
+      adminGroups
+        .filter((g) => !g.name)
+        .map(async (g) => {
+          const info = await findGroupInfos(
+            instance.evolution_api_url,
+            instance.evolution_api_key,
+            instance.instance_name,
+            g.id,
+          );
+          if (info.ok && info.data.name) g.name = info.data.name;
+        }),
+    );
+
+    const listed = adminGroups
       .map((g) => ({
         group_jid: g.id,
         group_name: g.name || savedMap.get(g.id) || null,
@@ -66,8 +82,8 @@ export async function GET(request: Request) {
       }))
       .sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));
 
-    if (adminGroups.length > 0) {
-      return NextResponse.json({ status: "success", data: adminGroups, source: "live" });
+    if (listed.length > 0) {
+      return NextResponse.json({ status: "success", data: listed, source: "live" });
     }
   }
 

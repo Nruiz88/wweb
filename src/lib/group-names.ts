@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchAllGroups, fetchInstanceOwnerJid } from "@/lib/evolution-multi";
+import {
+  fetchAllGroups,
+  fetchInstanceOwnerJid,
+  findGroupInfos,
+} from "@/lib/evolution-multi";
 
 /** Live status of a group: real name + whether the bot is admin. */
 export interface GroupStatus {
@@ -10,7 +14,8 @@ export interface GroupStatus {
 /**
  * Fetch live group status (real name + bot admin flag) for an instance.
  * Returns an empty map on any failure so callers never block.
- * The name comes from Evolution's `subject` field (per official docs).
+ * The name comes from Evolution's `subject` field (per official docs);
+ * when fetchAllGroups omits it, we resolve it per-group with findGroupInfos.
  */
 export async function fetchGroupStatusMap(
   supabase: SupabaseClient,
@@ -23,24 +28,44 @@ export async function fetchGroupStatusMap(
     .single();
   if (!instance) return new Map();
 
+  const { instance_name, evolution_api_url, evolution_api_key } = instance;
+
   const ownerJid = await fetchInstanceOwnerJid(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name,
+    evolution_api_url,
+    evolution_api_key,
+    instance_name,
   );
 
   const result = await fetchAllGroups(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name,
+    evolution_api_url,
+    evolution_api_key,
+    instance_name,
     ownerJid ?? undefined,
   );
   if (!result.ok) return new Map();
 
   const map = new Map<string, GroupStatus>();
+  const unnamed: string[] = [];
+
   for (const g of result.data) {
     map.set(g.id, { name: g.name, isAdmin: g.isAdmin === true });
+    if (!g.name) unnamed.push(g.id);
   }
+
+  // Resolve missing names individually (fetchAllGroups sometimes omits subject).
+  await Promise.all(
+    unnamed.map(async (jid) => {
+      const info = await findGroupInfos(evolution_api_url, evolution_api_key, instance_name, jid);
+      if (info.ok && info.data.name) {
+        const prev = map.get(jid);
+        map.set(jid, {
+          name: info.data.name,
+          isAdmin: prev?.isAdmin || info.data.isAdmin === true,
+        });
+      }
+    }),
+  );
+
   return map;
 }
 
