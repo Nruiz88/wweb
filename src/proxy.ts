@@ -11,10 +11,13 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
 
-  // In dev mode, Next.js injects inline scripts for HMR — need 'unsafe-inline'
-  // In production, use strict script-src without inline
+  // Next.js 16 inyecta scripts inline (bootstrap RSC y flight payload) en páginas
+  // estáticas. Sin 'unsafe-inline' en script-src, el navegador los bloquea y la
+  // app nunca hidrata (React error #412). NO usar 'strict-dynamic' junto con
+  // 'unsafe-inline': los browsers CSP3 ignoran 'unsafe-inline' cuando hay
+  // 'strict-dynamic'. Se requiere 'unsafe-eval' solo en dev (Fast Refresh).
   const isDev = process.env.NODE_ENV !== "production";
-  const scriptSrc = isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " : "script-src 'self'; ";
+  const scriptSrc = "script-src 'self' 'unsafe-inline'" + (isDev ? " 'unsafe-eval'; " : "; ");
 
   response.headers.set(
     "Content-Security-Policy",
