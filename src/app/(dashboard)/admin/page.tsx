@@ -7,6 +7,7 @@ import AdminStats from "@/components/admin/AdminStats";
 import AdminPlans from "@/components/admin/AdminPlans";
 import AdminActivity from "@/components/admin/AdminActivity";
 import AdminServers from "@/components/admin/AdminServers";
+import AdminInstanceManager from "@/components/admin/AdminInstanceManager";
 import AdminUserManager from "@/components/admin/AdminUserManager";
 
 interface Stats {
@@ -162,17 +163,10 @@ export default function AdminPage() {
               />
             )}
 
-            {activeTab === "instances" && plans && (
+            {activeTab === "instances" && (
               <>
-                <AdminPlans plans={plans} onRefresh={loadData} />
-                <AdminUserManager
-                  users={users}
-                  instances={instances}
-                  plans={plans.users}
-                  selectedInstance={selectedInstance}
-                  onSelectInstance={setSelectedInstance}
-                  onRefresh={loadData}
-                />
+                <AdminInstanceManager instances={instances} users={users} onRefresh={loadData} />
+                {plans && <AdminPlans plans={plans} onRefresh={loadData} />}
               </>
             )}
 
