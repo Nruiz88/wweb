@@ -36,8 +36,10 @@ export async function PATCH(request: Request) {
 
   const { error } = await supabase
     .from("subscriptions")
-    .update({ plan_type: planType })
-    .eq("user_id", userId);
+    .upsert(
+      { user_id: userId, plan_type: planType },
+      { onConflict: "user_id" },
+    );
 
   if (error) {
     return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
