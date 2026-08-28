@@ -35,6 +35,10 @@ export default function CommunityPage() {
   const [searchingGroups, setSearchingGroups] = useState(false);
   // Cooldown de 120s: evita que se haga "Buscar grupos" todo el tiempo.
   const [searchCooldown, setSearchCooldown] = useState(0);
+  // Agregado manual por JID (fallback para grupos que no aparecen en la búsqueda).
+  const [showManualAdd, setShowManualAdd] = useState(false);
+  const [manualJid, setManualJid] = useState("");
+  const [addingManual, setAddingManual] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingLiveGroup, setSavingLiveGroup] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
@@ -134,6 +138,34 @@ export default function CommunityPage() {
     const t = setTimeout(() => void loadData(), 0);
     return () => clearTimeout(t);
   }, [loadData]);
+
+  // Agregar un grupo por JID (fallback para grupos que no aparecen en la
+  // búsqueda porque no están en la DB local de Evolution).
+  async function handleManualAdd() {
+    if (!instanceId || !manualJid.trim()) return;
+    setAddingManual(true);
+    setFeedback(null);
+    try {
+      const res = await fetch("/api/manual-group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instanceId, groupJid: manualJid.trim() }),
+      });
+      const payload = await res.json();
+      if (payload.status === "success" && payload.data) {
+        setDiscoveredGroups((prev) => [payload.data, ...prev.filter((g) => g.group_jid !== payload.data.group_jid)]);
+        setManualJid("");
+        setShowManualAdd(false);
+        setFeedback({ kind: "success", message: "Grupo verificado y agregado. Guardalo para configurarlo." });
+      } else {
+        setFeedback({ kind: "error", message: payload.error || "No se pudo agregar el grupo" });
+      }
+    } catch {
+      setFeedback({ kind: "error", message: "Error de red" });
+    } finally {
+      setAddingManual(false);
+    }
+  }
 
   useEffect(() => {
     if (feedback) {
@@ -471,6 +503,47 @@ export default function CommunityPage() {
                     </span>
                   )}
                 </button>
+              )}
+
+              {/* Agregar manual por JID (fallback) */}
+              {!showManualAdd ? (
+                <button
+                  type="button"
+                  onClick={() => setShowManualAdd(true)}
+                  className="mt-2 text-[10px] font-medium text-wa-text-secondary/60 transition hover:text-[#e6a44e]"
+                >
+                  ¿No aparece tu grupo? Agregalo por ID
+                </button>
+              ) : (
+                <div className="mt-3 rounded-xl border border-wa-border bg-wa-header p-3 fade-up">
+                  <p className="text-[10px] text-wa-text-secondary/60 mb-2">
+                    Pegá el ID del grupo (lo encontrás en el panel de Evolution) y verificamos que el bot sea admin.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="120363422713045298@g.us"
+                      value={manualJid}
+                      onChange={(e) => setManualJid(e.target.value)}
+                      className="flex-1 rounded-lg border border-wa-border bg-wa-panel px-3 py-2 text-xs text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleManualAdd()}
+                      disabled={addingManual || !manualJid.trim()}
+                      className="rounded-lg bg-[#e6a44e] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#e6a44e]/90 disabled:opacity-50"
+                    >
+                      {addingManual ? "Verificando..." : "Verificar y agregar"}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualAdd(false)}
+                    className="mt-2 text-[10px] text-wa-text-secondary/50 hover:text-wa-text-secondary"
+                  >
+                    Cancelar
+                  </button>
+                </div>
               )}
             </div>
 
