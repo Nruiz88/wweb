@@ -60,6 +60,7 @@ export default function ProfilePage() {
   const [address, setAddress] = useState("");
   const [email, setEmail] = useState("");
   const [copied, setCopied] = useState(false);
+  const [upcoming, setUpcoming] = useState<{ date: string; time: string; name: string | null }[] | null>(null);
 
   const publicAgendaLink = useMemo(() => {
     const base = window.location.origin;
@@ -75,6 +76,36 @@ export default function ProfilePage() {
       setTimeout(() => setCopied(false), 2000);
     } catch { /* clipboard unavailable */ }
   }
+
+  // Load upcoming appointments across the user's instances
+  useEffect(() => {
+    let cancelled = false;
+    async function loadUpcoming() {
+      try {
+        const instRes = await fetch("/api/instances");
+        const instPayload = await instRes.json();
+        if (instPayload.status !== "success" || !instPayload.data?.length) return;
+        const now = new Date();
+        const from = now.toISOString().slice(0, 10);
+        const to = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const appts: { date: string; time: string; name: string | null }[] = [];
+        for (const inst of instPayload.data) {
+          const res = await fetch(`/api/appointments?instanceId=${inst.id}&from=${from}&to=${to}`);
+          const payload = await res.json();
+          if (payload.status === "success") {
+            for (const a of payload.data) {
+              if (a.status === "pending" || a.status === "confirmed") {
+                appts.push({ date: a.appointment_date, time: a.appointment_time, name: a.customer_name || a.customer_phone });
+              }
+            }
+          }
+        }
+        if (!cancelled) setUpcoming(appts.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).slice(0, 5));
+      } catch { /* non-critical */ }
+    }
+    void loadUpcoming();
+    return () => { cancelled = true; };
+  }, []);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -265,6 +296,46 @@ export default function ProfilePage() {
                 <p className="mt-3 text-xs text-wa-text-secondary/60">
                   Cargá el nombre de tu negocio arriba para generar el link de agenda.
                 </p>
+              )}
+            </div>
+
+            {/* Upcoming appointments */}
+            <div className="rounded-2xl border border-wa-border bg-wa-header p-5">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#00a884]/15 text-[#00a884]">
+                  <ClockIcon className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-wa-text">Próximos turnos</h3>
+                  <p className="text-[10px] text-wa-text-secondary/60">Próximos 14 días</p>
+                </div>
+              </div>
+
+              {upcoming === null ? (
+                <p className="mt-3 text-xs text-wa-text-secondary/40">Cargando...</p>
+              ) : upcoming.length === 0 ? (
+                <p className="mt-3 text-xs text-wa-text-secondary/60">No hay turnos próximos.</p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {upcoming.map((a, i) => {
+                    const d = new Date(a.date + "T12:00:00");
+                    const day = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][d.getDay()];
+                    const time = a.time.slice(0, 5);
+                    return (
+                      <div key={i} className="flex items-center justify-between rounded-xl border border-wa-border/50 bg-wa-panel/50 px-4 py-2.5">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-[#00a884]/10 text-[#00a884]">
+                            <span className="text-[10px] font-bold">{time}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-wa-text">{a.name || "Sin nombre"}</p>
+                            <p className="text-[10px] text-wa-text-secondary/50">{day} {d.getDate()}</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
 
