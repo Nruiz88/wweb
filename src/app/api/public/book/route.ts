@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
+import { slugify } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { userEmail, instanceId, customerName, appointmentDate, appointmentTime } = (body ?? {}) as {
+  const { business, userEmail, instanceId, customerName, appointmentDate, appointmentTime } = (body ?? {}) as {
+    business?: string;
     userEmail?: string;
     instanceId?: string;
     customerName?: string;
@@ -28,9 +30,9 @@ export async function POST(request: Request) {
     appointmentTime?: string;
   };
 
-  if (!userEmail || !instanceId || !appointmentDate || !appointmentTime) {
+  if ((!business && !userEmail) || !instanceId || !appointmentDate || !appointmentTime) {
     return NextResponse.json(
-      { status: "error", error: "userEmail, instanceId, appointmentDate, and appointmentTime are required" },
+      { status: "error", error: "business (or userEmail), instanceId, appointmentDate, and appointmentTime are required" },
       { status: 400 },
     );
   }
@@ -40,11 +42,30 @@ export async function POST(request: Request) {
   }
 
   // Verify the user owns / has access to this instance
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("id, role")
-    .eq("email", userEmail.trim().toLowerCase())
-    .single();
+  let profile: { id: string; role: string } | null = null;
+
+  if (userEmail) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, role")
+      .eq("email", userEmail.trim().toLowerCase())
+      .single();
+    profile = data ?? null;
+  }
+
+  if (!profile && business) {
+    const slug = business.trim().toLowerCase();
+    const { data: all } = await supabase
+      .from("profiles")
+      .select("id, role, business_name, email");
+    profile =
+      (all || []).find((p) => {
+        if (p.business_name && slugify(p.business_name) === slug) return true;
+        if (p.email && slugify(p.email) === slug) return true;
+        return false;
+      }) ?? null;
+  }
+
   if (!profile) {
     return NextResponse.json({ status: "error", error: "User not found" }, { status: 404 });
   }

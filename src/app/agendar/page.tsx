@@ -28,7 +28,7 @@ function formatDate(dateStr: string): string {
 }
 
 export default function PublicAgendaPage() {
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [identifier, setIdentifier] = useState<{ business?: string; user?: string } | null>(null);
 
   const [instances, setInstances] = useState<InstanceAgenda[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
@@ -41,18 +41,25 @@ export default function PublicAgendaPage() {
   const [done, setDone] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  // Read ?user= from the URL on the client (avoids useSearchParams prerender issue).
+  // Read ?business= (or legacy ?user=) from the URL on the client
+  // (avoids useSearchParams prerender issue).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    setUserEmail(params.get("user"));
+    setIdentifier({
+      business: params.get("business") ?? undefined,
+      user: params.get("user") ?? undefined,
+    });
   }, []);
 
   const loadAgenda = useCallback(async () => {
-    if (!userEmail) return;
+    if (!identifier || (!identifier.business && !identifier.user)) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/public/agenda?user=${encodeURIComponent(userEmail)}`);
+      const query = new URLSearchParams();
+      if (identifier.business) query.set("business", identifier.business);
+      else if (identifier.user) query.set("user", identifier.user);
+      const res = await fetch(`/api/public/agenda?${query.toString()}`);
       const payload = await res.json();
       if (payload.status === "success") {
         setInstances(payload.data.instances);
@@ -67,7 +74,7 @@ export default function PublicAgendaPage() {
     } finally {
       setLoading(false);
     }
-  }, [userEmail]);
+  }, [identifier]);
 
   useEffect(() => {
     void loadAgenda();
@@ -84,7 +91,7 @@ export default function PublicAgendaPage() {
   );
 
   async function handleBook() {
-    if (!userEmail || !selectedInstance || !selectedDate || !selectedSlot) return;
+    if (!identifier || !selectedInstance || !selectedDate || !selectedSlot) return;
     setBooking(true);
     setFeedback(null);
     try {
@@ -92,7 +99,8 @@ export default function PublicAgendaPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userEmail,
+          business: identifier.business,
+          userEmail: identifier.user,
           instanceId: selectedInstance,
           customerName: name || null,
           appointmentDate: selectedDate,
@@ -114,7 +122,7 @@ export default function PublicAgendaPage() {
     }
   }
 
-  if (!userEmail) {
+  if (!identifier || (!identifier.business && !identifier.user)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0b141a] px-4">
         <p className="text-sm text-white/60">Link inválido. Contactá al negocio.</p>

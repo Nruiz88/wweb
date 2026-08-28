@@ -1,9 +1,37 @@
 import { sendTextMessage, sendButtonMessage } from "@/lib/evolution-multi";
 import type { ButtonItem } from "@/lib/evolution-multi";
 import type { WebhookContext } from "./context";
+import { slugify } from "@/lib/slug";
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+// Business timezone. Vercel functions run in UTC, so "today"/"now" must be
+// computed in the business's local time or the "Libre hoy" filter will drop
+// valid afternoon slots (server is 3h ahead of Argentina). Configurable via
+// BUSINESS_TIMEZONE env; defaults to Buenos Aires.
+const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/Argentina/Buenos_Aires";
+
+function localDateStr(now: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+function localTimeMinutes(now: Date): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: BUSINESS_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const h = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const m = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  return h * 60 + m;
+}
 
 // In-memory state: remember the date shown to a user so that when they reply
 // with a slot number ("1", "2"...) we know which date to book. Keyed by
@@ -76,8 +104,9 @@ async function getAvailableSlots(
   const bookedSet = new Set((booked || []).map((b) => b.appointment_time));
 
   const now = new Date();
-  const isToday = date === now.toISOString().slice(0, 10);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const todayStr = localDateStr(now);
+  const isToday = date === todayStr;
+  const nowMinutes = localTimeMinutes(now);
 
   const slots = all.filter((t) => {
     if (bookedSet.has(t)) return false;
@@ -116,7 +145,11 @@ export async function handleAgendaMenu(ctx: WebhookContext): Promise<{ status: s
   await sendTextMessage(
     instance.evolution_api_url, instance.evolution_api_key,
     instance.instance_name, phoneNumber,
-    "🗓️ ¿Qué querés ver?\n\n1️⃣ Libre hoy\n2️⃣ Libre más próximo\n3️⃣ Agenda completa\n\nRespondé con el número o la opción.",
+    "🗓️ *¿Qué querés ver?*\n\n" +
+      "1️⃣ 🕐 *Libre hoy*\n" +
+      "2️⃣ ⏭️ *Libre más próximo*\n" +
+      "3️⃣ 📅 *Agenda completa*\n\n" +
+      "Respondé con el número o la opción 👇",
     1500,
   );
   return { status: "success", matched: "[turno menú agenda]" };
@@ -125,7 +158,7 @@ export async function handleAgendaMenu(ctx: WebhookContext): Promise<{ status: s
 /** Agenda hoy: muestra los horarios libres de hoy en texto numerado. */
 async function handleAgendaHoy(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
   const { instance, phoneNumber } = ctx;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateStr(new Date());
   const { slots, hours } = await getAvailableSlots(ctx, today);
 
   if (!hours) {
@@ -168,7 +201,7 @@ async function handleAgendaProximo(ctx: WebhookContext): Promise<{ status: strin
   for (let i = 1; i <= 14; i++) {
     const d = new Date(now);
     d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = localDateStr(d);
     const { slots } = await getAvailableSlots(ctx, dateStr);
     if (slots.length > 0) {
       const dateStr2 = formatDateStr(dateStr);
@@ -226,11 +259,12 @@ async function handleAgendaCompleta(ctx: WebhookContext): Promise<{ status: stri
 
   const { data: owner } = await supabase
     .from("profiles")
-    .select("email")
+    .select("business_name, email")
     .eq("id", inst.admin_id)
     .single();
 
-  if (!owner?.email) {
+  const businessName = owner?.business_name?.trim() || "";
+  if (!owner || (!businessName && !owner.email)) {
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
@@ -240,7 +274,11 @@ async function handleAgendaCompleta(ctx: WebhookContext): Promise<{ status: stri
     return { status: "success", matched: "[turno sin link]" };
   }
 
-  const link = `${baseUrl}/agendar?user=${encodeURIComponent(owner.email)}`;
+  // Public link uses the business name (slug) so it's friendly and stable;
+  // fall back to the email slug if no business name is set.
+  const identifier = businessName ? slugify(businessName) : slugify(owner.email!);
+  const link = `${baseUrl}/agendar?business=${encodeURIComponent(identifier)}`;
+  console.log("[agenda] link generado", { link, appUrl: baseUrl, identifier });
   await sendTextMessage(
     instance.evolution_api_url, instance.evolution_api_key,
     instance.instance_name, phoneNumber,

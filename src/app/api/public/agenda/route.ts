@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
+import { slugify } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
 
@@ -21,25 +22,46 @@ function generateSlots(startTime: string, endTime: string, durationMin: number):
 }
 
 // GET: Public availability for a user's agenda (all their instances).
-// ?user=<email>  →  { instances: [{ instanceId, instanceName, days: [...] }] }
+// ?business=<slug>  (business_name slug, with email slug fallback)
+// →  { instances: [{ instanceId, instanceName, days: [...] }] }
 export async function GET(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "public-agenda", { maxRequests: 60, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
   const { searchParams } = new URL(request.url);
+  const businessSlug = searchParams.get("business")?.trim().toLowerCase();
+  // Backwards-compat: accept ?user=<email> too.
   const userEmail = searchParams.get("user")?.trim().toLowerCase();
 
-  if (!userEmail) {
-    return NextResponse.json({ status: "error", error: "user is required" }, { status: 400 });
+  if (!businessSlug && !userEmail) {
+    return NextResponse.json({ status: "error", error: "business is required" }, { status: 400 });
   }
 
   const supabase = await createServerClient();
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("id, role")
-    .eq("email", userEmail)
-    .single();
+  // Resolve profile by business name slug or email.
+  let profile: { id: string; role: string } | null = null;
+
+  if (userEmail) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, role")
+      .eq("email", userEmail)
+      .single();
+    profile = data ?? null;
+  }
+
+  if (!profile && businessSlug) {
+    const { data: all } = await supabase
+      .from("profiles")
+      .select("id, role, business_name, email");
+    profile =
+      (all || []).find((p) => {
+        if (p.business_name && slugify(p.business_name) === businessSlug) return true;
+        if (p.email && slugify(p.email) === businessSlug) return true;
+        return false;
+      }) ?? null;
+  }
 
   if (!profile) {
     return NextResponse.json({ status: "error", error: "User not found" }, { status: 404 });
@@ -94,12 +116,24 @@ export async function GET(request: Request) {
     bookedByInstance.get(b.instance_id)!.add(`${b.appointment_date}|${b.appointment_time}`);
   }
 
-  const now = new Date();
+  // Business timezone: Vercel runs UTC; compute "today" in Buenos Aires by default.
+  const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/Argentina/Buenos_Aires";
+  const todayStr = () =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const nowMinutes = () => {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: BUSINESS_TIMEZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+    const h = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+    const m = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+    return h * 60 + m;
+  };
+
+  const today = todayStr();
+  const nowMins = nowMinutes();
   const days: { date: string; display: string }[] = [];
   for (let i = 1; i <= 14; i++) {
-    const d = new Date(now);
+    const d = new Date();
     d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
     days.push({ date: dateStr, display: dateStr });
   }
 
@@ -113,14 +147,14 @@ export async function GET(request: Request) {
       if (!dayHours) return { date: d.date, slots: [] };
 
       const all = generateSlots(dayHours.start_time, dayHours.end_time, dayHours.slot_duration_min);
-      const isToday = d.date === now.toISOString().slice(0, 10);
-      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      const isToday = d.date === today;
+      const nowM = nowMins;
 
       const slots = all.filter((s) => {
         if (booked.has(`${d.date}|${s.time}`)) return false;
         if (isToday) {
           const [h, m] = s.time.split(":").map(Number);
-          if (h * 60 + m <= nowMinutes) return false;
+          if (h * 60 + m <= nowM) return false;
         }
         return true;
       });
