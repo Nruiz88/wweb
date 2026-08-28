@@ -84,3 +84,32 @@ export async function syncGroupNamesAndFilterAdmin(
   }
   return adminRows;
 }
+
+/**
+ * Overwrite group names in group_settings with the live Evolution names.
+ * Unlike syncGroupNamesAndFilterAdmin, this keeps ALL rows (configured groups
+ * are always shown regardless of admin status) and only fixes the stored name.
+ */
+export async function syncConfiguredGroupNames(
+  supabase: SupabaseClient,
+  instanceId: string,
+  rows: Array<{ id: string; group_jid: string; group_name: string | null }>,
+): Promise<typeof rows> {
+  if (rows.length === 0) return rows;
+
+  const statusByJid = await fetchGroupStatusMap(supabase, instanceId);
+  if (statusByJid.size === 0) return rows;
+
+  for (const row of rows) {
+    const status = statusByJid.get(row.group_jid);
+    if (!status) continue;
+    if (status.name && status.name !== row.group_name) {
+      row.group_name = status.name;
+      await supabase
+        .from("group_settings")
+        .update({ group_name: status.name })
+        .eq("id", row.id);
+    }
+  }
+  return rows;
+}

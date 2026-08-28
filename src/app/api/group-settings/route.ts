@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
+import { syncConfiguredGroupNames } from "@/lib/group-names";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,10 @@ export async function GET(request: Request) {
   if (error) {
     return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
+
+  // Best-effort: sync real group names from Evolution so configured groups
+  // don't keep the legacy pushName value. Never blocks on failure.
+  await syncConfiguredGroupNames(supabase, instanceId, settings || []);
 
   return NextResponse.json({ status: "success", data: settings });
 }
