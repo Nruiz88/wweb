@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
-import { syncGroupNamesAndFilterAdmin } from "@/lib/group-names";
+import { fetchAllGroups, fetchInstanceOwnerJid } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 
-// GET: List discovered groups for an instance (groups not yet configured)
-// Only groups where the bot is admin are returned (moderation needs admin).
+// GET: List WhatsApp groups where the bot is admin (live from Evolution),
+// with the real group name (subject). Marks which ones are already saved.
+// No longer depends on the webhook auto-capture table.
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) {
@@ -26,34 +27,55 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  // Get groups that are discovered but NOT yet configured in group_settings
-  const { data: configuredJids } = await supabase
-    .from("group_settings")
-    .select("group_jid")
-    .eq("instance_id", instanceId);
-
-  const configuredSet = new Set((configuredJids || []).map((g) => g.group_jid));
-
-  const { data: discovered, error } = await supabase
-    .from("discovered_groups")
-    .select("*")
-    .eq("instance_id", instanceId)
-    .order("last_seen_at", { ascending: false });
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: "Failed to fetch discovered groups" }, { status: 500 });
+  const { data: instance } = await supabase
+    .from("instances")
+    .select("instance_name, evolution_api_url, evolution_api_key")
+    .eq("id", instanceId)
+    .single();
+  if (!instance) {
+    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  // Filter out already configured groups, then sync real names and keep only
-  // groups where the bot is admin (best-effort; never blocks on failure).
-  const unconfigured = (discovered || []).filter((g) => !configuredSet.has(g.group_jid));
+  // Groups already saved in group_settings
+  const { data: saved } = await supabase
+    .from("group_settings")
+    .select("group_jid, group_name")
+    .eq("instance_id", instanceId);
+  const savedMap = new Map((saved || []).map((g) => [g.group_jid, g.group_name]));
 
-  const visible = await syncGroupNamesAndFilterAdmin(supabase, instanceId, unconfigured);
+  // Live groups where the bot is admin
+  const ownerJid = await fetchInstanceOwnerJid(
+    instance.evolution_api_url,
+    instance.evolution_api_key,
+    instance.instance_name,
+  );
+  const result = await fetchAllGroups(
+    instance.evolution_api_url,
+    instance.evolution_api_key,
+    instance.instance_name,
+    ownerJid ?? undefined,
+  );
 
-  return NextResponse.json({ status: "success", data: visible });
+  if (!result.ok) {
+    return NextResponse.json(
+      { status: "error", error: "No se pudo obtener los grupos de Evolution" },
+      { status: 502 },
+    );
+  }
+
+  const adminGroups = result.data
+    .filter((g) => g.isAdmin === true)
+    .map((g) => ({
+      group_jid: g.id,
+      group_name: g.name || savedMap.get(g.id) || null,
+      saved: savedMap.has(g.id),
+    }))
+    .sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));
+
+  return NextResponse.json({ status: "success", data: adminGroups });
 }
 
-// DELETE: Dismiss a discovered group (user doesn't want to configure it)
+// DELETE: Remove a saved group config (kept for backward compat / dismissal)
 export async function DELETE(request: Request) {
   const user = await getCurrentUser();
   if (!user) {
@@ -68,30 +90,39 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  // Verify the discovered group belongs to an instance the user can access
+  // Only allow deleting group_settings rows the user owns (not discovered rows,
+  // since discovery is now live). Fall back to discovered_groups if present.
   const { data: group } = await supabase
-    .from("discovered_groups")
-    .select("instance_id")
+    .from("group_settings")
+    .select("id, instance_id")
     .eq("id", id)
     .single();
 
-  if (!group) {
-    return NextResponse.json({ status: "error", error: "Group not found" }, { status: 404 });
+  if (group) {
+    const hasAccess = await verifyUserAccess(supabase, user.id, group.instance_id);
+    if (!hasAccess) {
+      return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
+    }
+    const { error } = await supabase.from("group_settings").delete().eq("id", id);
+    if (error) {
+      return NextResponse.json({ status: "error", error: "Failed to delete group" }, { status: 500 });
+    }
+    return NextResponse.json({ status: "success" });
   }
 
-  const hasAccess = await verifyUserAccess(supabase, user.id, group.instance_id);
+  // Legacy: discovered_groups row
+  const { data: discovered } = await supabase
+    .from("discovered_groups")
+    .select("id, instance_id")
+    .eq("id", id)
+    .single();
+  if (!discovered) {
+    return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
+  }
+  const hasAccess = await verifyUserAccess(supabase, user.id, discovered.instance_id);
   if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
   }
-
-  const { error } = await supabase
-    .from("discovered_groups")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: "Failed to dismiss group" }, { status: 500 });
-  }
-
+  await supabase.from("discovered_groups").delete().eq("id", id);
   return NextResponse.json({ status: "success" });
 }

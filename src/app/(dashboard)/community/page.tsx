@@ -31,8 +31,9 @@ export default function CommunityPage() {
   const [instanceId, setInstanceId] = useState<string | null>(null);
   const [groupSettings, setGroupSettings] = useState<GroupSetting[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
-  const [discoveredGroups, setDiscoveredGroups] = useState<{ id: string; group_jid: string; group_name: string | null; last_seen_at: string }[]>([]);
+  const [discoveredGroups, setDiscoveredGroups] = useState<{ group_jid: string; group_name: string | null; saved: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [savingLiveGroup, setSavingLiveGroup] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [activeTab, setActiveTab] = useState<"groups" | "broadcasts">("groups");
 
@@ -186,9 +187,43 @@ export default function CommunityPage() {
     await loadData();
   }
 
-  async function handleDismissGroup(id: string) {
-    await fetch(`/api/discovered-groups?id=${id}`, { method: "DELETE" });
-    setDiscoveredGroups((prev) => prev.filter((g) => g.id !== id));
+  async function handleSaveLiveGroup(jid: string, name: string | null) {
+    if (!instanceId) return;
+    setSavingLiveGroup(jid);
+    try {
+      const res = await fetch("/api/group-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instanceId,
+          groupJid: jid,
+          groupName: name || "",
+          welcomeEnabled: false,
+          welcomeMessage: "",
+          spamFilterEnabled: false,
+          blockAllLinks: true,
+          allowedDomains: [],
+          bannedWordsEnabled: false,
+          bannedWords: [],
+          bannedWordsAction: "delete_and_reply",
+          bannedWordsReply: "",
+        }),
+      });
+      const payload = await res.json();
+      if (payload.status === "success") {
+        setFeedback({ kind: "success", message: "Grupo guardado" });
+        setDiscoveredGroups((prev) =>
+          prev.map((g) => (g.group_jid === jid ? { ...g, saved: true } : g)),
+        );
+        await loadData();
+      } else {
+        setFeedback({ kind: "error", message: payload.error });
+      }
+    } catch {
+      setFeedback({ kind: "error", message: "Error de red" });
+    } finally {
+      setSavingLiveGroup(null);
+    }
   }
 
   function openConfigureDiscovered(disc: { group_jid: string; group_name: string | null }) {
@@ -252,26 +287,6 @@ export default function CommunityPage() {
 
   const welcomeGroups = useMemo(() => groupSettings.filter((g) => g.welcome_enabled), [groupSettings]);
   const spamGroups = useMemo(() => groupSettings.filter((g) => g.spam_filter_enabled), [groupSettings]);
-
-  // Group discovered groups into communities when they share a JID prefix.
-  // WhatsApp community groups share the same numeric prefix before @g.us.
-  const discoveredTree = useMemo(() => {
-    const byPrefix = new Map<string, typeof discoveredGroups>();
-    for (const g of discoveredGroups) {
-      const jid = g.group_jid.replace("@g.us", "");
-      const prefix = jid.length >= 8 ? jid.slice(0, 8) : jid;
-      const list = byPrefix.get(prefix) ?? [];
-      list.push(g);
-      byPrefix.set(prefix, list);
-    }
-    return Array.from(byPrefix.entries())
-      .map(([prefix, groups]) => ({
-        prefix,
-        groups,
-        isCommunity: groups.length > 1,
-      }))
-      .sort((a, b) => b.groups.length - a.groups.length);
-  }, [discoveredGroups]);
 
   if (!planLoading && !hasAccess) {
     return (
@@ -349,55 +364,42 @@ export default function CommunityPage() {
                 <div className="flex items-center gap-2 mb-3">
                   <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6a44e]/20 text-xs">🔍</div>
                   <p className="text-xs font-semibold text-[#e6a44e]">
-                    {discoveredGroups.length} grupo{discoveredGroups.length !== 1 ? "s" : ""} detectado{discoveredGroups.length !== 1 ? "s" : ""}
+                    Grupos donde el bot es admin
                   </p>
                 </div>
                 <p className="text-[10px] text-wa-text-secondary/60 mb-3">
-                  Grupos donde el bot detectó actividad. Configuralos para activar bienvenida, anti-spam y moderación.
+                  Grupos detectados en vivo desde WhatsApp. Guardá uno para configurar bienvenida, anti-spam y moderación.
                 </p>
                 <div className="space-y-2">
-                  {discoveredTree.map(({ prefix, groups, isCommunity }) => (
-                    <div key={prefix} className="rounded-xl bg-wa-header border border-wa-border p-3">
-                      {isCommunity && (
-                        <div className="mb-2 flex items-center gap-2">
-                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6a44e]/20 text-[10px]">🌐</div>
-                          <p className="text-[10px] font-semibold text-[#e6a44e]">
-                            Comunidad · {groups.length} grupos vinculados
-                          </p>
+                  {discoveredGroups.map((dg) => (
+                    <div key={dg.group_jid} className="flex items-center justify-between rounded-xl bg-wa-header border border-wa-border p-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-xs font-bold text-[#e6a44e]">
+                          {dg.group_name?.[0]?.toUpperCase() || "#"}
                         </div>
-                      )}
-                      <div className={isCommunity ? "space-y-1.5" : "space-y-2"}>
-                        {groups.map((dg) => (
-                          <div
-                            key={dg.id}
-                            className={`flex items-center justify-between rounded-lg border border-wa-border bg-wa-panel p-2.5 ${isCommunity ? "ml-4" : ""}`}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-wa-text truncate">{dg.group_name || "Grupo sin nombre"}</p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        {dg.saved ? (
+                          <button
+                            type="button"
+                            onClick={() => openConfigureDiscovered(dg)}
+                            className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25"
                           >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-xs font-bold text-[#e6a44e]">
-                                {dg.group_name?.[0]?.toUpperCase() || "#"}
-                              </div>
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium text-wa-text truncate">{dg.group_name || "Grupo sin nombre"}</p>
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openConfigureDiscovered(dg)}
-                                className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25"
-                              >
-                                Configurar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleDismissGroup(dg.id)}
-                                className="rounded-lg p-1.5 text-wa-text-secondary/40 transition hover:bg-wa-hover hover:text-wa-text-secondary"
-                              >
-                                <XIcon className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                            Configurar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={savingLiveGroup === dg.group_jid}
+                            onClick={() => void handleSaveLiveGroup(dg.group_jid, dg.group_name)}
+                            className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25 disabled:opacity-50"
+                          >
+                            {savingLiveGroup === dg.group_jid ? "Guardando..." : "Guardar grupo"}
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
