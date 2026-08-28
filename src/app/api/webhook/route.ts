@@ -9,7 +9,7 @@ import { handleGroupSpam } from "@/lib/webhook/group-spam";
 import { handleWelcome } from "@/lib/webhook/welcome";
 import { handleOutsideHours } from "@/lib/webhook/outside-hours";
 import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect } from "@/lib/webhook/booking";
-import { handleMenuTap } from "@/lib/webhook/menus";
+import { handleMenuTap, handleMenuTextReply } from "@/lib/webhook/menus";
 import { handleAutoReply } from "@/lib/webhook/auto-reply";
 import type { PlanType } from "@/lib/supabase/types";
 
@@ -213,8 +213,17 @@ export async function POST(request: Request) {
     pushName: body.data?.pushName,
     messageId: body.data?.key?.id,
     senderJid: body.data?.key?.participant,
+    rawButtonId: extractRawButtonId(body.data?.message) || undefined,
     autoResponses: autoResponses || [],
   };
+
+  // Plain-text menu navigation (Evolution 2.3.7 button fallback):
+  // if a menu is active, "1"/"2"/"3" picks an option and "0"/"volver" goes back.
+  // Runs before booking so numeric replies don't clash with the agenda.
+  if (!buttonText && !listText) {
+    const menuTextResult = await handleMenuTextReply(ctx);
+    if (menuTextResult) return NextResponse.json(menuTextResult);
+  }
 
   // ============================================================
   // PRO features: appointment booking flow

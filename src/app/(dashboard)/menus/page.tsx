@@ -467,7 +467,9 @@ export default function MenusPage() {
             <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-5 py-4">
               <div>
                 <h3 className="text-base font-semibold text-wa-text">{editingMenu ? "Editar menú" : "Nuevo menú"}</h3>
-                <p className="text-[10px] text-wa-text-secondary/60">Cada opción responde con texto o abre un submenú</p>
+                <p className="text-[10px] text-wa-text-secondary/60">
+                  Tu bot muestra botones y el cliente elige
+                </p>
               </div>
               <button type="button" onClick={() => setShowForm(false)} className="icon-btn h-8 w-8">
                 <XIcon className="h-4 w-4" />
@@ -477,7 +479,7 @@ export default function MenusPage() {
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
               {/* Title */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">Título del menú</label>
+                <label className="text-xs font-semibold text-wa-text-secondary">¿Qué pregunta el menú?</label>
                 <input
                   type="text"
                   placeholder='Ej: "¿En qué te puedo ayudar?"'
@@ -485,12 +487,13 @@ export default function MenusPage() {
                   onChange={(e) => setItem({ ...item, title: e.target.value })}
                   className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
                 />
+                <p className="text-[10px] text-wa-text-secondary/50">El título que ve el cliente arriba de los botones</p>
               </div>
 
               {/* Description */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-wa-text-secondary">
-                  Descripción <span className="text-wa-text-secondary/40">(opcional)</span>
+                  Mensaje de apoyo <span className="text-wa-text-secondary/40">(opcional)</span>
                 </label>
                 <input
                   type="text"
@@ -503,65 +506,86 @@ export default function MenusPage() {
 
               {/* Options */}
               <div className="flex flex-col gap-3">
-                <label className="text-xs font-semibold text-wa-text-secondary">
-                  Opciones <span className="text-wa-text-secondary/40">(hasta 3)</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-wa-text-secondary">Botones del menú</label>
+                  <span className="text-[10px] text-wa-text-secondary/40">hasta 3</span>
+                </div>
+
                 {item.buttons.map((btn, idx) => (
-                  <div key={btn.id} className="rounded-xl border border-wa-border/50 bg-wa-input p-3 space-y-2">
+                  <div key={btn.id} className="rounded-2xl border border-wa-border bg-wa-header p-4 space-y-3">
+                    {/* Button label */}
                     <div className="flex items-center gap-2">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#53bdeb]/10 text-[10px] font-bold text-[#53bdeb]">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#53bdeb]/15 text-xs font-bold text-[#53bdeb]">
                         {idx + 1}
                       </span>
                       <input
                         type="text"
-                        placeholder={`Opción ${idx + 1}`}
+                        placeholder={`Texto del botón ${idx + 1}`}
                         value={btn.text}
                         onChange={(e) => updateButton(idx, { text: e.target.value })}
-                        className="flex-1 rounded-lg border border-wa-border bg-wa-panel px-3 py-2 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
+                        className="flex-1 rounded-xl border border-wa-border bg-wa-input px-3 py-2.5 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
                       />
-                      {/* Mode toggle */}
+                    </div>
+
+                    {/* What happens on tap */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateButton(idx, { mode: "text", submenu: null })}
+                        className={`flex flex-col items-center gap-1 rounded-xl border px-3 py-2.5 transition ${
+                          btn.mode === "text"
+                            ? "border-[#53bdeb]/50 bg-[#53bdeb]/10 text-[#53bdeb]"
+                            : "border-wa-border bg-wa-panel text-wa-text-secondary hover:bg-wa-hover"
+                        }`}
+                      >
+                        <span className="text-lg">💬</span>
+                        <span className="text-[10px] font-semibold">Responder un mensaje</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => updateButton(idx, {
-                          mode: btn.mode === "text" ? "submenu" : "text",
-                          target_id: btn.mode === "text" ? null : btn.target_id,
-                          submenu: btn.mode === "text" ? (btn.submenu || newSubMenu()) : null,
+                          mode: "submenu",
+                          target_id: null,
+                          submenu: btn.submenu || newSubMenu(),
                         })}
-                        className={`shrink-0 rounded-lg px-2 py-1.5 text-[10px] font-semibold transition ${
+                        className={`flex flex-col items-center gap-1 rounded-xl border px-3 py-2.5 transition ${
                           btn.mode === "submenu"
-                            ? "bg-[#53bdeb]/20 text-[#53bdeb]"
-                            : "bg-wa-panel text-wa-text-secondary hover:bg-wa-hover"
+                            ? "border-[#53bdeb]/50 bg-[#53bdeb]/10 text-[#53bdeb]"
+                            : "border-wa-border bg-wa-panel text-wa-text-secondary hover:bg-wa-hover"
                         }`}
-                        title="Alternar texto / submenú"
                       >
-                        {btn.mode === "submenu" ? "🔘 Submenú" : "💬 Texto"}
+                        <span className="text-lg">🔽</span>
+                        <span className="text-[10px] font-semibold">Abrir submenú</span>
                       </button>
                     </div>
 
                     {btn.mode === "text" ? (
-                      /* Text mode: optional suggested response */
-                      <select
-                        value={btn.target_id || ""}
-                        onChange={(e) => updateButton(idx, { target_id: e.target.value || null })}
-                        className="w-full rounded-lg border border-wa-border bg-wa-panel px-2 py-2 text-[11px] text-wa-text-secondary focus:border-[#53bdeb] focus:outline-none"
-                      >
-                        <option value="">— Responder con el texto del botón —</option>
-                        <optgroup label="Respuestas de texto (sugeridas)">
-                          {textResponses.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.keyword || r.response_text.slice(0, 30)}
-                            </option>
-                          ))}
-                        </optgroup>
-                      </select>
+                      /* What message to reply */
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-medium text-wa-text-secondary/70">
+                          ¿Qué responde el bot?
+                        </label>
+                        <select
+                          value={btn.target_id || ""}
+                          onChange={(e) => updateButton(idx, { target_id: e.target.value || null })}
+                          className="w-full rounded-xl border border-wa-border bg-wa-input px-3 py-2.5 text-sm text-wa-text-secondary focus:border-[#53bdeb] focus:outline-none"
+                        >
+                          <option value="">El texto del botón</option>
+                          <optgroup label="Usar una respuesta que ya tenés">
+                            {textResponses.map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.keyword || r.response_text.slice(0, 30)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </div>
                     ) : (
-                      /* Submenu mode: inline editor */
-                      <div className="space-y-2 rounded-lg border border-[#53bdeb]/30 bg-[#53bdeb]/5 p-3">
+                      /* Submenu editor */
+                      <div className="space-y-2 rounded-xl border border-[#53bdeb]/30 bg-[#53bdeb]/5 p-3">
                         <div className="flex items-center gap-2">
-                          <ChevronDownIcon className="h-3.5 w-3.5 text-[#53bdeb]" />
-                          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#53bdeb]">
-                            Submenú de "{btn.text || `Opción ${idx + 1}`}"
-                          </span>
+                          <ChevronDownIcon className="h-4 w-4 text-[#53bdeb]" />
+                          <span className="text-xs font-semibold text-[#53bdeb]">Submenú</span>
                         </div>
                         {btn.submenu && (
                           <>
@@ -575,24 +599,29 @@ export default function MenusPage() {
                                 next[idx] = { ...next[idx], submenu: { ...sub, title: e.target.value } };
                                 setItem({ ...item, buttons: next });
                               }}
-                              className="w-full rounded-lg border border-wa-border bg-wa-panel px-3 py-2 text-xs text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
+                              className="w-full rounded-xl border border-wa-border bg-wa-panel px-3 py-2 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
                             />
+                            <p className="text-[10px] text-wa-text-secondary/60">
+                              Cuando el cliente toca "{btn.text || `Botón ${idx + 1}`}", se abre este submenú con sus botones. El botón "⬅ Volver" se agrega solo.
+                            </p>
                             {btn.submenu.buttons.map((sb, subIdx) => (
-                              <div key={sb.id} className="flex items-center gap-1.5">
-                                <span className="w-3 text-[10px] font-bold text-[#53bdeb]">{subIdx + 1}</span>
+                              <div key={sb.id} className="flex items-center gap-2">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#53bdeb]/15 text-[9px] font-bold text-[#53bdeb]">
+                                  {subIdx + 1}
+                                </span>
                                 <input
                                   type="text"
-                                  placeholder={`Sub-opción ${subIdx + 1}`}
+                                  placeholder={`Sub-botón ${subIdx + 1}`}
                                   value={sb.text}
                                   onChange={(e) => updateSubOption(idx, subIdx, { text: e.target.value })}
-                                  className="flex-1 rounded-lg border border-wa-border bg-wa-panel px-2.5 py-1.5 text-xs text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
+                                  className="flex-1 rounded-lg border border-wa-border bg-wa-panel px-2.5 py-2 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
                                 />
                                 <select
                                   value={sb.target_id || ""}
                                   onChange={(e) => updateSubOption(idx, subIdx, { target_id: e.target.value || null })}
-                                  className="max-w-[110px] rounded-lg border border-wa-border bg-wa-panel px-1.5 py-1.5 text-[10px] text-wa-text-secondary focus:border-[#53bdeb] focus:outline-none"
+                                  className="max-w-[110px] rounded-lg border border-wa-border bg-wa-panel px-1.5 py-2 text-[10px] text-wa-text-secondary focus:border-[#53bdeb] focus:outline-none"
                                 >
-                                  <option value="">Texto</option>
+                                  <option value="">Mensaje</option>
                                   {textResponses.map((r) => (
                                     <option key={r.id} value={r.id}>
                                       {r.keyword || r.response_text.slice(0, 18)}
@@ -612,7 +641,7 @@ export default function MenusPage() {
               {/* Footer */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-wa-text-secondary">
-                  Footer <span className="text-wa-text-secondary/40">(opcional)</span>
+                  Texto al pie <span className="text-wa-text-secondary/40">(opcional)</span>
                 </label>
                 <input
                   type="text"

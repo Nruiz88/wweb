@@ -25,6 +25,8 @@ export interface WebhookContext {
   pushName?: string;
   messageId?: string;
   senderJid?: string;
+  /** Raw selectedButtonId when the message is a button tap. */
+  rawButtonId?: string;
   /** Pre-fetched auto-responses for this instance (loaded once, shared) */
   autoResponses?: AutoResponseRow[];
 }
