@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
-import { fetchAllGroups, fetchInstanceOwnerJid, findGroupInfos } from "@/lib/evolution-multi";
+import { fetchAllChats, fetchInstanceOwnerJid, findGroupInfos } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -44,58 +44,67 @@ export async function GET(request: Request) {
     .eq("instance_id", instanceId);
   const savedMap = new Map((saved || []).map((g) => [g.group_jid, g.group_name]));
 
-  // Live groups where the bot is admin
+  // Live groups where the bot is admin.
   const ownerJid = await fetchInstanceOwnerJid(
     instance.evolution_api_url,
     instance.evolution_api_key,
     instance.instance_name,
   );
-  // Sin participants: fetchAllGroups con getParticipants=true tarda 25s+
-  // (issue EvolutionAPI#1883) y aborta. El admin se confirma por grupo con
-  // findGroupInfos (un solo grupo, liviano) en paralelo.
-  const result = await fetchAllGroups(
+
+  // Enumerar grupos por findChats (lee la DB local, rápido). fetchAllGroups
+  // tarda 25s+ y aborta incluso sin participants (issue EvolutionAPI#1883).
+  // Fallback: grupos ya capturados (discovered_groups + group_settings).
+  const chatsResult = await fetchAllChats(
     instance.evolution_api_url,
     instance.evolution_api_key,
     instance.instance_name,
-    ownerJid ?? undefined,
-    false,
   );
 
-  if (result.ok) {
-    // Confirmar admin + reforzar nombre por grupo (findGroupInfos trae
-    // participants con getParticipants=true → sabemos si el bot es admin).
-    await Promise.all(
-      result.data.map(async (g) => {
-        const info = await findGroupInfos(
-          instance.evolution_api_url,
-          instance.evolution_api_key,
-          instance.instance_name,
-          g.id,
-          ownerJid ?? undefined,
-        );
-        if (info.ok && info.data) {
-          g.name = info.data.name || g.name;
-          g.isAdmin = info.data.isAdmin === true;
-        }
-      }),
-    );
-
-    // Solo se listan grupos donde el bot es admin Y tienen nombre real
-    // (resuelto en vivo o el guardado en group_settings). Nunca exponemos el JID.
-    const listed = result.data
-      .filter((g) => g.isAdmin === true && (g.name || savedMap.get(g.id)))
-      .map((g) => ({
-        group_jid: g.id,
-        group_name: g.name || savedMap.get(g.id) || null,
-        saved: savedMap.has(g.id),
-      }))
-      .sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));
-
-    return NextResponse.json({ status: "success", data: listed, source: "live" });
+  let groupJids: { jid: string; name: string }[] = [];
+  if (chatsResult.ok && chatsResult.data.length > 0) {
+    groupJids = chatsResult.data.map((c) => ({ jid: c.remoteJid, name: c.name }));
+  } else {
+    const [discRes, confRes] = await Promise.all([
+      supabase.from("discovered_groups").select("group_jid").eq("instance_id", instanceId),
+      supabase.from("group_settings").select("group_jid").eq("instance_id", instanceId),
+    ]);
+    const jids = new Set<string>([
+      ...(discRes.data || []).map((g: { group_jid: string }) => g.group_jid),
+      ...(confRes.data || []).map((g: { group_jid: string }) => g.group_jid),
+    ]);
+    groupJids = [...jids].map((jid) => ({ jid, name: "" }));
   }
 
-  // Evolution no respondió: lista vacía (no mostramos JIDs ni nombres inventados).
-  return NextResponse.json({ status: "success", data: [], source: "live" });
+  // Confirmar admin + nombre real por grupo (findGroupInfos trae participants
+  // y el phoneNumber del bot → detección admin correcta, incluso con LID).
+  const verified = await Promise.all(
+    groupJids.map(async ({ jid, name }) => {
+      const info = await findGroupInfos(
+        instance.evolution_api_url,
+        instance.evolution_api_key,
+        instance.instance_name,
+        jid,
+        ownerJid ?? undefined,
+      );
+      if (info.ok && info.data) {
+        return { jid, name: info.data.name || name, isAdmin: info.data.isAdmin === true };
+      }
+      return { jid, name, isAdmin: false };
+    }),
+  );
+
+  // Solo se listan grupos donde el bot es admin Y tienen nombre real
+  // (resuelto en vivo o el guardado en group_settings). Nunca exponemos el JID.
+  const listed = verified
+    .filter((g) => g.isAdmin && (g.name || savedMap.get(g.jid)))
+    .map((g) => ({
+      group_jid: g.jid,
+      group_name: g.name || savedMap.get(g.jid) || null,
+      saved: savedMap.has(g.jid),
+    }))
+    .sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));
+
+  return NextResponse.json({ status: "success", data: listed, source: "live" });
 }
 
 // DELETE: Remove a saved group config (kept for backward compat / dismissal)

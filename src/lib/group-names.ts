@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  fetchAllGroups,
+  fetchAllChats,
   fetchInstanceOwnerJid,
   findGroupInfos,
 } from "@/lib/evolution-multi";
@@ -36,28 +36,19 @@ export async function fetchGroupStatusMap(
     instance_name,
   );
 
-  const result = await fetchAllGroups(
-    evolution_api_url,
-    evolution_api_key,
-    instance_name,
-    ownerJid ?? undefined,
-    false,
-  );
-  if (!result.ok) return new Map();
+  // Enumerar grupos por findChats (DB local, rápido). fetchAllGroups aborta
+  // >20s incluso sin participants (issue #1883). Admin + nombre se confirman
+  // por grupo con findGroupInfos (un grupo, liviano) en paralelo.
+  const chatsResult = await fetchAllChats(evolution_api_url, evolution_api_key, instance_name);
+  if (!chatsResult.ok) return new Map();
 
-  // Sin participants en fetchAllGroups (lento, issue #1883): confirmamos
-  // nombre + admin por grupo con findGroupInfos (un grupo, liviano) en paralelo.
   const map = new Map<string, GroupStatus>();
   await Promise.all(
-    result.data.map(async (g) => {
-      let name = g.name;
-      let isAdmin = g.isAdmin === true;
-      const info = await findGroupInfos(evolution_api_url, evolution_api_key, instance_name, g.id, ownerJid ?? undefined);
-      if (info.ok && info.data) {
-        name = info.data.name || name;
-        isAdmin = isAdmin || info.data.isAdmin === true;
-      }
-      map.set(g.id, { name, isAdmin });
+    chatsResult.data.map(async ({ remoteJid, name }) => {
+      const info = await findGroupInfos(evolution_api_url, evolution_api_key, instance_name, remoteJid, ownerJid ?? undefined);
+      const finalName = (info.ok && info.data.name) || name;
+      const isAdmin = info.ok ? info.data.isAdmin === true : false;
+      map.set(remoteJid, { name: finalName, isAdmin });
     }),
   );
 

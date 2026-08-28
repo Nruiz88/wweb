@@ -485,6 +485,19 @@ function participantsOf(g: Record<string, unknown>): Array<Record<string, unknow
   return [];
 }
 
+/**
+ * Matchea un participante contra un JID. El `id` del participante suele ser
+ * LID (ej "55843265462454@lid") — un número totalmente distinto al real — así
+ * que también se prueba el campo `phoneNumber` (v2.3.5+) que sí trae el
+ * `@s.whatsapp.net` verdadero. Sin esto, el bot nunca matcheaba su propio
+ * participante y jamás se lo detectaba como admin.
+ */
+function participantMatches(p: Record<string, unknown>, targetJid: string): boolean {
+  const id = String(p.id ?? p.jid ?? "");
+  const phone = String(p.phoneNumber ?? p.phone ?? "");
+  return jidsMatch(id, targetJid) || (phone.length > 0 && jidsMatch(phone, targetJid));
+}
+
 /** Compare two WhatsApp JIDs ignoring the device/@lid suffix when possible. */
 function jidsMatch(a: string, b: string): boolean {
   if (a === b) return true;
@@ -532,9 +545,9 @@ export async function findGroupInfos(
   if (participants.length > 0) {
     const ownerField = String(g.owner ?? "").trim();
     const target = botOwnerJid
-      ? participants.find((p) => jidsMatch(String(p.id ?? p.jid ?? ""), botOwnerJid))
+      ? participants.find((p) => participantMatches(p, botOwnerJid))
       : ownerField
-        ? participants.find((p) => jidsMatch(String(p.id ?? p.jid ?? ""), ownerField))
+        ? participants.find((p) => participantMatches(p, ownerField))
         : undefined;
     isAdmin = !!target && isParticipantAdmin(target);
   }
@@ -619,10 +632,7 @@ export async function fetchAllGroups(
     const participants = participantsOf(g);
     if (participants.length > 0) {
       if (ownerJid) {
-        const botParticipant = participants.find((p) => {
-          const pid = String(p.id ?? p.jid ?? "");
-          return jidsMatch(pid, ownerJid);
-        });
+        const botParticipant = participants.find((p) => participantMatches(p, ownerJid));
         isAdmin = !!botParticipant && isParticipantAdmin(botParticipant);
       } else {
         // No owner JID available: Evolution only returns groups the bot belongs
@@ -630,9 +640,7 @@ export async function fetchAllGroups(
         // still detect it via the `owner` field or single-admin groups.
         const ownerField = String(g.owner ?? "").trim();
         if (ownerField) {
-          const ownerParticipant = participants.find((p) =>
-            jidsMatch(String(p.id ?? p.jid ?? ""), ownerField),
-          );
+          const ownerParticipant = participants.find((p) => participantMatches(p, ownerField));
           isAdmin = !!ownerParticipant && isParticipantAdmin(ownerParticipant);
         }
       }
@@ -648,4 +656,53 @@ export async function fetchAllGroups(
   }
 
   return { ok: true, status: result.status, data: groups };
+}
+
+export interface EvolutionChat {
+  remoteJid: string;
+  name: string;
+}
+
+/**
+ * Enumera los GRUPOS del bot vía POST /chat/findChats/{instance} — lee de la
+ * DB local de Evolution, así que es RÁPIDO. fetchAllGroups es lentísimo
+ * (25s+/timeout, issue #1883) incluso sin participants, así que discovery y
+ * sync usan findChats para listar grupos y luego findGroupInfos por grupo.
+ */
+export async function fetchAllChats(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string,
+): Promise<EvolutionResult<EvolutionChat[]>> {
+  const result = await evolutionRequest<unknown>(
+    baseUrl,
+    apiKey,
+    `/chat/findChats/${instanceName}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ where: { isGroup: true } }),
+    },
+    20000,
+  );
+  if (!result.ok) return result;
+
+  const raw = result.data as unknown;
+  let list: unknown[] = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (raw && typeof raw === "object" && Array.isArray((raw as { chats?: unknown[] }).chats)) {
+    list = (raw as { chats: unknown[] }).chats;
+  }
+
+  const chats: EvolutionChat[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const c = item as Record<string, unknown>;
+    const remoteJid = String(c.remoteJid ?? c.jid ?? "").trim();
+    if (!remoteJid || !remoteJid.includes("@g.us")) continue; // solo grupos
+    const name = String(c.name ?? c.subject ?? c.groupName ?? "").trim();
+    chats.push({ remoteJid, name });
+  }
+
+  return { ok: true, status: result.status, data: chats };
 }

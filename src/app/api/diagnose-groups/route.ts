@@ -32,6 +32,32 @@ async function rawGet(baseUrl: string, apiKey: string, path: string) {
   }
 }
 
+async function rawFetchPost(baseUrl: string, apiKey: string, path: string, body: unknown) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { apikey: apiKey, "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    let parsed: unknown = text;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // keep raw text
+    }
+    return { httpStatus: res.status, body: parsed };
+  } catch (e) {
+    return { httpStatus: null, error: e instanceof Error ? e.message : "network error" };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 // GET /api/diagnose-groups?instanceId=<id>[&groupJid=<jid>]
 // instanceId opcional: si no viene, usa la primera instancia del usuario.
 export async function GET(request: Request) {
@@ -77,10 +103,10 @@ export async function GET(request: Request) {
   const key = instance.evolution_api_key;
   const name = instance.instance_name;
 
-  const [instances, groups, groupsNoParticipants, connection, groupInfo] = await Promise.all([
+  const [instances, groups, chats, connection, groupInfo] = await Promise.all([
     rawGet(base, key, `/instance/fetchInstances?instanceName=${encodeURIComponent(name)}`),
-    rawGet(base, key, `/group/fetchAllGroups/${encodeURIComponent(name)}?getParticipants=true`),
     rawGet(base, key, `/group/fetchAllGroups/${encodeURIComponent(name)}?getParticipants=false`),
+    rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, { where: { isGroup: true } }),
     rawGet(base, key, `/instance/connectionState/${encodeURIComponent(name)}`),
     groupJid
       ? rawGet(base, key, `/group/findGroupInfos/${encodeURIComponent(name)}?groupJid=${encodeURIComponent(groupJid)}&getParticipants=true`)
@@ -96,7 +122,7 @@ export async function GET(request: Request) {
       requestedGroupJid: groupJid ?? null,
       fetchInstances: instances,
       fetchAllGroups: groups,
-      fetchAllGroupsNoParticipants: groupsNoParticipants,
+      findChats: chats,
       connectionState: connection,
       findGroupInfos: groupInfo,
     },
