@@ -33,6 +33,8 @@ export default function CommunityPage() {
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [discoveredGroups, setDiscoveredGroups] = useState<{ group_jid: string; group_name: string | null; saved: boolean }[]>([]);
   const [searchingGroups, setSearchingGroups] = useState(false);
+  // Cooldown de 120s: evita que se haga "Buscar grupos" todo el tiempo.
+  const [searchCooldown, setSearchCooldown] = useState(0);
   const [loading, setLoading] = useState(true);
   const [savingLiveGroup, setSavingLiveGroup] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
@@ -102,9 +104,10 @@ export default function CommunityPage() {
   // POST consulta Evolution y guarda el JSON temporal en la DB (se consume del
   // caché unos minutos sin re-consultar).
   const loadDiscoveredGroups = useCallback(async () => {
-    if (!instanceId) return;
+    if (!instanceId || searchCooldown > 0) return;
     setSearchingGroups(true);
     setFeedback(null);
+    setSearchCooldown(120);
     try {
       const discRes = await fetch("/api/discovered-groups", {
         method: "POST",
@@ -125,7 +128,7 @@ export default function CommunityPage() {
     } finally {
       setSearchingGroups(false);
     }
-  }, [instanceId]);
+  }, [instanceId, searchCooldown]);
 
   useEffect(() => {
     const t = setTimeout(() => void loadData(), 0);
@@ -138,6 +141,13 @@ export default function CommunityPage() {
       return () => clearTimeout(t);
     }
   }, [feedback]);
+
+  // Countdown del cooldown de búsqueda (1 tick por segundo).
+  useEffect(() => {
+    if (searchCooldown <= 0) return;
+    const t = setTimeout(() => setSearchCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [searchCooldown]);
 
   // --- Group form ---
   function openGroupForm(g?: GroupSetting) {
@@ -425,20 +435,32 @@ export default function CommunityPage() {
                   <button
                     type="button"
                     onClick={() => void loadDiscoveredGroups()}
-                    className="mt-3 flex items-center gap-1.5 rounded-lg border border-wa-border bg-wa-header px-3 py-2 text-xs font-medium text-wa-text-secondary transition hover:bg-wa-hover hover:text-wa-text"
+                    disabled={searchingGroups || searchCooldown > 0}
+                    className="mt-3 flex items-center gap-1.5 rounded-lg border border-wa-border bg-wa-header px-3 py-2 text-xs font-medium text-wa-text-secondary transition hover:bg-wa-hover hover:text-wa-text disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <RefreshIcon className="h-3.5 w-3.5" />
-                    Buscar de nuevo
+                    {searchingGroups ? "Buscando..." : "Buscar de nuevo"}
+                    {searchCooldown > 0 && !searchingGroups && (
+                      <span className="ml-1 rounded-full bg-wa-panel px-2 py-0.5 text-[10px] font-semibold text-wa-text-secondary/70">
+                        ⏳ {Math.floor(searchCooldown / 60)}:{String(searchCooldown % 60).padStart(2, "0")}
+                      </span>
+                    )}
                   </button>
                 </>
               ) : (
                 <button
                   type="button"
                   onClick={() => void loadDiscoveredGroups()}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#e6a44e] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#e6a44e]/90"
+                  disabled={searchingGroups || searchCooldown > 0}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#e6a44e] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#e6a44e]/90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <RefreshIcon className="h-4 w-4" />
-                  Buscar grupos
+                  {searchingGroups ? "Buscando..." : "Buscar grupos"}
+                  {searchCooldown > 0 && !searchingGroups && (
+                    <span className="ml-1 rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      ⏳ {Math.floor(searchCooldown / 60)}:{String(searchCooldown % 60).padStart(2, "0")}
+                    </span>
+                  )}
                 </button>
               )}
             </div>
