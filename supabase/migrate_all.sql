@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS discovered_groups (
   instance_id UUID REFERENCES instances(id) ON DELETE CASCADE NOT NULL,
   group_jid TEXT NOT NULL,
   group_name TEXT,
+  is_admin BOOLEAN DEFAULT false,
+  verified_at TIMESTAMPTZ,
   last_seen_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(instance_id, group_jid)

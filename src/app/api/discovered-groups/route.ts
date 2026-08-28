@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
-import { fetchAllChats, fetchInstanceOwnerJid, findGroupInfos, mapLimit } from "@/lib/evolution-multi";
+import { runGroupDiscovery } from "@/lib/group-discovery";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -9,90 +9,6 @@ export const maxDuration = 60;
 // TTL del caché: el resultado de "Buscar grupos" se guarda temporalmente en
 // group_discovery_cache y expira a los pocos minutos (no se acumula).
 const CACHE_TTL_MS = 5 * 60 * 1000;
-
-// Ejecuta la búsqueda completa en Evolution (enumerar grupos + confirmar admin
-// + nombre real por grupo) y devuelve la lista de grupos donde el bot es admin.
-async function runDiscovery(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
-  instanceId: string,
-  instance: { instance_name: string; evolution_api_url: string; evolution_api_key: string },
-) {
-  // Groups already saved in group_settings
-  const { data: saved } = await supabase
-    .from("group_settings")
-    .select("group_jid, group_name")
-    .eq("instance_id", instanceId);
-  const savedMap = new Map((saved || []).map((g) => [g.group_jid, g.group_name]));
-
-  // Live groups where the bot is admin.
-  const ownerJid = await fetchInstanceOwnerJid(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name,
-  );
-
-  // Enumerar grupos por findChats (lee la DB local, rápido). fetchAllGroups
-  // tarda 25s+ y aborta incluso sin participants (issue EvolutionAPI#1883).
-  // Se FUSIONA con los grupos ya capturados (discovered_groups + group_settings)
-  // para que la lista nunca quede incompleta si findChats devuelve parcial.
-  const chatsResult = await fetchAllChats(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name,
-  );
-  const [discRes, confRes] = await Promise.all([
-    supabase.from("discovered_groups").select("group_jid").eq("instance_id", instanceId),
-    supabase.from("group_settings").select("group_jid").eq("instance_id", instanceId),
-  ]);
-
-  const jidMap = new Map<string, string>();
-  if (chatsResult.ok) {
-    for (const c of chatsResult.data) jidMap.set(c.remoteJid, c.name);
-  }
-  for (const g of [...(discRes.data || []), ...(confRes.data || [])] as Array<{ group_jid: string }>) {
-    if (!jidMap.has(g.group_jid)) jidMap.set(g.group_jid, "");
-  }
-  const groupJids = [...jidMap.entries()].map(([jid, name]) => ({ jid, name }));
-
-  // Confirmar admin + nombre real por grupo (findGroupInfos trae participants
-  // y el phoneNumber del bot → detección admin correcta, incluso con LID).
-  // Concurrencia moderada + reintento único para evitar que un timeout/429
-  // transitorio deje afuera grupos que SÍ son admin (la lista era inconsistente).
-  const verified = await mapLimit(groupJids, 4, async ({ jid, name }) => {
-    let info = await findGroupInfos(
-      instance.evolution_api_url,
-      instance.evolution_api_key,
-      instance.instance_name,
-      jid,
-      ownerJid ?? undefined,
-    );
-    if (!info.ok) {
-      await new Promise((r) => setTimeout(r, 300));
-      info = await findGroupInfos(
-        instance.evolution_api_url,
-        instance.evolution_api_key,
-        instance.instance_name,
-        jid,
-        ownerJid ?? undefined,
-      );
-    }
-    if (info.ok && info.data) {
-      return { jid, name: info.data.name || name, isAdmin: info.data.isAdmin === true };
-    }
-    return { jid, name, isAdmin: false };
-  });
-
-  // Solo se listan grupos donde el bot es admin Y tienen nombre real
-  // (resuelto en vivo o el guardado en group_settings). Nunca exponemos el JID.
-  return verified
-    .filter((g) => g.isAdmin && (g.name || savedMap.get(g.jid)))
-    .map((g) => ({
-      group_jid: g.jid,
-      group_name: g.name || savedMap.get(g.jid) || null,
-      saved: savedMap.has(g.jid),
-    }))
-    .sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));
-}
 
 // GET: lee el caché temporal (sin consultar Evolution).
 export async function GET(request: Request) {
@@ -160,16 +76,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("instance_name, evolution_api_url, evolution_api_key")
-    .eq("id", instanceId)
-    .single();
-  if (!instance) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-  }
-
-  const listed = await runDiscovery(supabase, instanceId, instance);
+  const listed = await runGroupDiscovery(supabase, instanceId);
 
   // Guardar temporalmente (un solo registro por instancia) y limpiar vencidos.
   await supabase.from("group_discovery_cache").delete().eq("instance_id", instanceId);

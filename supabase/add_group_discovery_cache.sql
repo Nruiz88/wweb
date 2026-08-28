@@ -24,3 +24,8 @@ CREATE POLICY "group_discovery_cache access" ON group_discovery_cache FOR ALL
 CREATE INDEX IF NOT EXISTS idx_group_discovery_cache_instance ON group_discovery_cache(instance_id);
 
 GRANT ALL ON public.group_discovery_cache TO service_role;
+
+-- discovered_groups: persistencia del estado admin verificado (para que "Buscar
+-- grupos" no dependa de que findGroupInfos responda siempre a tiempo).
+ALTER TABLE discovered_groups ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
+ALTER TABLE discovered_groups ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;

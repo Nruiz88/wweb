@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
-import { fetchAllChats, fetchInstanceOwnerJid, findGroupInfos, mapLimit } from "@/lib/evolution-multi";
+import { fetchAllChats, fetchInstanceOwnerJid } from "@/lib/evolution-multi";
+import { runGroupDiscovery } from "@/lib/group-discovery";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -139,27 +140,19 @@ export async function GET(request: Request) {
   ]);
 
   // ============ CAPTURE: pipeline real de la app ============
-  // Corre exactamente lo que hace /api/discovered-groups: enumerar grupos con
-  // fetchAllChats (multi-estrategia) y confirmar admin+nombre por grupo con
-  // findGroupInfos. Devuelve el resultado completo para ver qué captura.
+  // Corre exactamente lo que hace el POST de /api/discovered-groups (persistido
+  // en discovered_groups) y devuelve el resultado completo.
   let ownerJid: string | null = null;
   let chatGroups: { remoteJid: string; name: string }[] = [];
-  let verified: { group_jid: string; group_name: string | null; is_admin: boolean }[] = [];
+  let adminGroups: { group_jid: string; group_name: string | null; saved: boolean }[] = [];
 
   try {
     ownerJid = await fetchInstanceOwnerJid(base, key, name);
     const chatsResult = await fetchAllChats(base, key, name);
     if (chatsResult.ok) chatGroups = chatsResult.data;
-
-    verified = await mapLimit(chatGroups, 6, async ({ remoteJid, name: chatName }) => {
-      const info = await findGroupInfos(base, key, name, remoteJid, ownerJid ?? undefined);
-      if (info.ok && info.data) {
-        return { group_jid: remoteJid, group_name: info.data.name || chatName || null, is_admin: info.data.isAdmin === true };
-      }
-      return { group_jid: remoteJid, group_name: chatName || null, is_admin: false };
-    });
+    adminGroups = await runGroupDiscovery(supabase, instance.id);
   } catch (e) {
-    verified = [];
+    adminGroups = [];
   }
 
   return NextResponse.json({
@@ -172,9 +165,8 @@ export async function GET(request: Request) {
       capture: {
         ownerJid,
         groupsFound: chatGroups.length,
-        groupsAdmin: verified.filter((g) => g.is_admin).length,
-        verified,
-        adminGroups: verified.filter((g) => g.is_admin),
+        groupsAdmin: adminGroups.length,
+        adminGroups,
       },
       findChatsSummary: {
         where: summarizeChats(chatWhere),
