@@ -663,46 +663,82 @@ export interface EvolutionChat {
   name: string;
 }
 
+/** Concurrency limit helper: run `fn` over items with at most `limit` in flight. */
+export async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (true) {
+      const idx = next++;
+      if (idx >= items.length) return;
+      results[idx] = await fn(items[idx]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  return results;
+}
+
 /**
  * Enumera los GRUPOS del bot vía POST /chat/findChats/{instance} — lee de la
  * DB local de Evolution, así que es RÁPIDO. fetchAllGroups es lentísimo
  * (25s+/timeout, issue #1883) incluso sin participants, así que discovery y
  * sync usan findChats para listar grupos y luego findGroupInfos por grupo.
+ * Se pagina con take/skip (filtro isGroup) para no quedarse con una lista
+ * truncada.
  */
 export async function fetchAllChats(
   baseUrl: string,
   apiKey: string,
   instanceName: string,
 ): Promise<EvolutionResult<EvolutionChat[]>> {
-  const result = await evolutionRequest<unknown>(
-    baseUrl,
-    apiKey,
-    `/chat/findChats/${instanceName}`,
-    {
-      method: "POST",
-      body: JSON.stringify({ where: { isGroup: true } }),
-    },
-    20000,
-  );
-  if (!result.ok) return result;
-
-  const raw = result.data as unknown;
-  let list: unknown[] = [];
-  if (Array.isArray(raw)) {
-    list = raw;
-  } else if (raw && typeof raw === "object" && Array.isArray((raw as { chats?: unknown[] }).chats)) {
-    list = (raw as { chats: unknown[] }).chats;
-  }
-
   const chats: EvolutionChat[] = [];
-  for (const item of list) {
-    if (!item || typeof item !== "object") continue;
-    const c = item as Record<string, unknown>;
-    const remoteJid = String(c.remoteJid ?? c.jid ?? "").trim();
-    if (!remoteJid || !remoteJid.includes("@g.us")) continue; // solo grupos
-    const name = String(c.name ?? c.subject ?? c.groupName ?? "").trim();
-    chats.push({ remoteJid, name });
+  const seen = new Set<string>();
+  const take = 300;
+  let skip = 0;
+
+  for (let page = 0; page < 40; page++) {
+    const result = await evolutionRequest<unknown>(
+      baseUrl,
+      apiKey,
+      `/chat/findChats/${instanceName}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ where: { isGroup: true }, take, skip }),
+      },
+      20000,
+    );
+    if (!result.ok) {
+      // Si ya tenemos grupos, devolvemos los que hay en vez de fallar.
+      return chats.length > 0 ? { ok: true, status: 200, data: chats } : result;
+    }
+
+    const raw = result.data as unknown;
+    let list: unknown[] = [];
+    if (Array.isArray(raw)) {
+      list = raw;
+    } else if (raw && typeof raw === "object" && Array.isArray((raw as { chats?: unknown[] }).chats)) {
+      list = (raw as { chats: unknown[] }).chats;
+    }
+    if (list.length === 0) break;
+
+    for (const item of list) {
+      if (!item || typeof item !== "object") continue;
+      const c = item as Record<string, unknown>;
+      const remoteJid = String(c.remoteJid ?? c.jid ?? "").trim();
+      if (!remoteJid || !remoteJid.includes("@g.us")) continue; // solo grupos
+      if (seen.has(remoteJid)) continue;
+      seen.add(remoteJid);
+      const name = String(c.name ?? c.subject ?? c.groupName ?? "").trim();
+      chats.push({ remoteJid, name });
+    }
+
+    if (list.length < take) break;
+    skip += take;
   }
 
-  return { ok: true, status: result.status, data: chats };
+  return { ok: true, status: 200, data: chats };
 }

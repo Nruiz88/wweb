@@ -3,6 +3,7 @@ import {
   fetchAllChats,
   fetchInstanceOwnerJid,
   findGroupInfos,
+  mapLimit,
 } from "@/lib/evolution-multi";
 
 /** Live status of a group: real name + whether the bot is admin. */
@@ -43,14 +44,12 @@ export async function fetchGroupStatusMap(
   if (!chatsResult.ok) return new Map();
 
   const map = new Map<string, GroupStatus>();
-  await Promise.all(
-    chatsResult.data.map(async ({ remoteJid, name }) => {
-      const info = await findGroupInfos(evolution_api_url, evolution_api_key, instance_name, remoteJid, ownerJid ?? undefined);
-      const finalName = (info.ok && info.data.name) || name;
-      const isAdmin = info.ok ? info.data.isAdmin === true : false;
-      map.set(remoteJid, { name: finalName, isAdmin });
-    }),
-  );
+  await mapLimit(chatsResult.data, 6, async ({ remoteJid, name }) => {
+    const info = await findGroupInfos(evolution_api_url, evolution_api_key, instance_name, remoteJid, ownerJid ?? undefined);
+    const finalName = (info.ok && info.data.name) || name;
+    const isAdmin = info.ok ? info.data.isAdmin === true : false;
+    map.set(remoteJid, { name: finalName, isAdmin });
+  });
 
   return map;
 }

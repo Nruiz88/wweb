@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
-import { fetchAllChats, fetchInstanceOwnerJid, findGroupInfos } from "@/lib/evolution-multi";
+import { fetchAllChats, fetchInstanceOwnerJid, findGroupInfos, mapLimit } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -53,45 +53,44 @@ export async function GET(request: Request) {
 
   // Enumerar grupos por findChats (lee la DB local, rápido). fetchAllGroups
   // tarda 25s+ y aborta incluso sin participants (issue EvolutionAPI#1883).
-  // Fallback: grupos ya capturados (discovered_groups + group_settings).
+  // Se FUSIONA con los grupos ya capturados (discovered_groups + group_settings)
+  // para que la lista nunca quede incompleta si findChats devuelve parcial.
   const chatsResult = await fetchAllChats(
     instance.evolution_api_url,
     instance.evolution_api_key,
     instance.instance_name,
   );
+  const [discRes, confRes] = await Promise.all([
+    supabase.from("discovered_groups").select("group_jid").eq("instance_id", instanceId),
+    supabase.from("group_settings").select("group_jid").eq("instance_id", instanceId),
+  ]);
 
-  let groupJids: { jid: string; name: string }[] = [];
-  if (chatsResult.ok && chatsResult.data.length > 0) {
-    groupJids = chatsResult.data.map((c) => ({ jid: c.remoteJid, name: c.name }));
-  } else {
-    const [discRes, confRes] = await Promise.all([
-      supabase.from("discovered_groups").select("group_jid").eq("instance_id", instanceId),
-      supabase.from("group_settings").select("group_jid").eq("instance_id", instanceId),
-    ]);
-    const jids = new Set<string>([
-      ...(discRes.data || []).map((g: { group_jid: string }) => g.group_jid),
-      ...(confRes.data || []).map((g: { group_jid: string }) => g.group_jid),
-    ]);
-    groupJids = [...jids].map((jid) => ({ jid, name: "" }));
+  const jidMap = new Map<string, string>();
+  if (chatsResult.ok) {
+    for (const c of chatsResult.data) jidMap.set(c.remoteJid, c.name);
   }
+  for (const g of [...(discRes.data || []), ...(confRes.data || [])] as Array<{ group_jid: string }>) {
+    if (!jidMap.has(g.group_jid)) jidMap.set(g.group_jid, "");
+  }
+  const groupJids = [...jidMap.entries()].map(([jid, name]) => ({ jid, name }));
 
   // Confirmar admin + nombre real por grupo (findGroupInfos trae participants
   // y el phoneNumber del bot → detección admin correcta, incluso con LID).
-  const verified = await Promise.all(
-    groupJids.map(async ({ jid, name }) => {
-      const info = await findGroupInfos(
-        instance.evolution_api_url,
-        instance.evolution_api_key,
-        instance.instance_name,
-        jid,
-        ownerJid ?? undefined,
-      );
-      if (info.ok && info.data) {
-        return { jid, name: info.data.name || name, isAdmin: info.data.isAdmin === true };
-      }
-      return { jid, name, isAdmin: false };
-    }),
-  );
+  // Concurrencia limitada para no saturar Evolution (evita 429/timeouts que
+  // hacían inconsistente la lista).
+  const verified = await mapLimit(groupJids, 6, async ({ jid, name }) => {
+    const info = await findGroupInfos(
+      instance.evolution_api_url,
+      instance.evolution_api_key,
+      instance.instance_name,
+      jid,
+      ownerJid ?? undefined,
+    );
+    if (info.ok && info.data) {
+      return { jid, name: info.data.name || name, isAdmin: info.data.isAdmin === true };
+    }
+    return { jid, name, isAdmin: false };
+  });
 
   // Solo se listan grupos donde el bot es admin Y tienen nombre real
   // (resuelto en vivo o el guardado en group_settings). Nunca exponemos el JID.
