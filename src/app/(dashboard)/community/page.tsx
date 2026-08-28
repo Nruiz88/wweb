@@ -247,9 +247,9 @@ export default function CommunityPage() {
       const payload = await res.json();
       if (payload.status === "success") {
         setFeedback({ kind: "success", message: "Grupo guardado" });
-        setDiscoveredGroups((prev) =>
-          prev.map((g) => (g.group_jid === jid ? { ...g, saved: true } : g)),
-        );
+        // El grupo ya quedó configurado → sale de la lista de búsqueda
+        // (aparece en "Grupos configurados").
+        setDiscoveredGroups((prev) => prev.filter((g) => g.group_jid !== jid));
         await loadData();
       } else {
         setFeedback({ kind: "error", message: payload.error });
@@ -259,22 +259,6 @@ export default function CommunityPage() {
     } finally {
       setSavingLiveGroup(null);
     }
-  }
-
-  function openConfigureDiscovered(disc: { group_jid: string; group_name: string | null }) {
-    setEditingGroup(null);
-    setGroupJid(disc.group_jid);
-    setGroupName(disc.group_name || "");
-    setWelcomeEnabled(false);
-    setWelcomeMessage("");
-    setSpamFilterEnabled(false);
-    setBlockAllLinks(true);
-    setAllowedDomains("");
-    setBannedWordsEnabled(false);
-    setBannedWordsInput("");
-    setBannedWordsAction("delete_and_reply");
-    setBannedWordsReply("");
-    setShowGroupForm(true);
   }
 
   // --- Broadcast form ---
@@ -426,24 +410,14 @@ export default function CommunityPage() {
                           </div>
                         </div>
                         <div className="flex shrink-0 gap-1">
-                          {dg.saved ? (
-                            <button
-                              type="button"
-                              onClick={() => openConfigureDiscovered(dg)}
-                              className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25"
-                            >
-                              Configurar
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={savingLiveGroup === dg.group_jid}
-                              onClick={() => void handleSaveLiveGroup(dg.group_jid, dg.group_name)}
-                              className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25 disabled:opacity-50"
-                            >
-                              {savingLiveGroup === dg.group_jid ? "Guardando..." : "Guardar grupo"}
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            disabled={savingLiveGroup === dg.group_jid}
+                            onClick={() => void handleSaveLiveGroup(dg.group_jid, dg.group_name)}
+                            className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25 disabled:opacity-50"
+                          >
+                            {savingLiveGroup === dg.group_jid ? "Guardando..." : "Guardar grupo"}
+                          </button>
                         </div>
                       </div>
                     ))}

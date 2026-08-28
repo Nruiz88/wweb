@@ -1,22 +1,28 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllChats, fetchInstanceOwnerJid, findGroupInfos, mapLimit } from "@/lib/evolution-multi";
 
-// Un grupo verificado como admin se considera "fresco" durante 24h → no se
-// vuelve a consultar Evolution en cada "Buscar grupos" (evita flakiness por
-// timeouts/429 y hace la lista estable y rápida).
-const ADMIN_FRESH_MS = 24 * 60 * 60 * 1000;
+// Lote por "Buscar grupos": se verifican como máximo esta cantidad de grupos
+// nuevos por consulta. El resto se acumula en discovered_groups (is_admin +
+// verified_at) y se completa en las siguientes búsquedas → cada run NO vuelve a
+// consultar lo que ya tiene (ni guardado ni verificado en 24h).
+const BATCH_LIMIT = 15;
+const VERIFIED_FRESH_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Ejecuta la búsqueda completa de grupos donde el bot es admin.
+ * Búsqueda incremental de grupos donde el bot es admin.
  *
  * Pipeline:
  * 1. Enumerar grupos con findChats (DB local, rápido) + fusionar con los JIDs
  *    ya capturados en discovered_groups / group_settings.
- * 2. Por grupo, confirmar nombre + admin con findGroupInfos (usa el phoneNumber
- *    del bot → detección correcta incluso con LID). Resultado PERSISTIDO en
- *    discovered_groups (is_admin + verified_at): lo verificado no se vuelve a
- *    consultar dentro de 24h.
- * 3. Devolver solo los grupos donde el bot es admin Y tienen nombre real.
+ * 2. Particionar:
+ *    - guardados (group_settings) → NO se consultan ni se muestran (están en
+ *      "Grupos configurados").
+ *    - ya verificados (discovered_groups.verified_at < 24h) → NO se vuelven a
+ *      consultar; se suman al resultado si son admin.
+ *    - resto → se verifica un LOTE de hasta BATCH_LIMIT con findGroupInfos
+ *      (usa phoneNumber → detección admin correcta incluso con LID) y se
+ *      persiste (is_admin + verified_at).
+ * 3. Devuelve los grupos admin NO guardados (para que el usuario los agregue).
  *    Nunca se expone el JID al usuario.
  */
 export async function runGroupDiscovery(
@@ -38,10 +44,15 @@ export async function runGroupDiscovery(
       .eq("instance_id", instanceId),
   ]);
 
-  const savedMap = new Map((savedRes.data || []).map((g) => [g.group_jid, g.group_name]));
-  const discoveredRows = new Map<string, { group_name: string | null; is_admin: boolean | null; verified_at: string | null }>();
+  const savedSet = new Set((savedRes.data || []).map((g) => g.group_jid));
+
+  // Grupos ya verificados hace menos de 24h → no se vuelven a consultar.
+  const now = Date.now();
+  const freshVerified = new Map<string, { group_name: string | null; is_admin: boolean }>();
   for (const g of discRes.data || []) {
-    discoveredRows.set(g.group_jid, g);
+    if (g.verified_at && now - new Date(g.verified_at).getTime() < VERIFIED_FRESH_MS) {
+      freshVerified.set(g.group_jid, { group_name: g.group_name, is_admin: g.is_admin === true });
+    }
   }
 
   const ownerJid = await fetchInstanceOwnerJid(
@@ -64,66 +75,60 @@ export async function runGroupDiscovery(
     if (!jidMap.has(g.group_jid)) jidMap.set(g.group_jid, g.group_name || "");
   }
 
-  const now = Date.now();
+  // Solo el lote de grupos nuevos (ni guardados, ni verificados en 24h).
+  const toCheck = [...jidMap.entries()]
+    .filter(([jid]) => !savedSet.has(jid) && !freshVerified.has(jid))
+    .slice(0, BATCH_LIMIT)
+    .map(([jid, name]) => ({ jid, name }));
 
-  const verified = await mapLimit(
-    [...jidMap.entries()].map(([jid, name]) => ({ jid, name })),
-    4,
-    async ({ jid, name }) => {
-      // Admin ya verificado recientemente → no volver a consultar Evolution.
-      const known = discoveredRows.get(jid);
-      if (known && known.is_admin === true && known.verified_at && now - new Date(known.verified_at).getTime() < ADMIN_FRESH_MS) {
-        return { jid, name: known.group_name || name, isAdmin: true };
-      }
+  const adminGroups: Array<{ group_jid: string; group_name: string | null; saved: boolean }> = [];
 
-      let info = await findGroupInfos(
+  // Verificar el lote y persistir.
+  await mapLimit(toCheck, 4, async ({ jid, name }) => {
+    let info = await findGroupInfos(
+      instance.evolution_api_url,
+      instance.evolution_api_key,
+      instance.instance_name,
+      jid,
+      ownerJid ?? undefined,
+    );
+    if (!info.ok) {
+      await new Promise((r) => setTimeout(r, 300));
+      info = await findGroupInfos(
         instance.evolution_api_url,
         instance.evolution_api_key,
         instance.instance_name,
         jid,
         ownerJid ?? undefined,
       );
-      if (!info.ok) {
-        await new Promise((r) => setTimeout(r, 300));
-        info = await findGroupInfos(
-          instance.evolution_api_url,
-          instance.evolution_api_key,
-          instance.instance_name,
-          jid,
-          ownerJid ?? undefined,
-        );
+    }
+
+    if (info.ok && info.data) {
+      const isAdmin = info.data.isAdmin === true;
+      const finalName = info.data.name || name;
+      await supabase.from("discovered_groups").upsert(
+        {
+          instance_id: instanceId,
+          group_jid: jid,
+          group_name: finalName || null,
+          is_admin: isAdmin,
+          verified_at: new Date().toISOString(),
+          last_seen_at: new Date().toISOString(),
+        },
+        { onConflict: "instance_id,group_jid" },
+      );
+      if (isAdmin && finalName && !savedSet.has(jid)) {
+        adminGroups.push({ group_jid: jid, group_name: finalName, saved: false });
       }
+    }
+  });
 
-      if (info.ok && info.data) {
-        const isAdmin = info.data.isAdmin === true;
-        const finalName = info.data.name || name;
-        // Persistir (best-effort): si la columna no existe aún, el error se ignora.
-        await supabase.from("discovered_groups").upsert(
-          {
-            instance_id: instanceId,
-            group_jid: jid,
-            group_name: finalName || null,
-            is_admin: isAdmin,
-            verified_at: new Date().toISOString(),
-            last_seen_at: new Date().toISOString(),
-          },
-          { onConflict: "instance_id,group_jid" },
-        );
-        return { jid, name: finalName, isAdmin };
-      }
+  // Sumar los admin ya verificados en búsquedas anteriores (y no guardados).
+  for (const [jid, v] of freshVerified) {
+    if (v.is_admin && v.group_name && !savedSet.has(jid)) {
+      adminGroups.push({ group_jid: jid, group_name: v.group_name, saved: false });
+    }
+  }
 
-      // No se pudo verificar (timeout/429): no se persiste → se reintenta la
-      // próxima búsqueda.
-      return { jid, name, isAdmin: false };
-    },
-  );
-
-  return verified
-    .filter((g) => g.isAdmin && (g.name || savedMap.get(g.jid)))
-    .map((g) => ({
-      group_jid: g.jid,
-      group_name: g.name || savedMap.get(g.jid) || null,
-      saved: savedMap.has(g.jid),
-    }))
-    .sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));
+  return adminGroups.sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));
 }
