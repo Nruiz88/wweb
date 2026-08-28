@@ -23,7 +23,47 @@ export async function GET() {
     return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ status: "success", data: profile });
+  // Fetch subscription
+  const { data: sub } = await supabase
+    .from("subscriptions")
+    .select("plan_type, status, max_instances, updated_at")
+    .eq("user_id", user.id)
+    .single();
+
+  // Count used instances
+  const { count: usedInstances } = await supabase
+    .from("user_instances")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id);
+
+  // Count addons
+  const { count: addonCount } = await supabase
+    .from("instance_addons")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .eq("status", "active");
+
+  return NextResponse.json({
+    status: "success",
+    data: {
+      ...profile,
+      subscription: sub ? {
+        plan_type: sub.plan_type,
+        status: sub.status,
+        max_instances: sub.max_instances,
+        used_instances: usedInstances ?? 0,
+        addons: addonCount ?? 0,
+        updated_at: sub.updated_at,
+      } : {
+        plan_type: "starter",
+        status: "active",
+        max_instances: 1,
+        used_instances: usedInstances ?? 0,
+        addons: 0,
+        updated_at: null,
+      },
+    },
+  });
 }
 
 // PUT: Update current user's profile

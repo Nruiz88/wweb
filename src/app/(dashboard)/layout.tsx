@@ -40,6 +40,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [userName, setUserName] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userPlan, setUserPlan] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +61,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               setIsAdmin(true);
               if (payload.data.full_name) setUserName(payload.data.full_name);
             }
+            // Fetch subscription plan
+            try {
+              const subRes = await fetch("/api/profile");
+              const subPayload = await subRes.json();
+              if (!cancelled && subPayload.status === "success" && subPayload.data?.subscription) {
+                setUserPlan(subPayload.data.subscription.plan_type);
+              }
+            } catch { /* non-critical */ }
           } catch { /* non-critical */ }
         }
       } catch { /* auth error */ }
@@ -126,6 +135,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Admin
               </span>
             )}
+            {userPlan && (
+              <span
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                style={{
+                  backgroundColor: userPlan === "pro" ? "#00a88415" : userPlan === "community" ? "#e6a44e15" : "#53bdeb15",
+                  color: userPlan === "pro" ? "#00a884" : userPlan === "community" ? "#e6a44e" : "#53bdeb",
+                }}
+              >
+                {userPlan === "starter" ? "Starter" : userPlan === "pro" ? "Pro" : "Community"}
+              </span>
+            )}
             <span className="text-xs text-wa-text-secondary truncate max-w-[120px]">{userName}</span>
             <button
               type="button"
@@ -162,6 +182,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="flex items-center gap-1.5">
             <p className="truncate text-sm font-bold text-wa-text">Boti</p>
             {isAdmin && <span className="rounded-full bg-[#00a884]/10 px-1.5 py-0.5 text-[8px] font-semibold text-[#00a884]">Admin</span>}
+            {userPlan && (
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[8px] font-semibold"
+                style={{
+                  backgroundColor: userPlan === "pro" ? "#00a88415" : userPlan === "community" ? "#e6a44e15" : "#53bdeb15",
+                  color: userPlan === "pro" ? "#00a884" : userPlan === "community" ? "#e6a44e" : "#53bdeb",
+                }}
+              >
+                {userPlan === "starter" ? "Starter" : userPlan === "pro" ? "Pro" : "Community"}
+              </span>
+            )}
           </div>
         </div>
       </div>

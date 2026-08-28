@@ -48,7 +48,7 @@ function InfoCard({ icon, label, value }: { icon: React.ReactNode; label: string
 }
 
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<Profile & { subscription?: { plan_type: string; status: string; max_instances: number; used_instances: number; addons: number; updated_at: string | null } } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
@@ -173,13 +173,48 @@ export default function ProfilePage() {
                   </div>
                 </div>
               </div>
-            </div>
+            </div>              {/* Quick info cards */}
+              <div className="grid grid-cols-2 gap-3">
+                <InfoCard icon={<MessageCircleIcon className="h-4 w-4" />} label="Negocio" value={businessName} />
+                <InfoCard icon={<ClockIcon className="h-4 w-4" />} label="Telefono" value={phone} />
+              </div>
 
-            {/* Quick info cards */}
-            <div className="grid grid-cols-2 gap-3">
-              <InfoCard icon={<MessageCircleIcon className="h-4 w-4" />} label="Negocio" value={businessName} />
-              <InfoCard icon={<ClockIcon className="h-4 w-4" />} label="Telefono" value={phone} />
-            </div>
+              {/* Plan card */}
+              {profile?.subscription && (
+                <div className="rounded-2xl border border-wa-border bg-wa-header p-5">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-wa-text">Mi Plan</h3>
+                    <span
+                      className="rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wide"
+                      style={{
+                        backgroundColor: profile.subscription.plan_type === "pro" ? "#00a88415" : profile.subscription.plan_type === "community" ? "#e6a44e15" : "#53bdeb15",
+                        color: profile.subscription.plan_type === "pro" ? "#00a884" : profile.subscription.plan_type === "community" ? "#e6a44e" : "#53bdeb",
+                      }}
+                    >
+                      {profile.subscription.plan_type === "starter" ? "Starter" : profile.subscription.plan_type === "pro" ? "Pro" : "Community"}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-3">
+                    <div className="rounded-xl bg-wa-panel/50 p-3 text-center">
+                      <p className="text-lg font-bold text-wa-text">{profile.subscription.used_instances}/{profile.subscription.max_instances}</p>
+                      <p className="text-[10px] text-wa-text-secondary/60">Bots</p>
+                    </div>
+                    <div className="rounded-xl bg-wa-panel/50 p-3 text-center">
+                      <p className="text-lg font-bold text-wa-text">{profile.subscription.addons}</p>
+                      <p className="text-[10px] text-wa-text-secondary/60">Add-ons</p>
+                    </div>
+                    <div className="rounded-xl bg-wa-panel/50 p-3 text-center">
+                      <p className={`text-lg font-bold ${profile.subscription.status === "active" ? "text-[#00a884]" : "text-red-400"}`}>{profile.subscription.status === "active" ? "Activo" : "Inactivo"}</p>
+                      <p className="text-[10px] text-wa-text-secondary/60">Estado</p>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-[10px] text-wa-text-secondary/40">
+                    {profile.subscription.plan_type === "starter" && "Auto-respuestas por keywords y menú de botones"}
+                    {profile.subscription.plan_type === "pro" && "Calendario, agenda de turnos y recordatorios"}
+                    {profile.subscription.plan_type === "community" && "Grupos, moderación anti-spam y broadcasts"}
+                  </p>
+                </div>
+              )}
 
             {/* Form */}
             <div className="rounded-2xl border border-wa-border bg-wa-header p-5 space-y-4">

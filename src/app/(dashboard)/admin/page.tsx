@@ -138,6 +138,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [assigning, setAssigning] = useState<string | null>(null);
+  const [changingPlan, setChangingPlan] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -222,6 +223,29 @@ export default function AdminPage() {
       setFeedback({ kind: "error", message: "Error de red" });
     } finally {
       setAssigning(null);
+    }
+  }
+
+  async function handlePlanChange(userId: string, newPlan: string) {
+    setChangingPlan(userId);
+    setFeedback(null);
+    try {
+      const res = await fetch("/api/admin/change-plan", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, planType: newPlan }),
+      });
+      const payload = await res.json();
+      if (payload.status === "success") {
+        setFeedback({ kind: "success", message: `Plan cambiado a ${newPlan}` });
+        await loadData();
+      } else {
+        setFeedback({ kind: "error", message: payload.error });
+      }
+    } catch {
+      setFeedback({ kind: "error", message: "Error de red" });
+    } finally {
+      setChangingPlan(null);
     }
   }
 
@@ -406,15 +430,20 @@ export default function AdminPage() {
                                 </div>
                               </td>
                               <td className="py-2.5">
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                    u.status === "active"
-                                      ? "bg-[#00a884]/10 text-[#00a884]"
-                                      : "bg-red-500/10 text-red-400"
-                                  }`}
-                                >
-                                  {u.status}
-                                </span>
+                                {u.role !== "admin" ? (
+                                  <select
+                                    value={u.plan}
+                                    onChange={(e) => void handlePlanChange(u.id, e.target.value)}
+                                    disabled={changingPlan === u.id}
+                                    className="rounded-lg border border-wa-border bg-wa-input px-2 py-1 text-[10px] font-medium text-wa-text focus:border-[#00a884] focus:outline-none"
+                                  >
+                                    <option value="starter">Starter</option>
+                                    <option value="pro">Pro</option>
+                                    <option value="community">Community</option>
+                                  </select>
+                                ) : (
+                                  <span className="text-[10px] text-wa-text-secondary/50">—</span>
+                                )}
                               </td>
                             </tr>
                           );
