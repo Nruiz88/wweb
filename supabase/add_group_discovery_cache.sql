@@ -33,3 +33,7 @@ ALTER TABLE discovered_groups ADD COLUMN IF NOT EXISTS group_picture TEXT;
 
 -- group_settings: imagen del grupo (para mostrar el logo en la lista).
 ALTER TABLE group_settings ADD COLUMN IF NOT EXISTS picture_url TEXT;
+
+-- instances: JID del dueño/bot (persistido para no consultar Evolution en cada
+-- "Buscar grupos"). Solo cambia si se re-vincula WhatsApp.
+ALTER TABLE instances ADD COLUMN IF NOT EXISTS owner_jid TEXT;

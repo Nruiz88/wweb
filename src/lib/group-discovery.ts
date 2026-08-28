@@ -31,7 +31,7 @@ export async function runGroupDiscovery(
 ): Promise<Array<{ group_jid: string; group_name: string | null; group_picture: string | null; saved: boolean }>> {
   const { data: instance } = await supabase
     .from("instances")
-    .select("instance_name, evolution_api_url, evolution_api_key")
+    .select("instance_name, evolution_api_url, evolution_api_key, owner_jid")
     .eq("id", instanceId)
     .single();
   if (!instance) return [];
@@ -59,11 +59,19 @@ export async function runGroupDiscovery(
     }
   }
 
-  const ownerJid = await fetchInstanceOwnerJid(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name,
-  );
+  // Owner JID persistido (solo cambia si se re-vincula WhatsApp). Se consulta
+  // Evolution únicamente la primera vez / si aún no está guardado.
+  let ownerJid = instance.owner_jid || null;
+  if (!ownerJid) {
+    ownerJid = await fetchInstanceOwnerJid(
+      instance.evolution_api_url,
+      instance.evolution_api_key,
+      instance.instance_name,
+    );
+    if (ownerJid) {
+      await supabase.from("instances").update({ owner_jid: ownerJid }).eq("id", instanceId);
+    }
+  }
 
   const chatsResult = await fetchAllChats(
     instance.evolution_api_url,

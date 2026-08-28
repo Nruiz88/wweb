@@ -139,6 +139,11 @@ DO $$ BEGIN
   ALTER TABLE profiles ADD COLUMN onboarding_completed BOOLEAN DEFAULT false;
 EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
+-- 7e. owner_jid en instances (JID del bot persistido para no consultar Evolution)
+DO $$ BEGIN
+  ALTER TABLE instances ADD COLUMN owner_jid TEXT;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
 -- 8. RLS
 ALTER TABLE business_hours ENABLE ROW LEVEL SECURITY;
 ALTER TABLE discovered_groups ENABLE ROW LEVEL SECURITY;

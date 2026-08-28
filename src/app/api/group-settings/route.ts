@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
-import { syncConfiguredGroupNames } from "@/lib/group-names";
 import { fetchInstanceOwnerJid, findGroupInfos } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
@@ -39,11 +38,34 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
-  // Best-effort: sync real group names from Evolution so configured groups
-  // don't keep the legacy pushName value. Never blocks on failure.
-  await syncConfiguredGroupNames(supabase, instanceId, settings || []);
+  // Merge nombre/imagen PERSISTIDOS desde discovered_groups (sin consultar
+  // Evolution en cada carga). El nombre/imagen real los mantiene el flujo de
+  // "Buscar grupos" (runGroupDiscovery) que persiste por grupo.
+  const rows = settings || [];
+  if (rows.length > 0) {
+    const { data: discovered } = await supabase
+      .from("discovered_groups")
+      .select("group_jid, group_name, group_picture")
+      .eq("instance_id", instanceId)
+      .in("group_jid", rows.map((r) => r.group_jid));
+    const discMap = new Map((discovered || []).map((g) => [g.group_jid, g]));
+    const updates: unknown[] = [];
+    for (const r of rows) {
+      const d = discMap.get(r.group_jid);
+      if (!d) continue;
+      if (d.group_name && d.group_name !== r.group_name) {
+        r.group_name = d.group_name;
+        updates.push(supabase.from("group_settings").update({ group_name: d.group_name }).eq("id", r.id));
+      }
+      if (d.group_picture && d.group_picture !== r.picture_url) {
+        r.picture_url = d.group_picture;
+        updates.push(supabase.from("group_settings").update({ picture_url: d.group_picture }).eq("id", r.id));
+      }
+    }
+    if (updates.length) await Promise.all(updates);
+  }
 
-  return NextResponse.json({ status: "success", data: settings });
+  return NextResponse.json({ status: "success", data: rows });
 }
 
 // POST: Create or update group settings
@@ -115,7 +137,7 @@ export async function POST(request: Request) {
   // Verify admin access + fetch Evolution credentials
   const { data: instance } = await supabase
     .from("instances")
-    .select("id, admin_id, instance_name, evolution_api_url, evolution_api_key")
+    .select("id, admin_id, instance_name, evolution_api_url, evolution_api_key, owner_jid")
     .eq("id", instanceId)
     .single();
 
@@ -126,11 +148,17 @@ export async function POST(request: Request) {
   // El nombre del grupo SIEMPRE sale de WhatsApp (nunca del cliente).
   let resolvedName: string | null = null;
   if (instance.evolution_api_url && instance.evolution_api_key) {
-    const ownerJid = await fetchInstanceOwnerJid(
-      instance.evolution_api_url,
-      instance.evolution_api_key,
-      instance.instance_name,
-    );
+    let ownerJid = instance.owner_jid || null;
+    if (!ownerJid) {
+      ownerJid = await fetchInstanceOwnerJid(
+        instance.evolution_api_url,
+        instance.evolution_api_key,
+        instance.instance_name,
+      );
+      if (ownerJid) {
+        await supabase.from("instances").update({ owner_jid: ownerJid }).eq("id", instanceId);
+      }
+    }
     const info = await findGroupInfos(
       instance.evolution_api_url,
       instance.evolution_api_key,
