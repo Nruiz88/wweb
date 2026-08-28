@@ -346,3 +346,11 @@ export function CalendarIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function ChevronDownIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}

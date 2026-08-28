@@ -7,6 +7,7 @@ import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 export const dynamic = "force-dynamic";
 
 // GET: List auto-responses for user's instance
+// Optional ?type=text|menu to filter by response_type.
 export async function GET(request: Request) {
   const user = await getCurrentUser();
 
@@ -18,6 +19,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");
+  const type = searchParams.get("type");
 
   if (!instanceId) {
     return NextResponse.json(
@@ -31,11 +33,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  const { data: responses, error } = await supabase
+  let query = supabase
     .from("auto_responses")
     .select("*")
-    .eq("instance_id", instanceId)
-    .order("priority", { ascending: false });
+    .eq("instance_id", instanceId);
+
+  if (type === "text" || type === "menu") {
+    query = query.eq("response_type", type);
+  }
+
+  const { data: responses, error } = await query.order("priority", { ascending: false });
 
   if (error) {
     return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });

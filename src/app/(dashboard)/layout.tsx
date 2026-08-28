@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import {
@@ -14,17 +14,38 @@ import {
   UserIcon,
   CalendarIcon,
   UsersIcon,
+  ChevronDownIcon,
 } from "@/components/icons";
 import { LogoMark } from "@/components/logo";
 
-const BASE_NAV = [
+type NavChild = { href: string; label: string };
+
+const BASE_NAV: { href: string; label: string; icon: typeof HomeIcon; children?: NavChild[] }[] = [
   { href: "/dashboard", label: "Inicio", icon: HomeIcon },
   { href: "/whatsapp", label: "Mi WhatsApp", icon: MessageCircleIcon },
-  { href: "/auto-responses", label: "Auto-Respuestas", icon: ZapIcon },
+  {
+    href: "/auto-responses",
+    label: "Bot",
+    icon: ZapIcon,
+    children: [
+      { href: "/auto-responses", label: "Auto-Respuestas" },
+      { href: "/menus", label: "Menús interactivos" },
+    ],
+  },
 ];
 
-const PLAN_NAV: Record<string, { href: string; label: string; icon: typeof HomeIcon }[]> = {
-  pro: [{ href: "/calendar", label: "Calendario", icon: CalendarIcon }],
+const CALENDAR_NAV = {
+  href: "/calendar",
+  label: "Calendario",
+  icon: CalendarIcon,
+  children: [
+    { href: "/calendar", label: "Ver turnos" },
+    { href: "/calendar?config=1", label: "Configurar horarios" },
+  ],
+};
+
+const PLAN_NAV: Record<string, { href: string; label: string; icon: typeof HomeIcon; children?: NavChild[] }[]> = {
+  pro: [CALENDAR_NAV],
   community: [{ href: "/community", label: "Community", icon: UsersIcon }],
 };
 
@@ -35,7 +56,7 @@ const TAIL_NAV = [
 
 const ADMIN_EXTRA = [
   { href: "/admin", label: "Admin", icon: ShieldIcon },
-  { href: "/settings", label: "Configuracion", icon: SettingsIcon },
+  { href: "/settings", label: "Configuración", icon: SettingsIcon },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -45,6 +66,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [userName, setUserName] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [userPlan, setUserPlan] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,7 +115,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const items = [...BASE_NAV];
     if (isAdmin) {
       // Admin sees everything
-      items.push({ href: "/calendar", label: "Calendario", icon: CalendarIcon });
+      items.push(CALENDAR_NAV);
       items.push({ href: "/community", label: "Community", icon: UsersIcon });
     } else if (userPlan) {
       // Users see only features for their plan
@@ -128,6 +150,45 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <nav className="flex items-center gap-1 flex-1">
             {navItems.map((item) => {
               const Icon = item.icon;
+              if (item.children && item.children.length > 0) {
+                const anyActive = item.children.some((c) => pathname === c.href.split("?")[0]);
+                return (
+                  <div key={item.href} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setOpenDropdown(openDropdown === item.href ? null : item.href)}
+                      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                        anyActive || openDropdown === item.href
+                          ? "bg-[#00a884]/10 text-[#00a884]"
+                          : "text-wa-text-secondary hover:bg-wa-hover hover:text-wa-text"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {item.label}
+                      <ChevronDownIcon className={`h-3.5 w-3.5 transition-transform ${openDropdown === item.href ? "rotate-180" : ""}`} />
+                    </button>
+
+                    {openDropdown === item.href && (
+                      <div className="absolute left-0 top-full z-50 mt-1 w-52 rounded-xl border border-wa-border bg-wa-panel p-1.5 shadow-xl shadow-black/30">
+                        {item.children.map((child) => (
+                          <a
+                            key={child.href}
+                            href={child.href}
+                            onClick={() => setOpenDropdown(null)}
+                            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                              pathname === child.href.split("?")[0]
+                                ? "bg-[#00a884]/10 text-[#00a884]"
+                                : "text-wa-text-secondary hover:bg-wa-hover hover:text-wa-text"
+                            }`}
+                          >
+                            {child.label}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
               const active = pathname === item.href;
               return (
                 <a

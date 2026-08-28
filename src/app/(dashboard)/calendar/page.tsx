@@ -106,6 +106,14 @@ export default function CalendarPage() {
     }
   }, [feedback]);
 
+  // Open the business-hours modal when navigating with ?config=1
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("config") === "1" && instanceId && canEdit) {
+      openHoursForm();
+    }
+  }, [instanceId, canEdit]);
+
   const filteredAppointments = useMemo(() => {
     let list = appointments;
     if (statusFilter !== "all") {
