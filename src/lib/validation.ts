@@ -93,12 +93,12 @@ export function validateEvolutionUrl(url: string): UrlValidationResult {
 }
 
 /**
- * Validate a UUID v4 format string.
+ * Validate a UUID format string (any version).
  * Used to prevent injection of crafted IDs in query parameters.
  */
 export function isValidUUID(value: string): boolean {
   if (!value || typeof value !== "string") return false;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 /**

@@ -31,19 +31,23 @@ export async function PATCH(request: Request) {
   }
 
   if (!isValidUUID(userId)) {
+    console.error("[change-plan] invalid userId", { userId });
     return NextResponse.json({ status: "error", error: "Invalid user ID" }, { status: 400 });
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("subscriptions")
     .upsert(
       { user_id: userId, plan_type: planType },
       { onConflict: "user_id" },
-    );
+    )
+    .select();
 
   if (error) {
+    console.error("[change-plan] db error", { code: error.code, message: error.message, userId, planType });
     return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
+  console.log("[change-plan] ok", { userId, planType, data: data?.[0]?.plan_type });
   return NextResponse.json({ status: "success", data: { userId, planType } });
 }
