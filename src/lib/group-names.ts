@@ -10,6 +10,7 @@ import {
 export interface GroupStatus {
   name: string;
   isAdmin: boolean;
+  pictureUrl?: string;
 }
 
 /**
@@ -48,7 +49,7 @@ export async function fetchGroupStatusMap(
     const info = await findGroupInfos(evolution_api_url, evolution_api_key, instance_name, remoteJid, ownerJid ?? undefined);
     const finalName = (info.ok && info.data.name) || name;
     const isAdmin = info.ok ? info.data.isAdmin === true : false;
-    map.set(remoteJid, { name: finalName, isAdmin });
+    map.set(remoteJid, { name: finalName, isAdmin, pictureUrl: info.ok ? info.data.pictureUrl : undefined });
   });
 
   return map;
@@ -83,11 +84,16 @@ export async function syncGroupNamesAndFilterAdmin(
     if (!status) continue; // not in Evolution's group list → skip
     if (!status.isAdmin) continue; // bot is not admin → hide
 
-    if (status.name && status.name !== row.group_name) {
-      row.group_name = status.name;
+    if ((status.name && status.name !== row.group_name) || status.pictureUrl) {
+      const update: Record<string, unknown> = {};
+      if (status.name && status.name !== row.group_name) {
+        row.group_name = status.name;
+        update.group_name = status.name;
+      }
+      if (status.pictureUrl) update.picture_url = status.pictureUrl;
       await supabase
         .from("discovered_groups")
-        .update({ group_name: status.name })
+        .update(update)
         .eq("id", row.id);
     }
     adminRows.push(row);
@@ -113,11 +119,16 @@ export async function syncConfiguredGroupNames(
   for (const row of rows) {
     const status = statusByJid.get(row.group_jid);
     if (!status) continue;
-    if (status.name && status.name !== row.group_name) {
-      row.group_name = status.name;
+    if ((status.name && status.name !== row.group_name) || status.pictureUrl) {
+      const update: Record<string, unknown> = {};
+      if (status.name && status.name !== row.group_name) {
+        row.group_name = status.name;
+        update.group_name = status.name;
+      }
+      if (status.pictureUrl) update.picture_url = status.pictureUrl;
       await supabase
         .from("group_settings")
-        .update({ group_name: status.name })
+        .update(update)
         .eq("id", row.id);
     }
   }

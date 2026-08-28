@@ -29,3 +29,7 @@ GRANT ALL ON public.group_discovery_cache TO service_role;
 -- grupos" no dependa de que findGroupInfos responda siempre a tiempo).
 ALTER TABLE discovered_groups ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
 ALTER TABLE discovered_groups ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+ALTER TABLE discovered_groups ADD COLUMN IF NOT EXISTS group_picture TEXT;
+
+-- group_settings: imagen del grupo (para mostrar el logo en la lista).
+ALTER TABLE group_settings ADD COLUMN IF NOT EXISTS picture_url TEXT;

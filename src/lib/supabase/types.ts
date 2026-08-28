@@ -184,6 +184,7 @@ export interface GroupSetting {
   user_id: string;
   group_jid: string;
   group_name: string | null;
+  picture_url: string | null;
   welcome_enabled: boolean;
   welcome_message: string | null;
   spam_filter_enabled: boolean;

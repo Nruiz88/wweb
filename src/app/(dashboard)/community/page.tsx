@@ -31,7 +31,7 @@ export default function CommunityPage() {
   const [instanceId, setInstanceId] = useState<string | null>(null);
   const [groupSettings, setGroupSettings] = useState<GroupSetting[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
-  const [discoveredGroups, setDiscoveredGroups] = useState<{ group_jid: string; group_name: string | null; saved: boolean }[]>([]);
+  const [discoveredGroups, setDiscoveredGroups] = useState<{ group_jid: string; group_name: string | null; group_picture: string | null; saved: boolean }[]>([]);
   const [searchingGroups, setSearchingGroups] = useState(false);
   // Cooldown de 120s: evita que se haga "Buscar grupos" todo el tiempo.
   const [searchCooldown, setSearchCooldown] = useState(0);
@@ -232,7 +232,7 @@ export default function CommunityPage() {
     await loadData();
   }
 
-  async function handleSaveLiveGroup(jid: string, name: string | null) {
+  async function handleSaveLiveGroup(jid: string) {
     if (!instanceId) return;
     setSavingLiveGroup(jid);
     try {
@@ -242,7 +242,7 @@ export default function CommunityPage() {
         body: JSON.stringify({
           instanceId,
           groupJid: jid,
-          groupName: name || "",
+          pictureUrl: discoveredGroups.find((g) => g.group_jid === jid)?.group_picture ?? null,
           welcomeEnabled: false,
           welcomeMessage: "",
           spamFilterEnabled: false,
@@ -412,9 +412,18 @@ export default function CommunityPage() {
                     {discoveredGroups.map((dg) => (
                       <div key={dg.group_jid} className="flex items-center justify-between rounded-xl bg-wa-header border border-wa-border p-3">
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-xs font-bold text-[#e6a44e]">
-                            {dg.group_name?.[0]?.toUpperCase() || "#"}
-                          </div>
+                          {dg.group_picture ? (
+                            <img
+                              src={dg.group_picture}
+                              alt=""
+                              referrerPolicy="no-referrer"
+                              className="h-8 w-8 shrink-0 rounded-lg object-cover bg-wa-panel"
+                            />
+                          ) : (
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-xs font-bold text-[#e6a44e]">
+                              {dg.group_name?.[0]?.toUpperCase() || "#"}
+                            </div>
+                          )}
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-wa-text truncate">{dg.group_name || "Grupo de WhatsApp"}</p>
                           </div>
@@ -423,7 +432,7 @@ export default function CommunityPage() {
                           <button
                             type="button"
                             disabled={savingLiveGroup === dg.group_jid}
-                            onClick={() => void handleSaveLiveGroup(dg.group_jid, dg.group_name)}
+                            onClick={() => void handleSaveLiveGroup(dg.group_jid)}
                             className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25 disabled:opacity-50"
                           >
                             {savingLiveGroup === dg.group_jid ? "Guardando..." : "Guardar grupo"}
@@ -500,9 +509,18 @@ export default function CommunityPage() {
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#e6a44e]/15 text-sm font-bold text-[#e6a44e]">
-                          {g.group_name?.[0]?.toUpperCase() || "#"}
-                        </div>
+                        {g.picture_url ? (
+                          <img
+                            src={g.picture_url}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            className="h-10 w-10 shrink-0 rounded-xl object-cover bg-wa-panel"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#e6a44e]/15 text-sm font-bold text-[#e6a44e]">
+                            {g.group_name?.[0]?.toUpperCase() || "#"}
+                          </div>
+                        )}
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-wa-text">{g.group_name || "Grupo de WhatsApp"}</p>
                           <div className="mt-2 flex flex-wrap gap-1.5">

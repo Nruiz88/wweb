@@ -435,6 +435,8 @@ export interface EvolutionGroup {
   communityId?: string;
   /** True if this group is a community announcement group. */
   isCommunity?: boolean;
+  /** Group profile picture URL (pps.whatsapp.net). */
+  pictureUrl?: string;
 }
 
 /**
@@ -554,6 +556,7 @@ export async function findGroupInfos(
   const name = String(
     g.name ?? g.subject ?? g.groupName ?? g.title ?? g.pushName ?? "",
   ).trim();
+  const pictureUrl = String(g.pictureUrl ?? g.imageUrl ?? g.picUrl ?? "").trim() || undefined;
 
   let isAdmin = false;
   const participants = participantsOf(g);
@@ -576,6 +579,7 @@ export async function findGroupInfos(
       isAdmin: isAdmin || undefined,
       communityId: typeof g.communityId === "string" ? g.communityId : undefined,
       isCommunity: g.isCommunity === true || undefined,
+      pictureUrl,
     },
   };
 }

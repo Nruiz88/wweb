@@ -28,7 +28,7 @@ const VERIFIED_FRESH_MS = 24 * 60 * 60 * 1000;
 export async function runGroupDiscovery(
   supabase: SupabaseClient,
   instanceId: string,
-): Promise<Array<{ group_jid: string; group_name: string | null; saved: boolean }>> {
+): Promise<Array<{ group_jid: string; group_name: string | null; group_picture: string | null; saved: boolean }>> {
   const { data: instance } = await supabase
     .from("instances")
     .select("instance_name, evolution_api_url, evolution_api_key")
@@ -40,7 +40,7 @@ export async function runGroupDiscovery(
     supabase.from("group_settings").select("group_jid, group_name").eq("instance_id", instanceId),
     supabase
       .from("discovered_groups")
-      .select("group_jid, group_name, is_admin, verified_at")
+      .select("group_jid, group_name, group_picture, is_admin, verified_at")
       .eq("instance_id", instanceId),
   ]);
 
@@ -48,10 +48,14 @@ export async function runGroupDiscovery(
 
   // Grupos ya verificados hace menos de 24h → no se vuelven a consultar.
   const now = Date.now();
-  const freshVerified = new Map<string, { group_name: string | null; is_admin: boolean }>();
+  const freshVerified = new Map<string, { group_name: string | null; group_picture: string | null; is_admin: boolean }>();
   for (const g of discRes.data || []) {
     if (g.verified_at && now - new Date(g.verified_at).getTime() < VERIFIED_FRESH_MS) {
-      freshVerified.set(g.group_jid, { group_name: g.group_name, is_admin: g.is_admin === true });
+      freshVerified.set(g.group_jid, {
+        group_name: g.group_name,
+        group_picture: g.group_picture,
+        is_admin: g.is_admin === true,
+      });
     }
   }
 
@@ -81,7 +85,7 @@ export async function runGroupDiscovery(
     .slice(0, BATCH_LIMIT)
     .map(([jid, name]) => ({ jid, name }));
 
-  const adminGroups: Array<{ group_jid: string; group_name: string | null; saved: boolean }> = [];
+  const adminGroups: Array<{ group_jid: string; group_name: string | null; group_picture: string | null; saved: boolean }> = [];
 
   // Verificar el lote y persistir.
   await mapLimit(toCheck, 4, async ({ jid, name }) => {
@@ -106,11 +110,13 @@ export async function runGroupDiscovery(
     if (info.ok && info.data) {
       const isAdmin = info.data.isAdmin === true;
       const finalName = info.data.name || name;
+      const picture = info.data.pictureUrl ?? null;
       await supabase.from("discovered_groups").upsert(
         {
           instance_id: instanceId,
           group_jid: jid,
           group_name: finalName || null,
+          group_picture: picture,
           is_admin: isAdmin,
           verified_at: new Date().toISOString(),
           last_seen_at: new Date().toISOString(),
@@ -118,7 +124,7 @@ export async function runGroupDiscovery(
         { onConflict: "instance_id,group_jid" },
       );
       if (isAdmin && finalName && !savedSet.has(jid)) {
-        adminGroups.push({ group_jid: jid, group_name: finalName, saved: false });
+        adminGroups.push({ group_jid: jid, group_name: finalName, group_picture: picture, saved: false });
       }
     }
   });
@@ -126,7 +132,7 @@ export async function runGroupDiscovery(
   // Sumar los admin ya verificados en búsquedas anteriores (y no guardados).
   for (const [jid, v] of freshVerified) {
     if (v.is_admin && v.group_name && !savedSet.has(jid)) {
-      adminGroups.push({ group_jid: jid, group_name: v.group_name, saved: false });
+      adminGroups.push({ group_jid: jid, group_name: v.group_name, group_picture: v.group_picture, saved: false });
     }
   }
 

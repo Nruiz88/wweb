@@ -68,6 +68,7 @@ export async function POST(request: Request) {
   const {
     instanceId,
     groupJid,
+    pictureUrl,
     welcomeEnabled,
     welcomeMessage,
     spamFilterEnabled,
@@ -81,6 +82,7 @@ export async function POST(request: Request) {
     instanceId?: string;
     groupJid?: string;
     groupName?: string;
+    pictureUrl?: string;
     welcomeEnabled?: boolean;
     welcomeMessage?: string;
     spamFilterEnabled?: boolean;
@@ -164,6 +166,7 @@ export async function POST(request: Request) {
   // Si resolvimos el nombre en vivo lo guardamos. Si Evolution no respondió,
   // el upsert conserva el nombre existente para grupos ya configurados.
   if (resolvedName) settingsPayload.group_name = resolvedName;
+  if (pictureUrl) settingsPayload.picture_url = pictureUrl;
 
   const { data: settings, error } = await supabase
     .from("group_settings")
