@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CheckIcon, LoaderIcon } from "@/components/icons";
 
 const DAYS_FULL = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
@@ -27,8 +28,11 @@ function formatDate(dateStr: string): string {
   return `${DAYS_FULL[d.getDay()]}, ${d.getDate()}`;
 }
 
-export default function PublicAgendaPage() {
-  const [identifier, setIdentifier] = useState<{ business?: string; user?: string } | null>(null);
+function PublicAgendaContent() {
+  const searchParams = useSearchParams();
+  const business = searchParams.get("business");
+  const user = searchParams.get("user");
+  const hasIdentifier = Boolean(business || user);
 
   const [instances, setInstances] = useState<InstanceAgenda[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
@@ -41,24 +45,14 @@ export default function PublicAgendaPage() {
   const [done, setDone] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  // Read ?business= (or legacy ?user=) from the URL on the client
-  // (avoids useSearchParams prerender issue).
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setIdentifier({
-      business: params.get("business") ?? undefined,
-      user: params.get("user") ?? undefined,
-    });
-  }, []);
-
   const loadAgenda = useCallback(async () => {
-    if (!identifier || (!identifier.business && !identifier.user)) return;
+    if (!business && !user) return;
     setLoading(true);
     setError(null);
     try {
       const query = new URLSearchParams();
-      if (identifier.business) query.set("business", identifier.business);
-      else if (identifier.user) query.set("user", identifier.user);
+      if (business) query.set("business", business);
+      else if (user) query.set("user", user);
       const res = await fetch(`/api/public/agenda?${query.toString()}`);
       const payload = await res.json();
       if (payload.status === "success") {
@@ -74,7 +68,7 @@ export default function PublicAgendaPage() {
     } finally {
       setLoading(false);
     }
-  }, [identifier]);
+  }, [business, user]);
 
   useEffect(() => {
     void loadAgenda();
@@ -91,7 +85,8 @@ export default function PublicAgendaPage() {
   );
 
   async function handleBook() {
-    if (!identifier || !selectedInstance || !selectedDate || !selectedSlot) return;
+    if (!business && !user) return;
+    if (!selectedInstance || !selectedDate || !selectedSlot) return;
     setBooking(true);
     setFeedback(null);
     try {
@@ -99,8 +94,8 @@ export default function PublicAgendaPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          business: identifier.business,
-          userEmail: identifier.user,
+          business: business || undefined,
+          userEmail: user || undefined,
           instanceId: selectedInstance,
           customerName: name || null,
           appointmentDate: selectedDate,
@@ -122,7 +117,7 @@ export default function PublicAgendaPage() {
     }
   }
 
-  if (!identifier || (!identifier.business && !identifier.user)) {
+  if (!hasIdentifier) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0b141a] px-4">
         <p className="text-sm text-white/60">Link inválido. Contactá al negocio.</p>
@@ -130,10 +125,7 @@ export default function PublicAgendaPage() {
     );
   }
 
-  const allDays = useMemo(
-    () => (current ? current.days : []),
-    [current],
-  );
+  const allDays = current ? current.days : [];
 
   return (
     <div className="min-h-screen bg-[#0b141a] px-4 py-10 text-white">
@@ -265,5 +257,13 @@ export default function PublicAgendaPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function PublicAgendaPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-[#0b141a]"><LoaderIcon className="h-8 w-8 animate-spin text-white/30" /></div>}>
+      <PublicAgendaContent />
+    </Suspense>
   );
 }
