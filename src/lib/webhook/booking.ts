@@ -483,7 +483,7 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
 export async function handleBookingIntent(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
   const { effectiveText } = ctx;
 
-  const bookingKeywords = ["turno", "agendar", "reservar", "cita", "appointment"];
+  const bookingKeywords = ["turno", "agendar", "reservar", "cita", "appointment", "agenda"];
   const isBooking = bookingKeywords.some((k) => effectiveText.toLowerCase().includes(k));
 
   if (!isBooking) return null;
