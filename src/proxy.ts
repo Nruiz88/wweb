@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Rutas publicas (no requieren sesion)
-const PUBLIC_PATHS = ["/login", "/register"];
+const PUBLIC_PATHS = ["/login", "/register", "/reset-password"];
 const PUBLIC_API = ["/api/webhook", "/api/health"];
 
 function withSecurityHeaders(response: NextResponse): NextResponse {

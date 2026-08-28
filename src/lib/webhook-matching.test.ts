@@ -40,10 +40,18 @@ describe("isWithinSchedule", () => {
   });
 
   it("horario normal valida dentro/fuera", () => {
-    expect(isWithinSchedule({ from: "00:00", to: "23:59" })).toBe(true);
+    const noon = new Date("2026-08-27T12:00:00");
+    expect(isWithinSchedule({ from: "09:00", to: "18:00" }, noon)).toBe(true);
+    expect(isWithinSchedule({ from: "09:00", to: "18:00" }, new Date("2026-08-27T20:00:00"))).toBe(false);
   });
 
-  it("horario cruzando medianoche", () => {
-    expect(isWithinSchedule({ from: "22:00", to: "06:00" })).toBe(true);
+  it("horario cruzando medianoche: dentro del rango (23:30)", () => {
+    const now = new Date("2026-08-27T23:30:00");
+    expect(isWithinSchedule({ from: "22:00", to: "06:00" }, now)).toBe(true);
+  });
+
+  it("horario cruzando medianoche: fuera del rango (12:00)", () => {
+    const now = new Date("2026-08-27T12:00:00");
+    expect(isWithinSchedule({ from: "22:00", to: "06:00" }, now)).toBe(false);
   });
 });

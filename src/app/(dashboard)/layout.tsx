@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import {
@@ -12,25 +12,30 @@ import {
   LogOutIcon,
   ShieldIcon,
   UserIcon,
+  CalendarIcon,
+  UsersIcon,
 } from "@/components/icons";
 import { LogoMark } from "@/components/logo";
 
-const USER_NAV = [
+const BASE_NAV = [
   { href: "/dashboard", label: "Inicio", icon: HomeIcon },
   { href: "/whatsapp", label: "Mi WhatsApp", icon: MessageCircleIcon },
   { href: "/auto-responses", label: "Auto-Respuestas", icon: ZapIcon },
+];
+
+const PLAN_NAV: Record<string, { href: string; label: string; icon: typeof HomeIcon }[]> = {
+  pro: [{ href: "/calendar", label: "Calendario", icon: CalendarIcon }],
+  community: [{ href: "/community", label: "Community", icon: UsersIcon }],
+};
+
+const TAIL_NAV = [
   { href: "/logs", label: "Actividad", icon: ClockIcon },
   { href: "/profile", label: "Mi Perfil", icon: UserIcon },
 ];
 
-const ADMIN_NAV = [
-  { href: "/dashboard", label: "Inicio", icon: HomeIcon },
-  { href: "/whatsapp", label: "Mi WhatsApp", icon: MessageCircleIcon },
-  { href: "/auto-responses", label: "Auto-Respuestas", icon: ZapIcon },
-  { href: "/logs", label: "Actividad", icon: ClockIcon },
+const ADMIN_EXTRA = [
   { href: "/admin", label: "Admin", icon: ShieldIcon },
   { href: "/settings", label: "Configuracion", icon: SettingsIcon },
-  { href: "/profile", label: "Mi Perfil", icon: UserIcon },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -84,7 +89,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push("/login");
   };
 
-  const navItems = isAdmin ? ADMIN_NAV : USER_NAV;
+  const navItems = useMemo(() => {
+    const items = [...BASE_NAV];
+    if (isAdmin) {
+      // Admin sees everything
+      items.push({ href: "/calendar", label: "Calendario", icon: CalendarIcon });
+      items.push({ href: "/community", label: "Community", icon: UsersIcon });
+    } else if (userPlan) {
+      // Users see only features for their plan
+      const planItems = PLAN_NAV[userPlan];
+      if (planItems) items.push(...planItems);
+    }
+    items.push(...TAIL_NAV);
+    if (isAdmin) items.push(...ADMIN_EXTRA);
+    return items;
+  }, [isAdmin, userPlan]);
 
   if (!loaded) {
     return (

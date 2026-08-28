@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/admin/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -22,22 +22,9 @@ interface ServerCapacity {
 }
 
 export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const supabase = await createServerClient();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
-    return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
+  const { user, supabase } = auth;
 
   const { data: instances } = await supabase
     .from("instances")
@@ -56,9 +43,7 @@ export async function GET() {
     .select("instance_id, user_id")
     .in("instance_id", instanceIds);
 
-  const userIds = [
-    ...new Set((assignments ?? []).map((a) => a.user_id)),
-  ];
+  const userIds = [...new Set((assignments ?? []).map((a) => a.user_id))];
 
   const usersById = new Map<string, { id: string; email: string; full_name: string | null }>();
 

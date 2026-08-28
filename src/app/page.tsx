@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import {
   ZapIcon,
   ShieldIcon,
@@ -10,6 +11,15 @@ import {
 } from "@/components/icons";
 import { Logo } from "@/components/logo";
 import LandingNav from "@/components/LandingNav";
+
+export const metadata: Metadata = {
+  title: "Boti - Tu asistente de WhatsApp",
+  description:
+    "Boti es tu asistente virtual de WhatsApp. Responde automaticamente tus clientes, 24 horas, los 7 dias. Sin contratar a nadie, sin saber de codigo. Activalo gratis.",
+  alternates: {
+    canonical: "/",
+  },
+};
 import {
   HeroIllustration,
   StepQRCode,

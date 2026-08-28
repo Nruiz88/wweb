@@ -1,30 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { Profile, Instance, UserInstance } from "@/lib/supabase/types";
-import {
-  CheckIcon,
-  ClockIcon,
-  LoaderIcon,
-  MessageCircleIcon,
-  ShieldIcon,
-  UsersIcon,
-  ZapIcon,
-  XIcon,
-} from "@/components/icons";
-
-// Mask the server URL: show only the host (no protocol/path)
-function displayHost(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
-
-interface AssignmentWithUser extends UserInstance {
-  profiles?: { id: string; email: string; full_name: string | null };
-}
+import type { Profile, Instance } from "@/lib/supabase/types";
+import { ShieldIcon, LoaderIcon } from "@/components/icons";
+import AdminStats from "@/components/admin/AdminStats";
+import AdminPlans from "@/components/admin/AdminPlans";
+import AdminActivity from "@/components/admin/AdminActivity";
+import AdminServers from "@/components/admin/AdminServers";
+import AdminUsers from "@/components/admin/AdminUsers";
 
 interface Stats {
   totalUsers: number;
@@ -35,14 +18,12 @@ interface Stats {
   totalLogs: number;
   recentLogs24h: number;
   recentUsers7d: number;
-}
-
-interface InstanceInfo {
-  id: string;
-  instance_name: string;
-  status: string;
-  user_count: number;
-  users: { id: string; email: string; full_name: string | null }[];
+  totalAddonBots: number;
+  totalAppointments: number;
+  pendingAppointments: number;
+  totalGroupSettings: number;
+  totalBroadcasts: number;
+  completedBroadcasts: number;
 }
 
 interface ServerCapacity {
@@ -50,31 +31,14 @@ interface ServerCapacity {
   instance_count: number;
   max_instances: number;
   remaining: number;
-  instances: InstanceInfo[];
-}
-
-interface PlanDistribution {
-  starter: number;
-  pro: number;
-  community: number;
+  instances: { id: string; instance_name: string; status: string; user_count: number; users: { id: string; email: string; full_name: string | null }[] }[];
 }
 
 interface PlansPayload {
-  plan_distribution: PlanDistribution;
+  plan_distribution: { starter: number; pro: number; community: number };
   active_subscriptions: number;
   total_addons: number;
-  users: {
-    id: string;
-    email: string | null;
-    full_name: string | null;
-    role: string;
-    created_at: string;
-    plan: string;
-    status: string;
-    max_instances: number;
-    addons: number;
-    used_instances: number;
-  }[];
+  users: { id: string; email: string | null; full_name: string | null; role: string; created_at: string; plan: string; status: string; max_instances: number; addons: number; used_instances: number }[];
 }
 
 interface ActivityPayload {
@@ -82,63 +46,15 @@ interface ActivityPayload {
   topKeywords: { keyword: string; count: number }[];
 }
 
-const PLAN_META: Record<string, { label: string; accent: string; features: string[] }> = {
-  starter: { label: "Starter", accent: "#53bdeb", features: ["1 bot", "Keywords"] },
-  pro: { label: "Pro", accent: "#00a884", features: ["1 bot base", "Horarios", "Regex"] },
-  community: { label: "Community", accent: "#e6a44e", features: ["1 bot base", "Moderación", "Broadcasts"] },
-};
-
-// Stat card with gradient accent
-function StatCard({
-  icon,
-  value,
-  label,
-  accent,
-  sub,
-}: {
-  icon: React.ReactNode;
-  value: number;
-  label: string;
-  accent: string;
-  sub?: string;
-}) {
-  return (
-    <div className="group relative overflow-hidden rounded-2xl border border-wa-border bg-wa-header p-4 transition-all hover:border-white/10 hover:shadow-lg hover:shadow-black/20">
-      <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full opacity-10 blur-2xl transition-opacity group-hover:opacity-20" style={{ backgroundColor: accent }} />
-      <div className="relative flex items-center gap-3">
-        <div
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-transform group-hover:scale-110"
-          style={{ backgroundColor: `${accent}15`, color: accent }}
-        >
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <p className="text-2xl font-bold text-wa-text">{value}</p>
-          <p className="text-[11px] text-wa-text-secondary">{label}</p>
-        </div>
-      </div>
-      {sub && (
-        <p className="relative mt-2 text-[10px] font-medium" style={{ color: accent }}>
-          {sub}
-        </p>
-      )}
-    </div>
-  );
-}
-
 export default function AdminPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [capacities, setCapacities] = useState<ServerCapacity[]>([]);
-  const [assignments, setAssignments] = useState<AssignmentWithUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [selectedInstance, setSelectedInstance] = useState<string>("");
   const [plans, setPlans] = useState<PlansPayload | null>(null);
   const [activity, setActivity] = useState<ActivityPayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
-  const [assigning, setAssigning] = useState<string | null>(null);
-  const [changingPlan, setChangingPlan] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -171,105 +87,15 @@ export default function AdminPage() {
       if (plansPayload.status === "success") setPlans(plansPayload.data);
       if (activityPayload.status === "success") setActivity(activityPayload.data);
     } catch {
-      setFeedback({ kind: "error", message: "Error cargando datos" });
+      // non-critical
     }
     setLoading(false);
-  }, [selectedInstance]);
-
-  const loadAssignments = useCallback(async () => {
-    if (!selectedInstance) return;
-    try {
-      const res = await fetch(`/api/admin/assign?instanceId=${selectedInstance}`);
-      const payload = await res.json();
-      if (payload.status === "success") setAssignments(payload.data);
-    } catch { /* silently fail */ }
   }, [selectedInstance]);
 
   useEffect(() => {
     const t = setTimeout(() => void loadData(), 0);
     return () => clearTimeout(t);
   }, [loadData]);
-  useEffect(() => {
-    const t = setTimeout(() => void loadAssignments(), 0);
-    return () => clearTimeout(t);
-  }, [loadAssignments]);
-  useEffect(() => {
-    if (feedback) {
-      const t = setTimeout(() => setFeedback(null), 3000);
-      return () => clearTimeout(t);
-    }
-  }, [feedback]);
-
-  async function handleAssign(userId: string) {
-    if (!selectedInstance) return;
-    setAssigning(userId);
-    setFeedback(null);
-    try {
-      const user = users.find((u) => u.id === userId);
-      if (!user) return;
-      const res = await fetch("/api/admin/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instanceId: selectedInstance, userEmail: user.email }),
-      });
-      const payload = await res.json();
-      if (payload.status === "success") {
-        setFeedback({ kind: "success", message: `${user.email} asignado` });
-        await loadAssignments();
-      } else {
-        setFeedback({ kind: "error", message: payload.error });
-      }
-    } catch {
-      setFeedback({ kind: "error", message: "Error de red" });
-    } finally {
-      setAssigning(null);
-    }
-  }
-
-  async function handlePlanChange(userId: string, newPlan: string) {
-    setChangingPlan(userId);
-    setFeedback(null);
-    try {
-      const res = await fetch("/api/admin/change-plan", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, planType: newPlan }),
-      });
-      const payload = await res.json();
-      if (payload.status === "success") {
-        setFeedback({ kind: "success", message: `Plan cambiado a ${newPlan}` });
-        await loadData();
-      } else {
-        setFeedback({ kind: "error", message: payload.error });
-      }
-    } catch {
-      setFeedback({ kind: "error", message: "Error de red" });
-    } finally {
-      setChangingPlan(null);
-    }
-  }
-
-  async function handleUnassign(assignmentId: string, userEmail: string) {
-    setAssigning(assignmentId);
-    setFeedback(null);
-    try {
-      const res = await fetch(`/api/admin/assign?id=${assignmentId}`, { method: "DELETE" });
-      const payload = await res.json();
-      if (payload.status === "success") {
-        setFeedback({ kind: "success", message: `${userEmail} desasignado` });
-        await loadAssignments();
-      } else {
-        setFeedback({ kind: "error", message: payload.error });
-      }
-    } catch {
-      setFeedback({ kind: "error", message: "Error de red" });
-    } finally {
-      setAssigning(null);
-    }
-  }
-
-  const assignedUserIds = new Set(assignments.map((a) => a.user_id));
-  const selectedInst = instances.find((i) => i.id === selectedInstance);
 
   return (
     <div className="flex h-full flex-col bg-wa-panel">
@@ -279,20 +105,6 @@ export default function AdminPage() {
         <span className="text-[0.9375rem] font-normal text-wa-text">Panel Admin</span>
       </div>
 
-      {/* Feedback */}
-      {feedback && (
-        <div
-          className={`mx-4 mt-2 flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium ${
-            feedback.kind === "success"
-              ? "bg-[#00a884]/10 text-[#00a884] border border-[#00a884]/20"
-              : "bg-red-500/10 text-red-400 border border-red-500/20"
-          }`}
-        >
-          {feedback.kind === "success" ? <CheckIcon className="h-3.5 w-3.5" /> : <XIcon className="h-3.5 w-3.5" />}
-          {feedback.message}
-        </div>
-      )}
-
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         {loading ? (
           <div className="flex items-center justify-center py-16">
@@ -300,399 +112,11 @@ export default function AdminPage() {
           </div>
         ) : (
           <div className="mx-auto max-w-4xl space-y-6">
-
-            {/* Stats Grid */}
-            {stats && (
-              <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-                <StatCard
-                  icon={<UsersIcon className="h-5 w-5" />}
-                  value={stats.totalUsers}
-                  label="Usuarios"
-                  accent="#53bdeb"
-                  sub={stats.recentUsers7d > 0 ? `+${stats.recentUsers7d} esta semana` : undefined}
-                />
-                <StatCard
-                  icon={<MessageCircleIcon className="h-5 w-5" />}
-                  value={stats.totalInstances}
-                  label="Instancias"
-                  accent="#00a884"
-                  sub={`${stats.connectedInstances} conectada${stats.connectedInstances !== 1 ? "s" : ""}`}
-                />
-                <StatCard
-                  icon={<ZapIcon className="h-5 w-5" />}
-                  value={stats.totalAutoResponses}
-                  label="Auto-respuestas"
-                  accent="#e6a44e"
-                  sub={`${stats.activeAutoResponses} activa${stats.activeAutoResponses !== 1 ? "s" : ""}`}
-                />
-                <StatCard
-                  icon={<ClockIcon className="h-5 w-5" />}
-                  value={stats.totalLogs}
-                  label="Respuestas enviadas"
-                  accent="#00a884"
-                  sub={stats.recentLogs24h > 0 ? `+${stats.recentLogs24h} en 24h` : undefined}
-                />
-              </div>
-            )}
-
-            {/* Planes de suscripcion */}
-            {plans && (
-              <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-wa-text">Planes de suscripcion</h3>
-                  <span className="text-[10px] text-wa-text-secondary/50">
-                    {plans.active_subscriptions} activas · {plans.total_addons} bots extra
-                  </span>
-                </div>
-
-                {/* Distribucion de planes */}
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {(["starter", "pro", "community"] as const).map((key) => {
-                    const meta = PLAN_META[key];
-                    const count = plans.plan_distribution[key] ?? 0;
-                    const total = Object.values(plans.plan_distribution).reduce((a, b) => a + b, 0) || 1;
-                    const pct = Math.round((count / total) * 100);
-                    return (
-                      <div
-                        key={key}
-                        className="rounded-xl border border-wa-border/50 bg-wa-panel/50 p-3.5 transition hover:border-wa-border"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span
-                            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold"
-                            style={{ backgroundColor: `${meta.accent}15`, color: meta.accent }}
-                          >
-                            {meta.label}
-                          </span>
-                          <span className="text-lg font-bold text-wa-text">{count}</span>
-                        </div>
-                        <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-wa-text-secondary/10">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{ width: `${pct}%`, backgroundColor: meta.accent }}
-                          />
-                        </div>
-                        <p className="mt-1.5 text-[10px] text-wa-text-secondary/60">
-                          {meta.features.join(" · ")}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Tabla usuarios: plan + limite */}
-                <div className="mt-4 overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-wa-border text-[10px] uppercase tracking-wide text-wa-text-secondary/50">
-                        <th className="py-2 pr-3 font-medium">Usuario</th>
-                        <th className="py-2 pr-3 font-medium">Plan</th>
-                        <th className="py-2 pr-3 font-medium">Bots usados</th>
-                        <th className="py-2 pr-3 font-medium">Limite</th>
-                        <th className="py-2 font-medium">Estado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {plans.users
-                        .filter((u) => u.role !== "admin")
-                        .map((u) => {
-                          const meta = PLAN_META[u.plan] ?? PLAN_META.starter;
-                          const usagePct = Math.min(100, (u.used_instances / u.max_instances) * 100);
-                          const full = u.used_instances >= u.max_instances;
-                          return (
-                            <tr key={u.id} className="border-b border-wa-border/40 last:border-0">
-                              <td className="py-2.5 pr-3">
-                                <p className="truncate font-medium text-wa-text">{u.email ?? u.full_name}</p>
-                                {u.addons > 0 && (
-                                  <p className="text-[10px] text-[#e6a44e]">+{u.addons} bot{u.addons !== 1 ? "s" : ""} add-on</p>
-                                )}
-                              </td>
-                              <td className="py-2.5 pr-3">
-                                <span
-                                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                                  style={{ backgroundColor: `${meta.accent}15`, color: meta.accent }}
-                                >
-                                  {meta.label}
-                                </span>
-                              </td>
-                              <td className="py-2.5 pr-3 text-wa-text">
-                                {u.used_instances}
-                                <span className="text-wa-text-secondary/50">/{u.max_instances}</span>
-                              </td>
-                              <td className="py-2.5 pr-3">
-                                <div className="w-24">
-                                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-wa-text-secondary/10">
-                                    <div
-                                      className="h-full rounded-full"
-                                      style={{ width: `${usagePct}%`, backgroundColor: full ? "#ef4444" : "#00a884" }}
-                                    />
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="py-2.5">
-                                {u.role !== "admin" ? (
-                                  <select
-                                    value={u.plan}
-                                    onChange={(e) => void handlePlanChange(u.id, e.target.value)}
-                                    disabled={changingPlan === u.id}
-                                    className="rounded-lg border border-wa-border bg-wa-input px-2 py-1 text-[10px] font-medium text-wa-text focus:border-[#00a884] focus:outline-none"
-                                  >
-                                    <option value="starter">Starter</option>
-                                    <option value="pro">Pro</option>
-                                    <option value="community">Community</option>
-                                  </select>
-                                ) : (
-                                  <span className="text-[10px] text-wa-text-secondary/50">—</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Actividad semanal */}
-            {activity && (
-              <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-wa-text">Actividad (ultimos 7 dias)</h3>
-                  <span className="text-[10px] text-wa-text-secondary/50">respuestas enviadas + usuarios nuevos</span>
-                </div>
-
-                <div className="mt-4 flex items-end justify-between gap-2 sm:gap-3">
-                  {activity.series.map((day) => {
-                    const maxResponses = Math.max(...activity.series.map((s) => s.responses), 1);
-                    const height = Math.max(4, Math.round((day.responses / maxResponses) * 100));
-                    return (
-                      <div key={day.date} className="flex flex-1 flex-col items-center gap-1.5">
-                        <div className="flex h-28 w-full items-end justify-center rounded-lg bg-wa-panel/50 p-1">
-                          <div
-                            className="w-full max-w-[28px] rounded-t-md bg-gradient-to-t from-[#00a884] to-[#25d366] transition-all"
-                            style={{ height: `${height}%`, opacity: day.responses === 0 ? 0.15 : 0.9 }}
-                            title={`${day.responses} respuestas`}
-                          />
-                        </div>
-                        <span className="text-[10px] font-medium text-wa-text-secondary">{day.responses}</span>
-                        <span className="text-[9px] uppercase text-wa-text-secondary/50">{day.label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {activity.topKeywords.length > 0 && (
-                  <div className="mt-4 border-t border-wa-border pt-3">
-                    <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-wa-text-secondary/50">
-                      Palabras clave mas usadas
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {activity.topKeywords.map((k) => (
-                        <span
-                          key={k.keyword}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-wa-border bg-wa-panel/50 px-2.5 py-1 text-[10px] text-wa-text-secondary"
-                        >
-                          {k.keyword}
-                          <span className="font-semibold text-[#e6a44e]">{k.count}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Servers & capacity (Railway) */}
-            {capacities.length > 0 && (
-              <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-wa-text">Servidores (Railway) y cupos</h3>
-                  <span className="text-[10px] text-wa-text-secondary/50">máximo 10 instancias por servidor</span>
-                </div>
-
-                <div className="mt-3 space-y-3">
-                  {capacities.map((server) => {
-                    const pct = Math.min(100, (server.instance_count / server.max_instances) * 100);
-                    const full = server.remaining === 0;
-                    return (
-                      <div
-                        key={server.server_url}
-                        className="rounded-xl border border-wa-border/50 bg-wa-panel/50 p-4 transition hover:border-wa-border"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex min-w-0 items-center gap-2.5">
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#00a884]/10 text-[#00a884]">
-                              <MessageCircleIcon className="h-4 w-4" />
-                            </span>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-wa-text">Servidor</p>
-                              <p className="truncate text-[10px] text-wa-text-secondary/50">{displayHost(server.server_url)}</p>
-                            </div>
-                          </div>
-                          <span
-                            className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                              full
-                                ? "bg-red-500/10 text-red-400"
-                                : "bg-[#00a884]/10 text-[#00a884]"
-                            }`}
-                          >
-                            {full ? "Sin cupo" : `${server.remaining} cupos`}
-                          </span>
-                        </div>
-
-                        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-wa-text-secondary/10">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{ width: `${pct}%`, backgroundColor: full ? "#ef4444" : "#00a884" }}
-                          />
-                        </div>
-                        <p className="mt-1 text-[10px] text-wa-text-secondary/60">
-                          {server.instance_count}/{server.max_instances} instancias (WhatsApp) en este servidor
-                        </p>
-
-                        <div className="mt-3 space-y-2">
-                          {server.instances.map((inst) => (
-                            <div key={inst.id} className="rounded-lg border border-wa-border/40 bg-wa-header/60 p-3">
-                              <div className="flex items-center justify-between">
-                                <p className="text-xs font-medium text-wa-text">{inst.instance_name}</p>
-                                <span className="text-[10px] text-wa-text-secondary/60">
-                                  {inst.status === "open" ? "Conectada" : "Desconectada"}
-                                </span>
-                              </div>
-                              {inst.users.length > 0 ? (
-                                <div className="mt-2 flex flex-wrap gap-1.5">
-                                  {inst.users.map((u) => (
-                                    <span
-                                      key={u.id}
-                                      title={u.full_name || undefined}
-                                      className="rounded-full border border-wa-border bg-wa-header px-2.5 py-1 text-[10px] text-wa-text-secondary"
-                                    >
-                                      {u.email}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="mt-2 text-[10px] text-wa-text-secondary/40">Sin usuario asignado</p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Instance selector */}
-            {instances.length > 0 ? (
-              <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-wa-text">Instancia activa</h3>
-                  <span className="text-[10px] text-wa-text-secondary/50">{instances.length} total</span>
-                </div>
-                <select
-                  value={selectedInstance}
-                  onChange={(event) => setSelectedInstance(event.target.value)}
-                  className="mt-3 input-field w-full max-w-xs text-sm"
-                >
-                  {instances.map((inst) => (
-                    <option key={inst.id} value={inst.id}>
-                      {inst.instance_name} ({inst.status === "open" ? "Conectada" : "Desconectada"})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-wa-border bg-wa-header p-8 text-center">
-                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-wa-text-secondary/10">
-                  <ShieldIcon className="h-7 w-7 text-wa-text-secondary/30" />
-                </div>
-                <p className="text-sm font-medium text-wa-text-secondary">No hay instancias creadas</p>
-                <p className="mt-1 text-xs text-wa-text-secondary/50">Crea una en Configuracion primero</p>
-              </div>
-            )}
-
-            {/* Users list */}
-            {selectedInstance && (
-              <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-wa-text">
-                    Usuarios en {selectedInst?.instance_name}
-                  </h3>
-                  <span className="rounded-full bg-[#00a884]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#00a884]">
-                    {assignedUserIds.size} asignados
-                  </span>
-                </div>
-
-                {users.length === 0 ? (
-                  <p className="text-xs text-wa-text-secondary">No hay usuarios registrados</p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {users.map((user) => {
-                      const isAssigned = assignedUserIds.has(user.id);
-                      const isAdmin = user.role === "admin";
-                      const isCurrentlyAssigning = assigning === user.id;
-
-                      return (
-                        <div
-                          key={user.id}
-                          className="group flex items-center justify-between gap-3 rounded-xl border border-wa-border/50 bg-wa-panel/50 px-4 py-3 transition-all hover:border-wa-border hover:bg-wa-panel"
-                        >
-                          <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#53bdeb]/20 to-[#53bdeb]/5 text-xs font-bold text-[#53bdeb]">
-                              {user.email?.[0]?.toUpperCase() || "?"}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm text-wa-text truncate">{user.email}</p>
-                              <p className="text-[10px] text-wa-text-secondary/50 truncate">
-                                {user.full_name || "Sin nombre"}
-                                {isAdmin && (
-                                  <span className="ml-1.5 inline-flex items-center gap-0.5 text-[#00a884]">
-                                    <ShieldIcon className="h-2.5 w-2.5" /> Admin
-                                  </span>
-                                )}
-                              </p>
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              isAssigned
-                                ? void handleUnassign(
-                                    assignments.find((a) => a.user_id === user.id && a.instance_id === selectedInstance)?.id || "",
-                                    user.email || ""
-                                  )
-                                : void handleAssign(user.id)
-                            }
-                            disabled={isCurrentlyAssigning || isAdmin}
-                            className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                              isAdmin
-                                ? "cursor-not-allowed opacity-40 border border-wa-border bg-wa-header text-wa-text-secondary"
-                                : isAssigned
-                                ? "border border-[#00a884]/30 bg-[#00a884]/10 text-[#00a884] hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30"
-                                : "border border-wa-border bg-wa-header text-wa-text-secondary hover:bg-wa-hover hover:text-wa-text"
-                            }`}
-                          >
-                            {isCurrentlyAssigning ? (
-                              <LoaderIcon className="mx-auto h-3.5 w-3.5 animate-spin" />
-                            ) : isAssigned ? (
-                              <span className="flex items-center gap-1"><CheckIcon className="h-3 w-3" /> Asignado</span>
-                            ) : isAdmin ? (
-                              "Admin"
-                            ) : (
-                              "Asignar"
-                            )}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+            {stats && <AdminStats stats={stats} />}
+            {plans && <AdminPlans plans={plans} onRefresh={loadData} />}
+            {activity && <AdminActivity activity={activity} />}
+            <AdminServers capacities={capacities} />
+            <AdminUsers users={users} instances={instances} selectedInstance={selectedInstance} onSelectInstance={setSelectedInstance} />
           </div>
         )}
       </div>

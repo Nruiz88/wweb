@@ -1,43 +1,14 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { supabaseConfig } from "@/lib/supabase/config";
+import { requireAdmin } from "@/lib/admin/auth";
 import { setWebhook } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 
-async function getAuthUser() {
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
-  const { data: { user } } = await sessionClient.auth.getUser();
-  return user;
-}
-
-// POST: Re-sincroniza el webhook de todas las instancias en Evolution API.
-// El webhook se configura al conectar; este endpoint lo aplica a las
-// instancias existentes que nunca se reconectaron.
+// POST: Re-sync webhooks for all instances in Evolution API
 export async function POST(request: Request) {
-  const user = await getAuthUser();
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const supabase = await createServerClient();
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
-    return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
-  }
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
+  const { supabase } = auth;
 
   const appUrl =
     process.env.APP_URL ||

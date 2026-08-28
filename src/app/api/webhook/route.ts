@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
-import { sendTextMessage } from "@/lib/evolution-multi";
 import { getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { verifyWebhookSignature } from "@/lib/webhook-secret";
-import { isWithinSchedule, matchKeyword, matchRegex } from "@/lib/webhook-matching";
+import { extractMessageText, extractButtonText, extractListText, extractRawButtonId } from "@/lib/webhook/extract";
+import { hasPlan, type WebhookContext } from "@/lib/webhook/context";
+import { handleGroupWelcome } from "@/lib/webhook/group-welcome";
+import { handleGroupSpam } from "@/lib/webhook/group-spam";
+import { handleWelcome } from "@/lib/webhook/welcome";
+import { handleOutsideHours } from "@/lib/webhook/outside-hours";
+import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm } from "@/lib/webhook/booking";
+import { handleMenuTap } from "@/lib/webhook/menus";
+import { handleAutoReply } from "@/lib/webhook/auto-reply";
+import type { PlanType } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
 
@@ -11,93 +19,125 @@ interface WebhookPayload {
   event: string;
   instance: string;
   data?: {
-    key?: {
-      remoteJid?: string;
-      fromMe?: boolean;
-      id?: string;
-    };
+    key?: { remoteJid?: string; fromMe?: boolean; id?: string; participant?: string };
     message?: Record<string, unknown>;
     pushName?: string;
     messageTimestamp?: number;
+    id?: string;
+    participant?: string;
+    action?: "add" | "remove";
   };
 }
 
-function extractMessageText(message: Record<string, unknown> | undefined): string {
-  if (!message) return "";
-
-  // conversation (simple text)
-  if (typeof message.conversation === "string") return message.conversation;
-
-  // extendedTextMessage
-  const ext = message.extendedTextMessage as Record<string, unknown> | undefined;
-  if (typeof ext?.text === "string") return ext.text;
-
-  // imageMessage, videoMessage, documentMessage, audioMessage (captions)
-  const mediaKeys = ["imageMessage", "videoMessage", "documentMessage", "audioMessage"];
-  for (const key of mediaKeys) {
-    const media = message[key] as Record<string, unknown> | undefined;
-    if (typeof media?.caption === "string") return media.caption;
-  }
-
-  return "";
-}
+const PLAN_HIERARCHY: PlanType[] = ["starter", "pro", "community"];
 
 export async function POST(request: Request) {
-  // Rate limit: 100 requests per minute per IP
   const rateLimitErr = await rateLimitResponse(request, "webhook", { maxRequests: 100, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  // Read the raw body ONCE (needed for both HMAC verification and JSON parse)
   let rawBody: string;
-  try {
-    rawBody = await request.text();
-  } catch {
+  try { rawBody = await request.text(); } catch {
     return NextResponse.json({ status: "error", error: "Invalid body" }, { status: 400 });
   }
 
-  // Verify webhook signature
   if (!(await verifyWebhookSignature(request, rawBody))) {
     console.warn("[webhook] firma invalida", { ip: getClientIp(request) });
     return NextResponse.json({ status: "error", error: "Invalid signature" }, { status: 401 });
   }
 
   let body: WebhookPayload;
-
-  try {
-    body = JSON.parse(rawBody) as WebhookPayload;
-  } catch {
+  try { body = JSON.parse(rawBody) as WebhookPayload; } catch {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
-  }
-
-  // Only process incoming messages
-  if (body.event !== "messages.upsert") {
-    return NextResponse.json({ status: "ignored" });
-  }
-
-  // Skip messages sent by us
-  if (body.data?.key?.fromMe) {
-    return NextResponse.json({ status: "ignored" });
-  }
-
-  const instanceName = body.instance;
-  const remoteJid = body.data?.key?.remoteJid;
-  const messageText = extractMessageText(body.data?.message);
-
-  if (!instanceName || !remoteJid || !messageText) {
-    return NextResponse.json({ status: "ignored" });
-  }
-
-  // Don't respond to group messages
-  if (remoteJid.includes("@g.us")) {
-    return NextResponse.json({ status: "ignored" });
   }
 
   const supabase = await createServerClient();
 
-  // Find the instance
+  // ============================================================
+  // GROUP-PARTICIPANTS.UPDATE → Community feature
+  // ============================================================
+  if (body.event === "group-participants.update") {
+    const groupJid = body.data?.id;
+    const participantJid = body.data?.participant;
+    const action = body.data?.action;
+
+    if (!groupJid || !participantJid || action !== "add") {
+      return NextResponse.json({ status: "ignored" });
+    }
+
+    // Find instance + plan
+    const { data: instance } = await supabase
+      .from("instances")
+      .select("id, instance_name, evolution_api_url, evolution_api_key")
+      .eq("instance_name", body.instance)
+      .single();
+
+    if (!instance) {
+      return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+    }
+
+    const plan = await getPlanForInstance(supabase, instance.id);
+
+    // Community feature: group welcome
+    if (hasPlan(plan, "community")) {
+      const result = await handleGroupWelcome({
+        supabase, instanceName: body.instance, groupJid, participantJid, action, bodyInstance: body.instance,
+      });
+      if (result) return NextResponse.json(result);
+    }
+
+    return NextResponse.json({ status: "ignored" });
+  }
+
+  // Only process incoming messages from here
+  if (body.event !== "messages.upsert") return NextResponse.json({ status: "ignored" });
+  if (body.data?.key?.fromMe) return NextResponse.json({ status: "ignored" });
+
+  const instanceName = body.instance;
+  const remoteJid = body.data?.key?.remoteJid || "";
+  const plainText = extractMessageText(body.data?.message);
+  const buttonText = extractButtonText(body.data?.message);
+  const listText = extractListText(body.data?.message);
+  const effectiveText = plainText || buttonText || listText;
+
+  if (!instanceName || !remoteJid || !effectiveText) {
+    return NextResponse.json({ status: "ignored" });
+  }
+
+  // ============================================================
+  // GROUP MESSAGES → Community feature (spam filter)
+  // ============================================================
+  if (remoteJid.includes("@g.us")) {
+    const { data: grpInstance } = await supabase
+      .from("instances")
+      .select("id, instance_name, evolution_api_url, evolution_api_key")
+      .eq("instance_name", instanceName)
+      .single();
+
+    if (!grpInstance) {
+      return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+    }
+
+    const plan = await getPlanForInstance(supabase, grpInstance.id);
+
+    if (hasPlan(plan, "community")) {
+      const result = await handleGroupSpam({
+        supabase, instanceName, remoteJid, plainText,
+        msgId: body.data?.key?.id,
+        senderJid: body.data?.key?.participant || remoteJid,
+        bodyInstance: instanceName,
+      });
+      if (result) return NextResponse.json(result);
+    }
+
+    return NextResponse.json({ status: "ignored" });
+  }
+
+  // ============================================================
+  // DM MESSAGES → load instance + plan + shared context
+  // ============================================================
   const { data: instance } = await supabase
     .from("instances")
-    .select("id, instance_name, evolution_api_url, evolution_api_key")
+    .select("id, instance_name, evolution_api_url, evolution_api_key, welcome_message, outside_hours_message")
     .eq("instance_name", instanceName)
     .single();
 
@@ -106,93 +146,121 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  // Get active auto-responses for this instance, ordered by priority
+  const plan = await getPlanForInstance(supabase, instance.id);
+  const phoneNumber = remoteJid.replace("@s.whatsapp.net", "").replace("@lid", "");
+
+  // Pre-fetch auto-responses (shared across handlers)
   const { data: autoResponses } = await supabase
     .from("auto_responses")
-    .select("id, keyword, regex_pattern, response_text, response_media_url, priority, schedule, user_id")
+    .select("id, keyword, regex_pattern, response_type, menu_config, response_text, response_media_url, priority, schedule, user_id")
     .eq("instance_id", instance.id)
     .eq("is_active", true)
     .order("priority", { ascending: false });
 
-  if (!autoResponses || autoResponses.length === 0) {
-    return NextResponse.json({ status: "no_match" });
-  }
+  // Build shared context
+  const ctx: WebhookContext = {
+    supabase, instance, plan, instanceName, remoteJid, phoneNumber,
+    effectiveText, buttonText, listText,
+    pushName: body.data?.pushName,
+    messageId: body.data?.key?.id,
+    senderJid: body.data?.key?.participant,
+    autoResponses: autoResponses || [],
+  };
 
-  // Find the first matching auto-response
-  let matched = null;
-  let matchedKeyword = "";
+  // ============================================================
+  // PRO features: appointment booking flow
+  // ============================================================
+  if (hasPlan(plan, "pro")) {
+    // Reminder confirm/cancel: confirm_<id> or cancel_<id>
+    const rawBtnId = extractRawButtonId(body.data?.message);
+    const checkId = rawBtnId || effectiveText;
 
-  for (const ar of autoResponses) {
-    // Check schedule
-    if (!isWithinSchedule(ar.schedule)) continue;
-
-    // Check keyword match
-    if (ar.keyword && matchKeyword(messageText, ar.keyword)) {
-      matched = ar;
-      matchedKeyword = ar.keyword;
-      break;
+    if (checkId.startsWith("confirm_") || checkId.startsWith("cancel_")) {
+      ctx.effectiveText = checkId;
+      const result = await handleAppointmentConfirm(ctx);
+      if (result) return NextResponse.json(result);
     }
 
-    // Check regex match
-    if (ar.regex_pattern && matchRegex(messageText, ar.regex_pattern)) {
-      matched = ar;
-      matchedKeyword = ar.regex_pattern;
-      break;
+    // Slot selection: slot_<date>_<time>
+    if (checkId.startsWith("slot_")) {
+      ctx.effectiveText = checkId;
+      const result = await handleSlotSelect(ctx);
+      if (result) return NextResponse.json(result);
     }
+
+    // Date selection: date_<YYYY-MM-DD>
+    if (checkId.startsWith("date_")) {
+      ctx.effectiveText = checkId;
+      const result = await handleDateSelect(ctx);
+      if (result) return NextResponse.json(result);
+    }
+
+    // Booking intent: "turno", "agendar", etc.
+    const result = await handleBookingIntent(ctx);
+    if (result) return NextResponse.json(result);
   }
 
-  if (!matched) {
-    console.log("[webhook] sin match", { instance: instanceName, from: remoteJid, text: messageText.slice(0, 120) });
-    return NextResponse.json({ status: "no_match" });
+  // ============================================================
+  // STARTER features: welcome, outside hours, menus, auto-reply
+  // ============================================================
+
+  // Welcome message (first-time writer)
+  await handleWelcome(ctx);
+
+  // Outside hours auto-reply (stops processing if triggered)
+  const outsideResult = await handleOutsideHours(ctx);
+  if (outsideResult) return NextResponse.json(outsideResult);
+
+  // Menu button/list tap
+  if (buttonText || listText) {
+    const menuResult = await handleMenuTap(ctx);
+    if (menuResult) return NextResponse.json(menuResult);
   }
 
-  // Send the auto-response via Evolution API
-  const phoneNumber = remoteJid.replace("@s.whatsapp.net", "").replace("@lid", "");
-  const sendResult = await sendTextMessage(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name,
-    phoneNumber,
-    matched.response_text,
-    1500 // 1.5s delay to seem natural
-  );
+  // Regular keyword/regex matching
+  const replyResult = await handleAutoReply(ctx);
+  return NextResponse.json(replyResult);
+}
 
-  // Log the response (don't fail if logging fails)
-  try {
-    await supabase.from("response_logs").insert({
-      instance_id: instance.id,
-      auto_response_id: matched.id,
-      user_id: matched.user_id,
-      incoming_phone: remoteJid,
-      incoming_message: messageText,
-      matched_keyword: matchedKeyword,
-    });
-  } catch (logErr) {
-    console.error("[webhook] error guardando log", { instance: instanceName, error: logErr });
+/** Look up the subscription plan for an instance */
+async function getPlanForInstance(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  instanceId: string,
+): Promise<PlanType> {
+  // Try user_instances → subscriptions
+  const { data: assignment } = await supabase
+    .from("user_instances")
+    .select("user_id")
+    .eq("instance_id", instanceId)
+    .limit(1)
+    .single();
+
+  if (assignment) {
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("plan_type")
+      .eq("user_id", assignment.user_id)
+      .limit(1)
+      .single();
+    if (sub?.plan_type) return sub.plan_type as PlanType;
   }
 
-  if (sendResult.ok) {
-    console.log("[webhook] respuesta enviada", {
-      instance: instanceName,
-      from: remoteJid,
-      keyword: matchedKeyword,
-      ok: true,
-    });
-    return NextResponse.json({
-      status: "success",
-      matched: matchedKeyword,
-      response: matched.response_text,
-    });
+  // Fallback: instance admin's plan
+  const { data: instance } = await supabase
+    .from("instances")
+    .select("admin_id")
+    .eq("id", instanceId)
+    .single();
+
+  if (instance?.admin_id) {
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("plan_type")
+      .eq("user_id", instance.admin_id)
+      .limit(1)
+      .single();
+    if (sub?.plan_type) return sub.plan_type as PlanType;
   }
 
-  console.error("[webhook] error enviando respuesta", {
-    instance: instanceName,
-    from: remoteJid,
-    keyword: matchedKeyword,
-    message: sendResult.message,
-  });
-  return NextResponse.json(
-    { status: "error", error: sendResult.message },
-    { status: 500 }
-  );
+  return "starter"; // default
 }

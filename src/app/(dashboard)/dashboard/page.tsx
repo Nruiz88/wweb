@@ -78,17 +78,23 @@ export default function DashboardPage() {
   }, [loadStatus]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      const done = localStorage.getItem("onboarding_done");
-      if (!done && status.hasInstance && !status.loading) {
-        setShowWizard(true);
+    const t = setTimeout(async () => {
+      if (status.hasInstance && !status.loading) {
+        try {
+          const res = await fetch("/api/onboarding");
+          const payload = await res.json();
+          if (payload.status === "success" && !payload.data.completed) {
+            setShowWizard(true);
+          }
+        } catch {
+          // Non-critical: don't show wizard on error
+        }
       }
     }, 0);
     return () => clearTimeout(t);
   }, [status.hasInstance, status.loading]);
 
   function handleWizardComplete() {
-    localStorage.setItem("onboarding_done", "1");
     setShowWizard(false);
     void loadStatus();
   }

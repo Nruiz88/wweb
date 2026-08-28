@@ -231,3 +231,139 @@ export async function sendTextMessage(
     }
   );
 }
+
+/** Button definition for interactive messages */
+export interface ButtonItem {
+  type: "reply";
+  reply: { id: string; title: string };
+}
+
+/** Send an interactive button message (up to 3 reply buttons). */
+export async function sendButtonMessage(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string,
+  number: string,
+  title: string,
+  description: string,
+  buttons: ButtonItem[],
+  footer?: string,
+  delay?: number
+): Promise<EvolutionResult<SendTextResult>> {
+  const payload: Record<string, unknown> = {
+    number,
+    title,
+    description,
+    buttons: buttons.map((b) => ({
+      type: b.type,
+      reply: { id: b.reply.id, title: b.reply.title },
+    })),
+  };
+  if (footer) payload.footer = footer;
+  if (typeof delay === "number" && delay >= 0) {
+    payload.delay = delay;
+  }
+
+  return evolutionRequest<SendTextResult>(
+    baseUrl,
+    apiKey,
+    `/message/sendButtons/${instanceName}`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+/** Send an interactive list message (sections with rows). */
+export async function sendListMessage(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string,
+  number: string,
+  title: string,
+  description: string,
+  buttonText: string,
+  sections: { title: string; rows: { title: string; description?: string; rowId: string }[] }[],
+  footer?: string,
+  delay?: number
+): Promise<EvolutionResult<SendTextResult>> {
+  const payload: Record<string, unknown> = {
+    number,
+    title,
+    description,
+    buttonText,
+    sections,
+  };
+  if (footer) payload.footerText = footer;
+  if (typeof delay === "number" && delay >= 0) {
+    payload.delay = delay;
+  }
+
+  return evolutionRequest<SendTextResult>(
+    baseUrl,
+    apiKey,
+    `/message/sendList/${instanceName}`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+/** Delete a message for everyone in a chat (group or DM). */
+export async function deleteMessage(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string,
+  messageId: string,
+  remoteJid: string,
+  fromMe: boolean = false,
+): Promise<EvolutionResult<unknown>> {
+  return evolutionRequest<unknown>(
+    baseUrl,
+    apiKey,
+    `/chat/deleteMessageForEveryone/${instanceName}`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({
+        id: messageId,
+        remoteJid,
+        fromMe,
+      }),
+    }
+  );
+}
+
+/** Send a text message to a group. */
+export async function sendGroupMessage(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string,
+  groupJid: string,
+  text: string,
+  mentions?: string[],
+  delay?: number,
+): Promise<EvolutionResult<SendTextResult>> {
+  const payload: Record<string, unknown> = {
+    number: groupJid,
+    text,
+  };
+  if (mentions && mentions.length > 0) {
+    payload.mentionsEveryOne = mentions.includes("everyone");
+    payload.mentioned = mentions.filter((m) => m !== "everyone");
+  }
+  if (typeof delay === "number" && delay >= 0) {
+    payload.delay = delay;
+  }
+
+  return evolutionRequest<SendTextResult>(
+    baseUrl,
+    apiKey,
+    `/message/sendText/${instanceName}`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}

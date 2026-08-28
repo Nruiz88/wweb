@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AutoResponse } from "@/lib/supabase/types";
+import type { AutoResponse, MenuConfig, MenuButton } from "@/lib/supabase/types";
 import {
   CheckIcon,
   ClockIcon,
@@ -30,9 +30,16 @@ export default function AutoResponsesPage() {
   const [search, setSearch] = useState("");
   const [onlyActive, setOnlyActive] = useState(false);
 
-  // Simple form state
+  // Form state
+  const [responseType, setResponseType] = useState<"text" | "menu">("text");
   const [keyword, setKeyword] = useState("");
   const [responseText, setResponseText] = useState("");
+  const [menuTitle, setMenuTitle] = useState("");
+  const [menuDescription, setMenuDescription] = useState("");
+  const [menuFooter, setMenuFooter] = useState("");
+  const [menuButtons, setMenuButtons] = useState<MenuButton[]>([
+    { id: crypto.randomUUID().slice(0, 8), text: "", target_id: null },
+  ]);
   const [isActive, setIsActive] = useState(true);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleFrom, setScheduleFrom] = useState("09:00");
@@ -83,7 +90,9 @@ export default function AutoResponsesPage() {
       list = list.filter(
         (r) =>
           r.keyword?.toLowerCase().includes(q) ||
-          r.response_text.toLowerCase().includes(q)
+          r.response_text.toLowerCase().includes(q) ||
+          r.menu_config?.title?.toLowerCase().includes(q) ||
+          r.menu_config?.buttons?.some((b) => b.text.toLowerCase().includes(q))
       );
     }
     return list;
@@ -92,8 +101,13 @@ export default function AutoResponsesPage() {
   const activeCount = useMemo(() => responses.filter((r) => r.is_active).length, [responses]);
 
   function openCreate() {
+    setResponseType("text");
     setKeyword("");
     setResponseText("");
+    setMenuTitle("");
+    setMenuDescription("");
+    setMenuFooter("");
+    setMenuButtons([{ id: crypto.randomUUID().slice(0, 8), text: "", target_id: null }]);
     setIsActive(true);
     setScheduleEnabled(false);
     setScheduleFrom("09:00");
@@ -104,8 +118,17 @@ export default function AutoResponsesPage() {
 
   function openEdit(r: AutoResponse) {
     setEditingResponse(r);
+    setResponseType(r.response_type === "menu" ? "menu" : "text");
     setKeyword(r.keyword || "");
     setResponseText(r.response_text);
+    setMenuTitle(r.menu_config?.title || "");
+    setMenuDescription(r.menu_config?.description || "");
+    setMenuFooter(r.menu_config?.footer || "");
+    setMenuButtons(
+      r.menu_config?.buttons?.length
+        ? r.menu_config.buttons.map((b) => ({ ...b }))
+        : [{ id: crypto.randomUUID().slice(0, 8), text: "", target_id: null }]
+    );
     setIsActive(r.is_active);
     setScheduleEnabled(Boolean(r.schedule?.from && r.schedule?.to));
     setScheduleFrom(r.schedule?.from || "09:00");
@@ -113,8 +136,12 @@ export default function AutoResponsesPage() {
     setShowForm(true);
   }
 
+  const canSave = responseType === "menu"
+    ? menuTitle.trim() && menuButtons.some((b) => b.text.trim())
+    : keyword.trim() && responseText.trim();
+
   async function handleSave() {
-    if (!keyword || !responseText) return;
+    if (!canSave) return;
     setSaving(true);
     setFeedback(null);
 
@@ -123,10 +150,35 @@ export default function AutoResponsesPage() {
         ? { from: scheduleFrom, to: scheduleTo }
         : null;
 
+      const menuConfig: MenuConfig | null = responseType === "menu"
+        ? {
+            title: menuTitle,
+            description: menuDescription,
+            footer: menuFooter || undefined,
+            buttons: menuButtons.filter((b) => b.text.trim()),
+          }
+        : null;
+
       const method = editingResponse ? "PUT" : "POST";
       const body = editingResponse
-        ? { id: editingResponse.id, keyword, responseText, isActive, schedule }
-        : { instanceId, keyword, responseText, isActive, schedule };
+        ? {
+            id: editingResponse.id,
+            keyword: responseType === "text" ? keyword : undefined,
+            responseText: responseType === "text" ? responseText : "",
+            responseType,
+            menuConfig,
+            isActive,
+            schedule,
+          }
+        : {
+            instanceId,
+            keyword: responseType === "text" ? keyword : undefined,
+            responseText: responseType === "text" ? responseText : "",
+            responseType,
+            menuConfig,
+            isActive,
+            schedule,
+          };
 
       const res = await fetch("/api/auto-responses", {
         method,
@@ -326,7 +378,13 @@ export default function AutoResponsesPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-wa-text">
-                        cuando escriban <span className="text-[#e6a44e]">&quot;{r.keyword || r.regex_pattern}&quot;</span>
+                        {r.response_type === "menu" ? (
+                          <>
+                            <span className="text-[#53bdeb]">Menú</span> &quot;{r.menu_config?.title || "Sin título"}&quot;
+                          </>
+                        ) : (
+                          <>cuando escriban <span className="text-[#e6a44e]">&quot;{r.keyword || r.regex_pattern}&quot;</span></>
+                        )}
                       </p>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                         <span
@@ -340,6 +398,11 @@ export default function AutoResponsesPage() {
                           <span className="inline-flex items-center gap-1 rounded-full bg-[#e6a44e]/15 px-2 py-0.5 text-[9px] font-medium text-[#e6a44e]">
                             <ClockIcon className="h-2.5 w-2.5" />
                             {r.schedule.from} - {r.schedule.to}
+                          </span>
+                        )}
+                        {r.response_type === "menu" && (
+                          <span className="inline-flex items-center rounded-full bg-[#53bdeb]/15 px-2 py-0.5 text-[9px] font-medium text-[#53bdeb]">
+                            menú · {r.menu_config?.buttons?.length || 0} botones
                           </span>
                         )}
                         {r.regex_pattern && (
@@ -365,14 +428,41 @@ export default function AutoResponsesPage() {
 
                   {/* Chat preview */}
                   <div className="bg-[#0b141a] px-4 py-3.5">
-                    <div className="flex items-end gap-2">
-                      <div className="max-w-[45%] rounded-xl rounded-bl-sm bg-[#202c33] px-3 py-2 shadow-sm">
-                        <p className="text-xs leading-relaxed text-wa-text">{r.keyword || r.regex_pattern}</p>
+                    {r.response_type === "menu" && r.menu_config ? (
+                      <div className="space-y-2">
+                        {/* Menu title + description */}
+                        <div className="flex justify-end">
+                          <div className="max-w-[85%] rounded-xl rounded-br-sm bg-[#005c4b] px-3 py-2 shadow-sm">
+                            <p className="text-[11px] font-semibold text-wa-text">{r.menu_config.title}</p>
+                            {r.menu_config.description && (
+                              <p className="mt-0.5 text-[10px] text-wa-text-secondary">{r.menu_config.description}</p>
+                            )}
+                          </div>
+                        </div>
+                        {/* Buttons preview */}
+                        <div className="flex justify-end">
+                          <div className="flex flex-wrap gap-1.5">
+                            {r.menu_config.buttons?.map((btn) => (
+                              <span
+                                key={btn.id}
+                                className="rounded-full border border-[#00a884]/40 bg-[#00a884]/10 px-2.5 py-1 text-[9px] font-medium text-[#00a884]"
+                              >
+                                {btn.text}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                      <div className="max-w-[55%] rounded-xl rounded-br-sm bg-[#005c4b] px-3 py-2 shadow-sm">
-                        <p className="text-xs leading-relaxed text-wa-text line-clamp-3">{r.response_text}</p>
+                    ) : (
+                      <div className="flex items-end gap-2">
+                        <div className="max-w-[45%] rounded-xl rounded-bl-sm bg-[#202c33] px-3 py-2 shadow-sm">
+                          <p className="text-xs leading-relaxed text-wa-text">{r.keyword || r.regex_pattern}</p>
+                        </div>
+                        <div className="max-w-[55%] rounded-xl rounded-br-sm bg-[#005c4b] px-3 py-2 shadow-sm">
+                          <p className="text-xs leading-relaxed text-wa-text line-clamp-3">{r.response_text}</p>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Card footer: actions */}
@@ -424,57 +514,222 @@ export default function AutoResponsesPage() {
             <div className="border-b border-wa-border bg-[#0b141a] px-5 py-4">
               <p className="mb-3 text-center text-[10px] uppercase tracking-wide text-wa-text-secondary/50">Asi se veria</p>
               <div className="space-y-2">
-                {/* Incoming message */}
-                <div className="flex justify-start">
-                  <div className="max-w-[80%] rounded-lg rounded-tl-none bg-[#202c33] px-3 py-2">
-                    <p className="text-sm text-wa-text">
-                      {keyword || <span className="text-wa-text-secondary/40 italic">palabra clave</span>}
-                    </p>
-                  </div>
-                </div>
-                {/* Bot response */}
-                <div className="flex justify-end">
-                  <div className="max-w-[80%] rounded-lg rounded-tr-none bg-[#005c4b] px-3 py-2">
-                    <p className="text-sm text-wa-text">
-                      {responseText || <span className="text-white/40 italic">tu respuesta</span>}
-                    </p>
-                  </div>
-                </div>
+                {responseType === "menu" ? (
+                  <>
+                    <div className="flex justify-end">
+                      <div className="max-w-[85%] rounded-lg rounded-tr-none bg-[#005c4b] px-3 py-2">
+                        <p className="text-xs font-semibold text-wa-text">
+                          {menuTitle || <span className="text-white/40 italic">título del menú</span>}
+                        </p>
+                        {menuDescription && (
+                          <p className="mt-0.5 text-[10px] text-wa-text-secondary">{menuDescription}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <div className="flex flex-wrap gap-1.5">
+                        {menuButtons.filter((b) => b.text.trim()).map((btn) => (
+                          <span
+                            key={btn.id}
+                            className="rounded-full border border-[#00a884]/40 bg-[#00a884]/10 px-2.5 py-1 text-[9px] font-medium text-[#00a884]"
+                          >
+                            {btn.text}
+                          </span>
+                        ))}
+                        {menuButtons.every((b) => !b.text.trim()) && (
+                          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[9px] text-white/30">
+                            botones...
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-start">
+                      <div className="max-w-[80%] rounded-lg rounded-tl-none bg-[#202c33] px-3 py-2">
+                        <p className="text-sm text-wa-text">
+                          {keyword || <span className="text-wa-text-secondary/40 italic">palabra clave</span>}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <div className="max-w-[80%] rounded-lg rounded-tr-none bg-[#005c4b] px-3 py-2">
+                        <p className="text-sm text-wa-text">
+                          {responseText || <span className="text-white/40 italic">tu respuesta</span>}
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
             {/* Form */}
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
-              {/* Keyword */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">
-                  Cuando alguien escriba...
-                </label>
-                <input
-                  type="text"
-                  placeholder='Ej: "precio", "horario", "direccion"'
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
-                />
-                <p className="text-[10px] text-wa-text-secondary/50">
-                  La palabra aparecera en cualquier parte del mensaje
-                </p>
+              {/* Type toggle */}
+              <div className="flex gap-2">
+                {["text", "menu"].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setResponseType(t as "text" | "menu")}
+                    className={`flex-1 rounded-xl border px-3 py-2.5 text-xs font-medium transition ${
+                      responseType === t
+                        ? "border-[#00a884]/40 bg-[#00a884]/10 text-[#00a884]"
+                        : "border-wa-border bg-wa-input text-wa-text-secondary hover:bg-wa-hover"
+                    }`}
+                  >
+                    {t === "text" ? "💬 Respuesta de texto" : "🔘 Menú con botones"}
+                  </button>
+                ))}
               </div>
 
-              {/* Response */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">
-                  Tu bot respondera...
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder='Ej: "Hola! Nuestros precios van desde $10.000. En que te puedo ayudar?"'
-                  value={responseText}
-                  onChange={(e) => setResponseText(e.target.value)}
-                  className="resize-none rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
-                />
-              </div>
+              {/* === TEXT MODE === */}
+              {responseType === "text" && (
+                <>
+                  {/* Keyword */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-wa-text-secondary">
+                      Cuando alguien escriba...
+                    </label>
+                    <input
+                      type="text"
+                      placeholder='Ej: "precio", "horario", "direccion"'
+                      value={keyword}
+                      onChange={(e) => setKeyword(e.target.value)}
+                      className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                    />
+                    <p className="text-[10px] text-wa-text-secondary/50">
+                      La palabra aparecera en cualquier parte del mensaje
+                    </p>
+                  </div>
+
+                  {/* Response */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-wa-text-secondary">
+                      Tu bot respondera...
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder='Ej: "Hola! Nuestros precios van desde $10.000. En que te puedo ayudar?"'
+                      value={responseText}
+                      onChange={(e) => setResponseText(e.target.value)}
+                      className="resize-none rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* === MENU MODE === */}
+              {responseType === "menu" && (
+                <>
+                  {/* Menu title */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-wa-text-secondary">
+                      Título del menú
+                    </label>
+                    <input
+                      type="text"
+                      placeholder='Ej: "¿En qué te puedo ayudar?"'
+                      value={menuTitle}
+                      onChange={(e) => setMenuTitle(e.target.value)}
+                      className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Menu description */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-wa-text-secondary">
+                      Descripción <span className="text-wa-text-secondary/40">(opcional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder='Ej: "Elegí una opción"'
+                      value={menuDescription}
+                      onChange={(e) => setMenuDescription(e.target.value)}
+                      className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Buttons (up to 3) */}
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-semibold text-wa-text-secondary">
+                      Botones <span className="text-wa-text-secondary/40">(hasta 3)</span>
+                    </label>
+                    {menuButtons.map((btn, idx) => (
+                      <div key={btn.id} className="flex items-center gap-2">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#53bdeb]/10 text-[10px] font-bold text-[#53bdeb]">
+                          {idx + 1}
+                        </span>
+                        <input
+                          type="text"
+                          placeholder={`Opción ${idx + 1}`}
+                          value={btn.text}
+                          onChange={(e) => {
+                            const next = [...menuButtons];
+                            next[idx] = { ...next[idx], text: e.target.value };
+                            setMenuButtons(next);
+                          }}
+                          className="flex-1 rounded-xl border border-wa-border bg-wa-input px-3 py-2 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                        />
+                        {/* Target selector */}
+                        <select
+                          value={btn.target_id || ""}
+                          onChange={(e) => {
+                            const next = [...menuButtons];
+                            next[idx] = { ...next[idx], target_id: e.target.value || null };
+                            setMenuButtons(next);
+                          }}
+                          className="max-w-[140px] rounded-xl border border-wa-border bg-wa-input px-2 py-2 text-[10px] text-wa-text-secondary focus:border-[#00a884] focus:outline-none"
+                        >
+                          <option value="">Sin destino</option>
+                          {responses
+                            .filter((r) => r.id !== editingResponse?.id)
+                            .map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.keyword || r.menu_config?.title || r.id.slice(0, 8)}
+                              </option>
+                            ))}
+                        </select>
+                        {menuButtons.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setMenuButtons(menuButtons.filter((_, i) => i !== idx))}
+                            className="shrink-0 rounded-lg p-1.5 text-red-400/50 transition hover:bg-red-500/10 hover:text-red-400"
+                          >
+                            <XIcon className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {menuButtons.length < 3 && (
+                      <button
+                        type="button"
+                        onClick={() => setMenuButtons([...menuButtons, { id: crypto.randomUUID().slice(0, 8), text: "", target_id: null }])}
+                        className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-wa-border bg-wa-input px-3 py-2.5 text-xs text-wa-text-secondary transition hover:border-[#00a884]/40 hover:text-[#00a884]"
+                      >
+                        <PlusIcon className="h-3.5 w-3.5" />
+                        Agregar botón
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Menu footer */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-wa-text-secondary">
+                      Footer <span className="text-wa-text-secondary/40">(opcional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder='Ej: "Boti - Tu asistente"'
+                      value={menuFooter}
+                      onChange={(e) => setMenuFooter(e.target.value)}
+                      className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Schedule */}
               <div className="flex flex-col gap-2 rounded-xl border border-wa-border bg-wa-input px-4 py-3">
@@ -541,7 +796,7 @@ export default function AutoResponsesPage() {
                 <button
                   type="button"
                   onClick={() => void handleSave()}
-                  disabled={saving || !keyword || !responseText}
+                  disabled={saving || !canSave}
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#00a884] py-3 text-sm font-semibold text-white hover:bg-[#00a884]/90 disabled:opacity-50"
                 >
                   {saving ? <LoaderIcon className="h-4 w-4 animate-spin" /> : null}

@@ -36,6 +36,7 @@ CREATE TABLE profiles (
   phone TEXT,
   address TEXT,
   role TEXT DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+  onboarding_completed BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -133,6 +134,8 @@ CREATE TABLE instances (
   evolution_api_url TEXT NOT NULL,
   evolution_api_key TEXT NOT NULL,
   status TEXT DEFAULT 'close' CHECK (status IN ('open', 'close', 'connecting', 'qrcode')),
+  welcome_message TEXT DEFAULT NULL,
+  outside_hours_message TEXT DEFAULT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -253,6 +256,8 @@ CREATE TABLE auto_responses (
   regex_pattern TEXT,
   response_text TEXT NOT NULL,
   response_media_url TEXT,
+  response_type TEXT DEFAULT 'text' CHECK (response_type IN ('text', 'menu')),
+  menu_config JSONB,
   is_active BOOLEAN DEFAULT true,
   priority INTEGER DEFAULT 0,
   schedule JSONB,
@@ -275,6 +280,46 @@ CREATE TABLE response_logs (
 );
 
 -- ============================================
+-- 7b. Business Hours (Pro feature)
+-- ============================================
+CREATE TABLE business_hours (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  instance_id UUID REFERENCES instances(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  day_of_week INT NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+  start_time TIME NOT NULL DEFAULT '09:00',
+  end_time TIME NOT NULL DEFAULT '18:00',
+  slot_duration_min INT NOT NULL DEFAULT 30 CHECK (slot_duration_min BETWEEN 10 AND 120),
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(instance_id, day_of_week)
+);
+
+-- ============================================
+-- 7c. Appointments (Pro feature)
+-- ============================================
+CREATE TABLE appointments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  instance_id UUID REFERENCES instances(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  customer_phone TEXT NOT NULL,
+  customer_name TEXT,
+  appointment_date DATE NOT NULL,
+  appointment_time TIME NOT NULL,
+  duration_min INT NOT NULL DEFAULT 30,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'canceled', 'completed')),
+  notes TEXT,
+  reminder_24h_sent BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS appointments_updated_at ON public.appointments;
+CREATE TRIGGER appointments_updated_at
+  BEFORE UPDATE ON public.appointments
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+-- ============================================
 -- 8. Indexes for performance
 -- ============================================
 CREATE INDEX idx_instances_admin_id ON instances(admin_id);
@@ -286,6 +331,11 @@ CREATE INDEX idx_auto_responses_instance_active ON auto_responses(instance_id, i
 CREATE INDEX idx_response_logs_instance_id ON response_logs(instance_id);
 CREATE INDEX idx_response_logs_sent_at ON response_logs(sent_at DESC);
 CREATE INDEX idx_instance_addons_user_id ON instance_addons(user_id);
+CREATE INDEX idx_business_hours_instance ON business_hours(instance_id);
+CREATE INDEX idx_appointments_instance ON appointments(instance_id);
+CREATE INDEX idx_appointments_date ON appointments(appointment_date);
+CREATE INDEX idx_appointments_status ON appointments(status);
+CREATE INDEX idx_appointments_reminder ON appointments(status, appointment_date, reminder_24h_sent) WHERE status IN ('pending', 'confirmed');
 
 -- ============================================
 -- 9. Row Level Security (RLS)
@@ -298,6 +348,8 @@ ALTER TABLE instances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_instances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auto_responses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE response_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE business_hours ENABLE ROW LEVEL SECURITY;
+ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
 
 -- Revocar escalada de privilegios y exposicion de claves
 REVOKE UPDATE (role) ON public.profiles FROM anon, authenticated;
@@ -385,6 +437,106 @@ CREATE POLICY "Users can view own response_logs"
 CREATE POLICY "Users can insert own response_logs"
   ON response_logs FOR INSERT
   WITH CHECK (auth.uid() = user_id);
+
+-- Business Hours: owner or instance admin can manage, assigned users read
+CREATE POLICY "business_hours access"
+  ON business_hours FOR ALL
+  USING (
+    auth.uid() = user_id
+    OR EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
+    OR EXISTS (SELECT 1 FROM user_instances WHERE instance_id = business_hours.instance_id AND user_id = auth.uid())
+  );
+
+-- Appointments: instance owner or assigned user can manage
+CREATE POLICY "appointments access"
+  ON appointments FOR ALL
+  USING (
+    auth.uid() = user_id
+    OR EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
+    OR EXISTS (SELECT 1 FROM user_instances WHERE instance_id = appointments.instance_id AND user_id = auth.uid())
+  );
+
+ALTER TABLE group_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE broadcasts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE broadcast_recipients ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "group_settings access"
+  ON group_settings FOR ALL
+  USING (
+    auth.uid() = user_id
+    OR EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
+  );
+
+CREATE POLICY "broadcasts access"
+  ON broadcasts FOR ALL
+  USING (
+    auth.uid() = user_id
+    OR EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
+  );
+
+CREATE POLICY "broadcast_recipients access"
+  ON broadcast_recipients FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM broadcasts WHERE id = broadcast_id
+      AND (
+        user_id = auth.uid()
+        OR EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
+      )
+    )
+  );
+
+-- ============================================
+-- 8b. Group Settings (Community feature)
+-- ============================================
+CREATE TABLE group_settings (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  instance_id UUID REFERENCES instances(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  group_jid TEXT NOT NULL,
+  group_name TEXT,
+  welcome_enabled BOOLEAN DEFAULT false,
+  welcome_message TEXT DEFAULT NULL,
+  spam_filter_enabled BOOLEAN DEFAULT false,
+  block_all_links BOOLEAN DEFAULT true,
+  allowed_domains TEXT[] DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(instance_id, group_jid)
+);
+
+DROP TRIGGER IF EXISTS group_settings_updated_at ON public.group_settings;
+CREATE TRIGGER group_settings_updated_at
+  BEFORE UPDATE ON public.group_settings
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+-- ============================================
+-- 8c. Broadcasts (Community feature)
+-- ============================================
+CREATE TABLE broadcasts (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  instance_id UUID REFERENCES instances(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'sending', 'completed', 'failed')),
+  scheduled_at TIMESTAMPTZ DEFAULT NULL,
+  sent_at TIMESTAMPTZ DEFAULT NULL,
+  total_groups INT DEFAULT 0,
+  sent_count INT DEFAULT 0,
+  failed_count INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE broadcast_recipients (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  broadcast_id UUID REFERENCES broadcasts(id) ON DELETE CASCADE NOT NULL,
+  group_jid TEXT NOT NULL,
+  group_name TEXT,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
+  error TEXT DEFAULT NULL,
+  sent_at TIMESTAMPTZ DEFAULT NULL
+);
 
 -- ============================================
 -- 10. Helper functions

@@ -5,12 +5,15 @@ export interface Schedule {
   to?: string;
 }
 
-export function isWithinSchedule(schedule: Schedule | null | undefined): boolean {
+export function isWithinSchedule(
+  schedule: Schedule | null | undefined,
+  now?: Date,
+): boolean {
   if (!schedule) return true;
 
-  const now = new Date();
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
+  const nowDate = now ?? new Date();
+  const hours = nowDate.getHours();
+  const minutes = nowDate.getMinutes();
   const nowTime = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 
   const from = schedule.from;

@@ -69,6 +69,9 @@ export default function LogsPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const pageSize = 20;
+  const totalPages = Math.ceil(total / pageSize);
 
   const loadInstances = useCallback(async () => {
     const res = await fetch("/api/instances");
@@ -84,13 +87,18 @@ export default function LogsPage() {
   const loadLogs = useCallback(async () => {
     if (!selectedInstance) return;
     setLoading(true);
-    const res = await fetch(`/api/logs?instanceId=${selectedInstance}&limit=50`);
+    const res = await fetch(`/api/logs?instanceId=${selectedInstance}&limit=${pageSize}&offset=${page * pageSize}`);
     const payload = await res.json();
     if (payload.status === "success") {
       setLogs(payload.data.logs);
       setTotal(payload.data.total);
     }
     setLoading(false);
+  }, [selectedInstance, page]);
+
+  // Reset page when switching instances
+  useEffect(() => {
+    setPage(0);
   }, [selectedInstance]);
 
   useEffect(() => {
@@ -153,11 +161,36 @@ export default function LogsPage() {
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            {logs.map((log) => (
-              <LogCard key={log.id} log={log} />
-            ))}
-          </div>
+          <>
+            <div className="space-y-3">
+              {logs.map((log) => (
+                <LogCard key={log.id} log={log} />
+              ))}
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-center gap-3">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="rounded-lg border border-wa-border bg-wa-header px-3 py-1.5 text-xs font-medium text-wa-text-secondary hover:border-wa-border/80 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Anterior
+                </button>
+                <span className="text-xs text-wa-text-secondary">
+                  Página {page + 1} de {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="rounded-lg border border-wa-border bg-wa-header px-3 py-1.5 text-xs font-medium text-wa-text-secondary hover:border-wa-border/80 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Siguiente
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

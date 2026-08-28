@@ -18,27 +18,8 @@ interface WizardStatus {
   autoResponses: number;
 }
 
-const STORAGE_KEY = "onboarding_step";
-
-function getSavedStep(): number {
-  try {
-    const val = localStorage.getItem(STORAGE_KEY);
-    return val ? parseInt(val, 10) : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function saveStep(step: number) {
-  try {
-    localStorage.setItem(STORAGE_KEY, String(step));
-  } catch {
-    // ignore
-  }
-}
-
 export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
-  const [step, setStep] = useState(getSavedStep);
+  const [step, setStep] = useState(0);
   const [status, setStatus] = useState<WizardStatus | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -81,12 +62,8 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
     const t = setTimeout(() => {
       if (step === 0 && status.whatsappConnected) {
-        // Step 1 done, advance to step 2
-        saveStep(1);
         setStep(1);
       } else if (step === 1 && status.autoResponses > 0) {
-        // Step 2 done, advance to step 3 (done screen)
-        saveStep(2);
         setStep(2);
       }
     }, 0);
@@ -142,8 +119,8 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   const current = steps[step] || steps[2];
 
   function handleFinish() {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.setItem("onboarding_done", "1");
+    // Persist completion to DB
+    fetch("/api/onboarding", { method: "PUT" }).catch(() => {});
     onComplete();
   }
 
@@ -269,10 +246,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
             {isStepDone && (
               <button
                 type="button"
-                onClick={() => {
-                  saveStep(step + 1);
-                  setStep(step + 1);
-                }}
+                onClick={() => setStep(step + 1)}
                 className="w-full rounded-xl py-3 text-sm font-semibold text-white transition hover:opacity-90"
                 style={{ backgroundColor: steps[step + 1]?.color || current.color }}
               >

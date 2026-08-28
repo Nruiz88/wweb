@@ -11,6 +11,7 @@ import {
   TrashIcon,
   XIcon,
   MessageCircleIcon,
+  ZapIcon,
 } from "@/components/icons";
 
 // Instance card
@@ -70,6 +71,12 @@ export default function SettingsPage() {
   const [evolutionApiUrl, setEvolutionApiUrl] = useState("");
   const [evolutionApiKey, setEvolutionApiKey] = useState("");
 
+  // Welcome / outside-hours settings
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
+  const [welcomeMessage, setWelcomeMessage] = useState("");
+  const [outsideHoursMessage, setOutsideHoursMessage] = useState("");
+  const [savingMessages, setSavingMessages] = useState(false);
+
   const isAdmin = profile?.role === "admin";
 
   const loadData = useCallback(async () => {
@@ -80,6 +87,19 @@ export default function SettingsPage() {
       setInstances(payload.data);
       if (payload.role) {
         setProfile({ id: "", email: null, full_name: null, role: payload.role, business_name: null, phone: null, address: null, created_at: "" });
+      }
+      // Load settings for first instance
+      if (payload.data?.length > 0) {
+        const id = payload.data[0].id;
+        setSelectedInstanceId(id);
+        try {
+          const settingsRes = await fetch(`/api/instance-settings?instanceId=${id}`);
+          const settingsPayload = await settingsRes.json();
+          if (settingsPayload.status === "success") {
+            setWelcomeMessage(settingsPayload.data.welcomeMessage || "");
+            setOutsideHoursMessage(settingsPayload.data.outsideHoursMessage || "");
+          }
+        } catch { /* non-critical */ }
       }
     }
     setLoading(false);
@@ -128,6 +148,32 @@ export default function SettingsPage() {
     const res = await fetch(`/api/instances?id=${id}`, { method: "DELETE" });
     const payload = await res.json();
     if (payload.status === "success") await loadData();
+  }
+
+  async function handleSaveMessages() {
+    if (!selectedInstanceId) return;
+    setSavingMessages(true);
+    try {
+      const res = await fetch("/api/instance-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instanceId: selectedInstanceId,
+          welcomeMessage: welcomeMessage || null,
+          outsideHoursMessage: outsideHoursMessage || null,
+        }),
+      });
+      const payload = await res.json();
+      if (payload.status === "success") {
+        setFeedback({ kind: "success", message: "Mensajes guardados" });
+      } else {
+        setFeedback({ kind: "error", message: payload.error });
+      }
+    } catch {
+      setFeedback({ kind: "error", message: "Error de red" });
+    } finally {
+      setSavingMessages(false);
+    }
   }
 
   return (
@@ -189,6 +235,66 @@ export default function SettingsPage() {
             {instances.map((instance) => (
               <InstanceCard key={instance.id} instance={instance} onDelete={handleDelete} />
             ))}
+          </div>
+        )}
+
+        {/* Welcome + Outside-hours messages */}
+        {selectedInstanceId && instances.length > 0 && (
+          <div className="mt-6 rounded-2xl border border-wa-border bg-wa-header p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-[#e6a44e]">
+                <ZapIcon className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-wa-text">Mensajes automáticos</p>
+                <p className="text-[10px] text-wa-text-secondary/60">Bienvenida y fuera de horario</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-wa-text-secondary">
+                  Mensaje de bienvenida
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Ej: ¡Hola! 👋 Bienvenido a [tu negocio]. ¿En qué te puedo ayudar?"
+                  value={welcomeMessage}
+                  onChange={(e) => setWelcomeMessage(e.target.value)}
+                  className="resize-none rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                />
+                <p className="text-[10px] text-wa-text-secondary/50">
+                  Se envía solo la primera vez que cada persona te escribe
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-wa-text-secondary">
+                  Mensaje fuera de horario
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Ej: ¡Hola! Nuestro horario es de lunes a viernes de 9:00 a 18:00. Te responderemos al día siguiente."
+                  value={outsideHoursMessage}
+                  onChange={(e) => setOutsideHoursMessage(e.target.value)}
+                  className="resize-none rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                />
+                <p className="text-[10px] text-wa-text-secondary/50">
+                  Se envía cuando escriben fuera del horario configurado en{' '}
+                  <a href="/calendar" className="text-[#00a884] hover:underline">Calendario</a>
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void handleSaveMessages()}
+                disabled={savingMessages}
+                className="flex items-center justify-center gap-2 rounded-xl bg-[#00a884] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#00a884]/90 disabled:opacity-50"
+              >
+                {savingMessages ? <LoaderIcon className="h-3.5 w-3.5 animate-spin" /> : null}
+                {savingMessages ? "Guardando..." : "Guardar mensajes"}
+              </button>
+            </div>
           </div>
         )}
       </div>

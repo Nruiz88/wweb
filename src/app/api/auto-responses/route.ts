@@ -91,6 +91,8 @@ export async function POST(request: Request) {
     regexPattern,
     responseText,
     responseMediaUrl,
+    responseType,
+    menuConfig,
     isActive,
     priority,
     schedule,
@@ -100,19 +102,39 @@ export async function POST(request: Request) {
     regexPattern?: string;
     responseText?: string;
     responseMediaUrl?: string;
+    responseType?: string;
+    menuConfig?: { title?: string; description?: string; footer?: string; buttons?: { id: string; text: string; target_id: string | null }[] } | null;
     isActive?: boolean;
     priority?: number;
     schedule?: { from?: string; to?: string };
   };
 
-  if (!instanceId || !responseText) {
+  if (!instanceId) {
     return NextResponse.json(
-      { status: "error", error: "instanceId and responseText are required" },
+      { status: "error", error: "instanceId is required" },
       { status: 400 }
     );
   }
 
-  if (!keyword && !regexPattern) {
+  // Menu type: menuConfig is required; text response is optional (used as fallback)
+  const isMenu = responseType === "menu";
+
+  if (!isMenu && !responseText) {
+    return NextResponse.json(
+      { status: "error", error: "responseText is required for text responses" },
+      { status: 400 }
+    );
+  }
+
+  if (isMenu && (!menuConfig || !menuConfig.buttons || menuConfig.buttons.length === 0)) {
+    return NextResponse.json(
+      { status: "error", error: "menuConfig with at least 1 button is required for menu responses" },
+      { status: 400 }
+    );
+  }
+
+  // Text type: keyword or regexPattern required
+  if (!isMenu && !keyword && !regexPattern) {
     return NextResponse.json(
       { status: "error", error: "Either keyword or regexPattern is required" },
       { status: 400 }
@@ -138,8 +160,10 @@ export async function POST(request: Request) {
       user_id: user.id,
       keyword: keyword || null,
       regex_pattern: regexPattern || null,
-      response_text: responseText,
+      response_text: responseText || "",
       response_media_url: responseMediaUrl || null,
+      response_type: isMenu ? "menu" : "text",
+      menu_config: menuConfig || null,
       is_active: isActive ?? true,
       priority: priority ?? 0,
       schedule: schedule || null,
@@ -180,6 +204,8 @@ export async function PUT(request: Request) {
     regexPattern?: string;
     responseText?: string;
     responseMediaUrl?: string;
+    responseType?: string;
+    menuConfig?: { title?: string; description?: string; footer?: string; buttons?: { id: string; text: string; target_id: string | null }[] } | null;
     isActive?: boolean;
     priority?: number;
     schedule?: { from?: string; to?: string };
@@ -204,17 +230,21 @@ export async function PUT(request: Request) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
   }
 
+  // Build update payload — only include fields that were sent
+  const updatePayload: Record<string, unknown> = {};
+  if (updates.keyword !== undefined) updatePayload.keyword = updates.keyword;
+  if (updates.regexPattern !== undefined) updatePayload.regex_pattern = updates.regexPattern;
+  if (updates.responseText !== undefined) updatePayload.response_text = updates.responseText;
+  if (updates.responseMediaUrl !== undefined) updatePayload.response_media_url = updates.responseMediaUrl;
+  if (updates.responseType !== undefined) updatePayload.response_type = updates.responseType;
+  if (updates.menuConfig !== undefined) updatePayload.menu_config = updates.menuConfig;
+  if (updates.isActive !== undefined) updatePayload.is_active = updates.isActive;
+  if (updates.priority !== undefined) updatePayload.priority = updates.priority;
+  if (updates.schedule !== undefined) updatePayload.schedule = updates.schedule;
+
   const { data: response, error } = await supabase
     .from("auto_responses")
-    .update({
-      keyword: updates.keyword,
-      regex_pattern: updates.regexPattern,
-      response_text: updates.responseText,
-      response_media_url: updates.responseMediaUrl,
-      is_active: updates.isActive,
-      priority: updates.priority,
-      schedule: updates.schedule,
-    })
+    .update(updatePayload)
     .eq("id", id)
     .select()
     .single();

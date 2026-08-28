@@ -96,6 +96,12 @@ function LoginForm() {
           </button>
 
           <p className="text-center text-sm text-wa-text-secondary">
+            <a href="/reset-password" className="text-[#00a884] hover:underline">
+              ¿Olvidaste tu contraseña?
+            </a>
+          </p>
+
+          <p className="text-center text-sm text-wa-text-secondary">
             ¿No tienes cuenta?{" "}
             <a href="/register" className="text-[#00a884] hover:underline">
               Regístrate

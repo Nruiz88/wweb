@@ -1,35 +1,17 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { supabaseConfig } from "@/lib/supabase/config";
+import { requireAdmin } from "@/lib/admin/auth";
 import { rateLimitResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
-
-async function getAuthUser() {
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
-  const { data: { user } } = await sessionClient.auth.getUser();
-  return user;
-}
 
 // GET: List assignments for an instance
 export async function GET(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "admin", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-
-  const supabase = await createServerClient();
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin") return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
+  const { user, supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");
@@ -51,12 +33,9 @@ export async function POST(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "admin", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-
-  const supabase = await createServerClient();
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin") return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
+  const { user, supabase } = auth;
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
@@ -73,15 +52,10 @@ export async function POST(request: Request) {
   const { data: existing } = await supabase.from("user_instances").select("id").eq("user_id", targetUser.id).eq("instance_id", instanceId).single();
   if (existing) return NextResponse.json({ status: "error", error: "User already assigned" }, { status: 409 });
 
-  // Validar limite de bots del plan: base (1) + add-ons activos
-  const { data: effectiveMax, error: maxError } = await supabase
-    .rpc("get_effective_max_instances", { p_user_id: targetUser.id });
+  const { data: effectiveMax, error: maxError } = await supabase.rpc("get_effective_max_instances", { p_user_id: targetUser.id });
   if (maxError) return NextResponse.json({ status: "error", error: maxError.message }, { status: 500 });
 
-  const { count: currentCount } = await supabase
-    .from("user_instances")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", targetUser.id);
+  const { count: currentCount } = await supabase.from("user_instances").select("id", { count: "exact", head: true }).eq("user_id", targetUser.id);
 
   const max = Number(effectiveMax ?? 1);
   const current = Number(currentCount ?? 0);
@@ -103,12 +77,9 @@ export async function DELETE(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "admin", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-
-  const supabase = await createServerClient();
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin") return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
+  const { user, supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const assignmentId = searchParams.get("id");
