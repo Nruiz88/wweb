@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
+import { safeErrorMessage } from "@/lib/api-helpers";
+import { sanitizeString } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +22,7 @@ export async function GET() {
     .single();
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   // Fetch subscription
@@ -93,17 +95,17 @@ export async function PUT(request: Request) {
   const { data: profile, error } = await supabase
     .from("profiles")
     .update({
-      full_name: full_name ?? null,
-      business_name: business_name ?? null,
-      phone: phone ?? null,
-      address: address ?? null,
+      full_name: sanitizeString(full_name, 200),
+      business_name: sanitizeString(business_name, 200),
+      phone: sanitizeString(phone, 20),
+      address: sanitizeString(address, 500),
     })
     .eq("id", user.id)
     .select("id, email, full_name, role, business_name, phone, address, created_at")
     .single();
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: profile });

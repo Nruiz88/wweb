@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { supabaseConfig } from "@/lib/supabase/config";
 import { getConnectionState } from "@/lib/evolution-multi";
+import { validateEvolutionUrl, sanitizeString } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -179,13 +180,23 @@ export async function POST(request: Request) {
     evolutionApiKey?: string;
   };
 
-  if (!instanceName || !evolutionApiUrl || !evolutionApiKey) {
+  const cleanName = sanitizeString(instanceName, 50);
+  if (!cleanName) {
+    return NextResponse.json({ status: "error", error: "Instance name is required" }, { status: 400 });
+  }
+
+  if (!evolutionApiUrl || !evolutionApiKey) {
     return NextResponse.json({ status: "error", error: "All fields are required" }, { status: 400 });
+  }
+
+  const urlCheck = validateEvolutionUrl(evolutionApiUrl);
+  if (!urlCheck.valid) {
+    return NextResponse.json({ status: "error", error: urlCheck.error }, { status: 400 });
   }
 
   const { data: instance, error } = await supabase
     .from("instances")
-    .insert({ admin_id: user.id, instance_name: instanceName, evolution_api_url: evolutionApiUrl, evolution_api_key: evolutionApiKey })
+    .insert({ admin_id: user.id, instance_name: cleanName, evolution_api_url: evolutionApiUrl.trim(), evolution_api_key: evolutionApiKey })
     .select("id, instance_name, status, created_at")
     .single();
 

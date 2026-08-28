@@ -20,6 +20,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
   }
 
+  // Verify user has access to this instance
+  const { data: inst } = await supabase
+    .from("instances")
+    .select("id")
+    .eq("id", instanceId)
+    .single();
+  if (!inst) {
+    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+  }
+
   const { data: broadcasts, error } = await supabase
     .from("broadcasts")
     .select("*")
@@ -27,7 +37,7 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: "Failed to fetch broadcasts" }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: broadcasts });

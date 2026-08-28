@@ -45,6 +45,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
   }
 
+  // Validate query params
+  if (dateFrom && !/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+    return NextResponse.json({ status: "error", error: "Invalid date format" }, { status: 400 });
+  }
+  if (dateTo && !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    return NextResponse.json({ status: "error", error: "Invalid date format" }, { status: 400 });
+  }
+  if (status && !["pending", "confirmed", "canceled", "completed"].includes(status)) {
+    return NextResponse.json({ status: "error", error: "Invalid status" }, { status: 400 });
+  }
+
   const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
   if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
@@ -65,7 +76,7 @@ export async function GET(request: Request) {
   const { data: appointments, error } = await query;
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: "Failed to fetch appointments" }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: appointments });

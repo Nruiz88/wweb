@@ -16,8 +16,11 @@ export async function verifyWebhookSignature(
   request: Request,
   rawBody?: string
 ): Promise<boolean> {
-  // If no secret configured, allow all (development mode)
-  if (!WEBHOOK_SECRET) return true;
+  // If no secret configured in production, reject all
+  // In dev (NODE_ENV !== 'production'), allow all for convenience
+  if (!WEBHOOK_SECRET) {
+    return process.env.NODE_ENV !== "production";
+  }
 
   const signature =
     request.headers.get("x-webhook-secret") ||

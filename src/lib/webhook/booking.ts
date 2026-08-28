@@ -23,15 +23,23 @@ export async function handleAppointmentConfirm(ctx: WebhookContext): Promise<{ s
   const apptId = effectiveText.replace("confirm_", "").replace("cancel_", "");
   const newStatus = effectiveText.startsWith("confirm_") ? "confirmed" : "canceled";
 
+  // UUID validation to prevent crafted IDs
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(apptId)) {
+    return null;
+  }
+
   const { data: appt } = await supabase
     .from("appointments")
-    .select("id, customer_name, appointment_date, appointment_time")
+    .select("id, instance_id, customer_name, appointment_date, appointment_time")
     .eq("id", apptId)
     .single();
 
   if (!appt) return null;
 
-  await supabase.from("appointments").update({ status: newStatus }).eq("id", apptId);
+  // Authorization: only confirm/cancel appointments belonging to this instance
+  if (appt.instance_id !== instance.id) return null;
+
+  await supabase.from("appointments").update({ status: newStatus }).eq("id", apptId).eq("instance_id", instance.id);
 
   const dateStr = formatDateStr(appt.appointment_date);
   const [h, m] = appt.appointment_time.split(":");
@@ -61,6 +69,11 @@ export async function handleSlotSelect(ctx: WebhookContext): Promise<{ status: s
   const lastUnderscore = parts.lastIndexOf("_");
   const slotDate = parts.slice(0, lastUnderscore);
   const slotTime = parts.slice(lastUnderscore + 1);
+
+  // Validate date/time format to prevent injection
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(slotDate) || !/^\d{2}:\d{2}$/.test(slotTime)) {
+    return null;
+  }
 
   // Check conflict
   const { data: conflict } = await supabase
@@ -122,6 +135,8 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
   if (!effectiveText.startsWith("date_")) return null;
 
   const slotDate = effectiveText.replace("date_", "");
+  // Validate date format
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(slotDate)) return null;
   const dateObj = new Date(slotDate + "T12:00:00");
   const dayOfWeek = dateObj.getDay();
 

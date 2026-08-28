@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin/auth";
 import { rateLimitResponse } from "@/lib/rate-limit";
+import { safeErrorMessage } from "@/lib/api-helpers";
+import { isValidUUID } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -28,13 +30,17 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid plan type" }, { status: 400 });
   }
 
+  if (!isValidUUID(userId)) {
+    return NextResponse.json({ status: "error", error: "Invalid user ID" }, { status: 400 });
+  }
+
   const { error } = await supabase
     .from("subscriptions")
     .update({ plan_type: planType })
     .eq("user_id", userId);
 
   if (error) {
-    return NextResponse.json({ status: "error", error: error.message }, { status: 500 });
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   return NextResponse.json({ status: "success", data: { userId, planType } });
