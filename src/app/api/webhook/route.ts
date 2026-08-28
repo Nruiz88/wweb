@@ -193,6 +193,11 @@ export async function POST(request: Request) {
   const plan = await getPlanForInstance(supabase, instance.id);
   const phoneNumber = remoteJid.replace("@s.whatsapp.net", "").replace("@lid", "");
 
+  // Log DM messages that look like booking intents to diagnose plan resolution
+  if (effectiveText && /(turno|agenda|agendar|reservar|cita)/i.test(effectiveText)) {
+    console.log("[webhook] booking intent dm", { instance: instanceName, plan, from: remoteJid, text: effectiveText.slice(0, 40) });
+  }
+
   // Pre-fetch auto-responses (shared across handlers)
   const { data: autoResponses } = await supabase
     .from("auto_responses")
