@@ -151,12 +151,12 @@ export async function GET(request: Request) {
     const chatsResult = await fetchAllChats(base, key, name);
     if (chatsResult.ok) chatGroups = chatsResult.data;
 
-    verified = await mapLimit(chatGroups, 6, async ({ remoteJid, name }) => {
+    verified = await mapLimit(chatGroups, 6, async ({ remoteJid, name: chatName }) => {
       const info = await findGroupInfos(base, key, name, remoteJid, ownerJid ?? undefined);
       if (info.ok && info.data) {
-        return { group_jid: remoteJid, group_name: info.data.name || name || null, is_admin: info.data.isAdmin === true };
+        return { group_jid: remoteJid, group_name: info.data.name || chatName || null, is_admin: info.data.isAdmin === true };
       }
-      return { group_jid: remoteJid, group_name: name || null, is_admin: false };
+      return { group_jid: remoteJid, group_name: chatName || null, is_admin: false };
     });
   } catch (e) {
     verified = [];
