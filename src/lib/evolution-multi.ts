@@ -437,6 +437,8 @@ export interface EvolutionGroup {
   isCommunity?: boolean;
   /** Group profile picture URL (pps.whatsapp.net). */
   pictureUrl?: string;
+  /** LID del participante del bot (aprendido al matchear su phoneNumber). */
+  botLid?: string;
 }
 
 /**
@@ -538,6 +540,7 @@ export async function findGroupInfos(
   instanceName: string,
   groupJid: string,
   botOwnerJid?: string,
+  botOwnerLid?: string,
 ): Promise<EvolutionResult<EvolutionGroup>> {
   // getParticipants=true: por defecto findGroupInfos no trae participants
   // (issue EvolutionAPI#2124) y sin ellos no podemos saber si el bot es admin.
@@ -559,18 +562,25 @@ export async function findGroupInfos(
   const pictureUrl = String(g.pictureUrl ?? g.imageUrl ?? g.picUrl ?? "").trim() || undefined;
 
   let isAdmin: boolean | undefined;
+  let botLid: string | undefined;
   const participants = participantsOf(g);
   if (participants.length > 0) {
     const ownerField = String(g.owner ?? "").trim();
-    const target = botOwnerJid
-      ? participants.find((p) => participantMatches(p, botOwnerJid))
-      : ownerField
-        ? participants.find((p) => participantMatches(p, ownerField))
-        : undefined;
+    // Match por: JID real, LID aprendido del bot, o owner del grupo (fallback).
+    const candidates = [botOwnerJid, botOwnerLid, ownerField].filter(Boolean);
+    let target: Record<string, unknown> | undefined;
+    for (const cand of candidates) {
+      target = participants.find((p) => participantMatches(p, cand as string));
+      if (target) break;
+    }
     // Si encontramos el participante del bot: admin true/false definitivo.
-    // Si NO se encontró (p.ej. participantes sin phoneNumber), isAdmin queda
-    // undefined → "no se pudo determinar" → NO se debe persistir como falso.
-    if (target) isAdmin = isParticipantAdmin(target);
+    // Si NO se encontró (p.ej. participantes sin phoneNumber ni LID conocida),
+    // isAdmin queda undefined → "no se pudo determinar" → NO se debe persistir
+    // como falso.
+    if (target) {
+      isAdmin = isParticipantAdmin(target);
+      botLid = String(target.id ?? target.jid ?? "") || undefined;
+    }
   }
 
   return {
@@ -583,6 +593,7 @@ export async function findGroupInfos(
       communityId: typeof g.communityId === "string" ? g.communityId : undefined,
       isCommunity: g.isCommunity === true || undefined,
       pictureUrl,
+      botLid,
     },
   };
 }
@@ -683,6 +694,8 @@ export async function fetchAllGroups(
 export interface EvolutionChat {
   remoteJid: string;
   name: string;
+  /** Imagen/logo del grupo (de findChats, puede faltar). */
+  pictureUrl?: string;
 }
 
 /** Concurrency limit helper: run `fn` over items with at most `limit` in flight. */
@@ -717,7 +730,7 @@ export async function fetchAllChats(
   apiKey: string,
   instanceName: string,
 ): Promise<EvolutionResult<EvolutionChat[]>> {
-  const groups = new Map<string, string>();
+  const groups = new Map<string, { name: string; pictureUrl: string | null }>();
 
   const addList = (list: unknown[]) => {
     for (const item of list) {
@@ -727,7 +740,8 @@ export async function fetchAllChats(
       if (!remoteJid || !remoteJid.includes("@g.us")) continue; // solo grupos
       if (groups.has(remoteJid)) continue;
       const name = String(c.name ?? c.subject ?? c.groupName ?? "").trim();
-      groups.set(remoteJid, name);
+      const pictureUrl = String(c.pictureUrl ?? c.profilePicUrl ?? c.profilePic ?? "").trim() || null;
+      groups.set(remoteJid, { name, pictureUrl });
     }
   };
 
@@ -750,7 +764,11 @@ export async function fetchAllChats(
   if (allResult.ok) {
     addList(parseList(allResult.data));
     if (groups.size > 0) {
-      return { ok: true, status: 200, data: [...groups.entries()].map(([remoteJid, name]) => ({ remoteJid, name })) };
+      return {
+        ok: true,
+        status: 200,
+        data: [...groups.entries()].map(([remoteJid, v]) => ({ remoteJid, name: v.name, pictureUrl: v.pictureUrl ?? undefined })),
+      };
     }
   }
 
@@ -778,5 +796,9 @@ export async function fetchAllChats(
     if (groups.size > 0) break;
   }
 
-  return { ok: true, status: 200, data: [...groups.entries()].map(([remoteJid, name]) => ({ remoteJid, name })) };
+  return {
+    ok: true,
+    status: 200,
+    data: [...groups.entries()].map(([remoteJid, v]) => ({ remoteJid, name: v.name, pictureUrl: v.pictureUrl ?? undefined })),
+  };
 }

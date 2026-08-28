@@ -31,7 +31,7 @@ export async function runGroupDiscovery(
 ): Promise<Array<{ group_jid: string; group_name: string | null; group_picture: string | null; saved: boolean }>> {
   const { data: instance } = await supabase
     .from("instances")
-    .select("instance_name, evolution_api_url, evolution_api_key, owner_jid")
+    .select("instance_name, evolution_api_url, evolution_api_key, owner_jid, owner_lid")
     .eq("id", instanceId)
     .single();
   if (!instance) return [];
@@ -72,6 +72,9 @@ export async function runGroupDiscovery(
       await supabase.from("instances").update({ owner_jid: ownerJid }).eq("id", instanceId);
     }
   }
+  // LID del bot (aprendido: en grupos donde su phoneNumber matchea). Se usa para
+  // matchear grupos cuyos participantes solo traen id LID (sin phoneNumber).
+  let ownerLid = instance.owner_lid || null;
 
   const chatsResult = await fetchAllChats(
     instance.evolution_api_url,
@@ -79,30 +82,33 @@ export async function runGroupDiscovery(
     instance.instance_name,
   );
 
-  const jidMap = new Map<string, string>();
+  const jidMap = new Map<string, { name: string; pictureUrl: string | null }>();
   if (chatsResult.ok) {
-    for (const c of chatsResult.data) jidMap.set(c.remoteJid, c.name);
+    for (const c of chatsResult.data) {
+      jidMap.set(c.remoteJid, { name: c.name, pictureUrl: c.pictureUrl ?? null });
+    }
   }
   for (const g of [...(discRes.data || []), ...(savedRes.data || [])] as Array<{ group_jid: string; group_name: string | null }>) {
-    if (!jidMap.has(g.group_jid)) jidMap.set(g.group_jid, g.group_name || "");
+    if (!jidMap.has(g.group_jid)) jidMap.set(g.group_jid, { name: g.group_name || "", pictureUrl: null });
   }
 
   // Solo el lote de grupos nuevos (ni guardados, ni verificados en 24h).
   const toCheck = [...jidMap.entries()]
     .filter(([jid]) => !savedSet.has(jid) && !freshVerified.has(jid))
     .slice(0, BATCH_LIMIT)
-    .map(([jid, name]) => ({ jid, name }));
+    .map(([jid, v]) => ({ jid, name: v.name, chatPicture: v.pictureUrl }));
 
   const adminGroups: Array<{ group_jid: string; group_name: string | null; group_picture: string | null; saved: boolean }> = [];
 
   // Verificar el lote y persistir.
-  await mapLimit(toCheck, 4, async ({ jid, name }) => {
+  await mapLimit(toCheck, 4, async ({ jid, name, chatPicture }) => {
     let info = await findGroupInfos(
       instance.evolution_api_url,
       instance.evolution_api_key,
       instance.instance_name,
       jid,
       ownerJid ?? undefined,
+      ownerLid ?? undefined,
     );
     if (!info.ok) {
       await new Promise((r) => setTimeout(r, 300));
@@ -112,13 +118,20 @@ export async function runGroupDiscovery(
         instance.instance_name,
         jid,
         ownerJid ?? undefined,
+        ownerLid ?? undefined,
       );
     }
 
     if (info.ok && info.data) {
+      // Aprender el LID del bot (persistido para matchear en otros grupos).
+      if (!ownerLid && info.data.botLid) {
+        ownerLid = info.data.botLid;
+        await supabase.from("instances").update({ owner_lid: ownerLid }).eq("id", instanceId);
+      }
       const isAdmin = info.data.isAdmin; // boolean | undefined
       const finalName = info.data.name || name;
-      const picture = info.data.pictureUrl ?? null;
+      // La imagen puede venir de findGroupInfos o del chat (findChats).
+      const picture = info.data.pictureUrl ?? chatPicture ?? null;
       // Solo se persiste un veredicto DEFINITIVO. Si no se pudo determinar
       // (participantes sin phoneNumber, etc.) NO se guarda como no-admin →
       // el grupo se reintenta en la próxima búsqueda (evita bloquearlo 24h).
@@ -142,11 +155,37 @@ export async function runGroupDiscovery(
     }
   });
 
-  // Sumar los admin ya verificados en búsquedas anteriores (y no guardados).
+  // Admin ya verificados (no guardados) → se suman al resultado. Si alguno
+  // quedó sin imagen (verificado antes de persistir picture_url), se re-consulta
+  // una vez para completar el logo.
+  const needPicture: string[] = [];
   for (const [jid, v] of freshVerified) {
     if (v.is_admin && v.group_name && !savedSet.has(jid)) {
       adminGroups.push({ group_jid: jid, group_name: v.group_name, group_picture: v.group_picture, saved: false });
+      if (!v.group_picture) needPicture.push(jid);
     }
+  }
+
+  if (needPicture.length > 0) {
+    await mapLimit(needPicture, 4, async (jid) => {
+      const info = await findGroupInfos(
+        instance.evolution_api_url,
+        instance.evolution_api_key,
+        instance.instance_name,
+        jid,
+        ownerJid ?? undefined,
+        ownerLid ?? undefined,
+      );
+      if (!ownerLid && info.ok && info.data?.botLid) {
+        ownerLid = info.data.botLid;
+        await supabase.from("instances").update({ owner_lid: ownerLid }).eq("id", instanceId);
+      }
+      if (info.ok && info.data?.pictureUrl) {
+        await supabase.from("discovered_groups").update({ group_picture: info.data.pictureUrl }).eq("instance_id", instanceId).eq("group_jid", jid);
+        const g = adminGroups.find((x) => x.group_jid === jid);
+        if (g) g.group_picture = info.data.pictureUrl;
+      }
+    });
   }
 
   return adminGroups.sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));

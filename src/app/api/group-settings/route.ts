@@ -137,7 +137,7 @@ export async function POST(request: Request) {
   // Verify admin access + fetch Evolution credentials
   const { data: instance } = await supabase
     .from("instances")
-    .select("id, admin_id, instance_name, evolution_api_url, evolution_api_key, owner_jid")
+    .select("id, admin_id, instance_name, evolution_api_url, evolution_api_key, owner_jid, owner_lid")
     .eq("id", instanceId)
     .single();
 
@@ -165,9 +165,13 @@ export async function POST(request: Request) {
       instance.instance_name,
       groupJid,
       ownerJid ?? undefined,
+      instance.owner_lid || undefined,
     );
     if (info.ok && info.data) {
       resolvedName = info.data.name || null;
+      if (!instance.owner_lid && info.data.botLid) {
+        await supabase.from("instances").update({ owner_lid: info.data.botLid }).eq("id", instanceId);
+      }
       if (info.data.isAdmin === false) {
         return NextResponse.json(
           { status: "error", error: "El bot debe ser administrador del grupo para configurarlo" },

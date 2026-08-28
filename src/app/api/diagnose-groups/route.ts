@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
-import { fetchAllChats, fetchInstanceOwnerJid } from "@/lib/evolution-multi";
+import { fetchAllChats, fetchInstanceOwnerJid, findGroupInfos, mapLimit } from "@/lib/evolution-multi";
 import { runGroupDiscovery } from "@/lib/group-discovery";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +93,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");
   const groupJid = searchParams.get("groupJid");
+  const searchName = searchParams.get("name");
 
   let instance;
   if (instanceId) {
@@ -102,7 +103,7 @@ export async function GET(request: Request) {
     }
     const { data } = await supabase
       .from("instances")
-      .select("id, instance_name, evolution_api_url, evolution_api_key")
+      .select("id, instance_name, evolution_api_url, evolution_api_key, owner_jid, owner_lid")
       .eq("id", instanceId)
       .single();
     instance = data;
@@ -110,7 +111,7 @@ export async function GET(request: Request) {
     // Primera instancia creada por el usuario (admin_id)
     const { data } = await supabase
       .from("instances")
-      .select("id, instance_name, evolution_api_url, evolution_api_key")
+      .select("id, instance_name, evolution_api_url, evolution_api_key, owner_jid, owner_lid")
       .eq("admin_id", user.id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -144,7 +145,7 @@ export async function GET(request: Request) {
   // en discovered_groups) y devuelve el resultado completo.
   let ownerJid: string | null = null;
   let chatGroups: { remoteJid: string; name: string }[] = [];
-  let adminGroups: { group_jid: string; group_name: string | null; saved: boolean }[] = [];
+  let adminGroups: { group_jid: string; group_name: string | null; group_picture: string | null; saved: boolean }[] = [];
 
   try {
     ownerJid = await fetchInstanceOwnerJid(base, key, name);
@@ -155,6 +156,37 @@ export async function GET(request: Request) {
     adminGroups = [];
   }
 
+  // ============ BÚSQUEDA POR NOMBRE ============
+  // ?name=... busca en findChats los grupos que contengan ese nombre (case
+  // insensitive) y corre findGroupInfos para cada uno → vemos qué reporta
+  // Evolution (nombre, admin, imagen) para un grupo concreto.
+  let byName: Array<{ group_jid: string; chat_name: string; group_name: string | null; is_admin: boolean | null; picture_url: string | null; participants?: number }> = [];
+  if (searchName) {
+    const q = searchName.trim().toLowerCase();
+    const matches = chatGroups.filter((c) => c.name.toLowerCase().includes(q));
+    byName = await mapLimit(matches, 4, async ({ remoteJid, name: chatName }) => {
+      const info = await findGroupInfos(base, key, name, remoteJid, instance.owner_jid || undefined, instance.owner_lid || undefined);
+      if (info.ok && info.data) {
+        return {
+          group_jid: remoteJid,
+          chat_name: chatName,
+          group_name: info.data.name || chatName || null,
+          is_admin: info.data.isAdmin ?? null,
+          picture_url: info.data.pictureUrl ?? null,
+          participants: undefined,
+        };
+      }
+      return {
+        group_jid: remoteJid,
+        chat_name: chatName,
+        group_name: null,
+        is_admin: null,
+        picture_url: null,
+        participants: undefined,
+      };
+    });
+  }
+
   return NextResponse.json({
     status: "success",
     data: {
@@ -162,6 +194,7 @@ export async function GET(request: Request) {
       instanceName: name,
       evolutionApiUrl: base,
       requestedGroupJid: groupJid ?? null,
+      nameSearch: searchName ? { query: searchName, matches: byName } : null,
       capture: {
         ownerJid,
         groupsFound: chatGroups.length,
