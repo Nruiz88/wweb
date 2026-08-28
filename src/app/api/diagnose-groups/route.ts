@@ -103,10 +103,11 @@ export async function GET(request: Request) {
   const key = instance.evolution_api_key;
   const name = instance.instance_name;
 
-  const [instances, groups, chats, connection, groupInfo] = await Promise.all([
+  const [instances, groups, chats, chatsAll, connection, groupInfo] = await Promise.all([
     rawGet(base, key, `/instance/fetchInstances?instanceName=${encodeURIComponent(name)}`),
     rawGet(base, key, `/group/fetchAllGroups/${encodeURIComponent(name)}?getParticipants=false`),
     rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, { where: { isGroup: true } }),
+    rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, { take: 500, skip: 0 }),
     rawGet(base, key, `/instance/connectionState/${encodeURIComponent(name)}`),
     groupJid
       ? rawGet(base, key, `/group/findGroupInfos/${encodeURIComponent(name)}?groupJid=${encodeURIComponent(groupJid)}&getParticipants=true`)
@@ -122,7 +123,8 @@ export async function GET(request: Request) {
       requestedGroupJid: groupJid ?? null,
       fetchInstances: instances,
       fetchAllGroups: groups,
-      findChats: chats,
+      findChatsWhere: chats,
+      findChatsAll: chatsAll,
       connectionState: connection,
       findGroupInfos: groupInfo,
     },
