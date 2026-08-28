@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Profile, Instance } from "@/lib/supabase/types";
-import { ShieldIcon, LoaderIcon } from "@/components/icons";
+import { ShieldIcon, LoaderIcon, UsersIcon, MessageCircleIcon, ClockIcon, SettingsIcon } from "@/components/icons";
 import AdminStats from "@/components/admin/AdminStats";
 import AdminPlans from "@/components/admin/AdminPlans";
 import AdminActivity from "@/components/admin/AdminActivity";
 import AdminServers from "@/components/admin/AdminServers";
-import AdminUsers from "@/components/admin/AdminUsers";
+import AdminUserManager from "@/components/admin/AdminUserManager";
 
 interface Stats {
   totalUsers: number;
@@ -46,6 +46,15 @@ interface ActivityPayload {
   topKeywords: { keyword: string; count: number }[];
 }
 
+const TABS = [
+  { id: "users", label: "Usuarios", icon: UsersIcon },
+  { id: "instances", label: "Instancias", icon: MessageCircleIcon },
+  { id: "activity", label: "Actividad", icon: ClockIcon },
+  { id: "servers", label: "Servidores", icon: SettingsIcon },
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
+
 export default function AdminPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -55,6 +64,7 @@ export default function AdminPage() {
   const [plans, setPlans] = useState<PlansPayload | null>(null);
   const [activity, setActivity] = useState<ActivityPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabId>("users");
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -100,23 +110,79 @@ export default function AdminPage() {
   return (
     <div className="flex h-full flex-col bg-wa-panel">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-wa-border bg-wa-header px-4 py-2.5">
-        <ShieldIcon className="h-5 w-5 text-[#00a884]" />
-        <span className="text-[0.9375rem] font-normal text-wa-text">Panel Admin</span>
+      <div className="border-b border-wa-border bg-wa-header">
+        <div className="flex items-center gap-3 px-4 py-2.5">
+          <ShieldIcon className="h-5 w-5 text-[#00a884]" />
+          <span className="text-[0.9375rem] font-normal text-wa-text">Panel Admin</span>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 overflow-x-auto px-4 pb-0">
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 rounded-t-lg px-4 py-2.5 text-xs font-medium transition ${
+                  activeTab === tab.id
+                    ? "border-b-2 border-[#00a884] bg-wa-panel text-[#00a884]"
+                    : "text-wa-text-secondary hover:bg-wa-hover hover:text-wa-text"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
+      {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <LoaderIcon className="h-8 w-8 animate-spin text-wa-text-secondary/40" />
           </div>
         ) : (
-          <div className="mx-auto max-w-4xl space-y-6">
+          <div className="mx-auto max-w-5xl space-y-6">
+            {/* Stats always visible */}
             {stats && <AdminStats stats={stats} />}
-            {plans && <AdminPlans plans={plans} onRefresh={loadData} />}
-            {activity && <AdminActivity activity={activity} />}
-            <AdminServers capacities={capacities} />
-            <AdminUsers users={users} instances={instances} selectedInstance={selectedInstance} onSelectInstance={setSelectedInstance} />
+
+            {/* Tab content */}
+            {activeTab === "users" && plans && (
+              <AdminUserManager
+                users={users}
+                instances={instances}
+                plans={plans.users}
+                selectedInstance={selectedInstance}
+                onSelectInstance={setSelectedInstance}
+                onRefresh={loadData}
+              />
+            )}
+
+            {activeTab === "instances" && plans && (
+              <>
+                <AdminPlans plans={plans} onRefresh={loadData} />
+                <AdminUserManager
+                  users={users}
+                  instances={instances}
+                  plans={plans.users}
+                  selectedInstance={selectedInstance}
+                  onSelectInstance={setSelectedInstance}
+                  onRefresh={loadData}
+                />
+              </>
+            )}
+
+            {activeTab === "activity" && activity && (
+              <AdminActivity activity={activity} />
+            )}
+
+            {activeTab === "servers" && (
+              <AdminServers capacities={capacities} />
+            )}
           </div>
         )}
       </div>
