@@ -53,18 +53,18 @@ export async function POST(request: Request) {
   const supabase = await createServerClient();
 
   // ============================================================
-  // GROUP-PARTICIPANTS.UPDATE → Community feature
+  // GROUP-PARTICIPANTS.UPDATE → Community feature + auto-capture
   // ============================================================
   if (body.event === "group-participants.update") {
     const groupJid = body.data?.id;
     const participantJid = body.data?.participant;
     const action = body.data?.action;
 
-    if (!groupJid || !participantJid || action !== "add") {
+    if (!groupJid || !participantJid) {
       return NextResponse.json({ status: "ignored" });
     }
 
-    // Find instance + plan
+    // Find instance
     const { data: instance } = await supabase
       .from("instances")
       .select("id, instance_name, evolution_api_url, evolution_api_key")
@@ -73,6 +73,31 @@ export async function POST(request: Request) {
 
     if (!instance) {
       return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+    }
+
+    // Auto-capture: store discovered group (upsert updates last_seen_at)
+    if (groupJid.endsWith("@g.us")) {
+      const { data: existingGrp } = await supabase
+        .from("group_settings")
+        .select("id")
+        .eq("instance_id", instance.id)
+        .eq("group_jid", groupJid)
+        .maybeSingle();
+
+      // Only auto-capture if not already configured
+      if (!existingGrp) {
+        await supabase
+          .from("discovered_groups")
+          .upsert({
+            instance_id: instance.id,
+            group_jid: groupJid,
+            last_seen_at: new Date().toISOString(),
+          }, { onConflict: "instance_id,group_jid" });
+      }
+    }
+
+    if (action !== "add") {
+      return NextResponse.json({ status: "ignored" });
     }
 
     const plan = await getPlanForInstance(supabase, instance.id);
@@ -104,7 +129,7 @@ export async function POST(request: Request) {
   }
 
   // ============================================================
-  // GROUP MESSAGES → Community feature (spam filter)
+  // GROUP MESSAGES → Community feature (spam filter) + auto-capture
   // ============================================================
   if (remoteJid.includes("@g.us")) {
     const { data: grpInstance } = await supabase
@@ -115,6 +140,26 @@ export async function POST(request: Request) {
 
     if (!grpInstance) {
       return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+    }
+
+    // Auto-capture: track active groups
+    const { data: existingGrp } = await supabase
+      .from("group_settings")
+      .select("id")
+      .eq("instance_id", grpInstance.id)
+      .eq("group_jid", remoteJid)
+      .maybeSingle();
+
+    if (!existingGrp) {
+      // Upsert discovered group with pushName as group_name hint
+      await supabase
+        .from("discovered_groups")
+        .upsert({
+          instance_id: grpInstance.id,
+          group_jid: remoteJid,
+          group_name: body.data?.pushName || null,
+          last_seen_at: new Date().toISOString(),
+        }, { onConflict: "instance_id,group_jid" });
     }
 
     const plan = await getPlanForInstance(supabase, grpInstance.id);

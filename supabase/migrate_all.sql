@@ -94,17 +94,36 @@ DO $$ BEGIN
   ALTER TABLE auto_responses ADD COLUMN menu_config JSONB;
 EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
--- 7b. onboarding_completed en profiles
+-- 7c. discovered_groups (Community: auto-capture de grupos)
+CREATE TABLE IF NOT EXISTS discovered_groups (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  instance_id UUID REFERENCES instances(id) ON DELETE CASCADE NOT NULL,
+  group_jid TEXT NOT NULL,
+  group_name TEXT,
+  last_seen_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(instance_id, group_jid)
+);
+
+-- 7d. onboarding_completed en profiles
 DO $$ BEGIN
   ALTER TABLE profiles ADD COLUMN onboarding_completed BOOLEAN DEFAULT false;
 EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
 -- 8. RLS
 ALTER TABLE business_hours ENABLE ROW LEVEL SECURITY;
+ALTER TABLE discovered_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE group_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE broadcasts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE broadcast_recipients ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "discovered_groups access" ON discovered_groups;
+CREATE POLICY "discovered_groups access" ON discovered_groups FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
+    OR EXISTS (SELECT 1 FROM user_instances WHERE instance_id = discovered_groups.instance_id AND user_id = auth.uid())
+  );
 
 -- Policies
 DROP POLICY IF EXISTS "business_hours owner" ON business_hours;
@@ -158,6 +177,7 @@ CREATE INDEX IF NOT EXISTS idx_appointments_reminder ON appointments(status, app
 CREATE INDEX IF NOT EXISTS idx_group_settings_instance ON group_settings(instance_id);
 CREATE INDEX IF NOT EXISTS idx_broadcasts_instance ON broadcasts(instance_id);
 CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_broadcast ON broadcast_recipients(broadcast_id);
+CREATE INDEX IF NOT EXISTS idx_discovered_groups_instance ON discovered_groups(instance_id);
 
 -- 10. Grants (so service_role can access new tables)
 GRANT ALL ON public.business_hours TO service_role;
@@ -165,6 +185,7 @@ GRANT ALL ON public.appointments TO service_role;
 GRANT ALL ON public.group_settings TO service_role;
 GRANT ALL ON public.broadcasts TO service_role;
 GRANT ALL ON public.broadcast_recipients TO service_role;
+GRANT ALL ON public.discovered_groups TO service_role;
 
 -- 11. Triggers
 DROP TRIGGER IF EXISTS appointments_updated_at ON public.appointments;

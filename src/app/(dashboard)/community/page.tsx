@@ -31,6 +31,7 @@ export default function CommunityPage() {
   const [instanceId, setInstanceId] = useState<string | null>(null);
   const [groupSettings, setGroupSettings] = useState<GroupSetting[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
+  const [discoveredGroups, setDiscoveredGroups] = useState<{ id: string; group_jid: string; group_name: string | null; last_seen_at: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [activeTab, setActiveTab] = useState<"groups" | "broadcasts">("groups");
@@ -63,9 +64,10 @@ export default function CommunityPage() {
         const id = instPayload.data[0].id;
         setInstanceId(id);
 
-        const [grpRes, bcastRes] = await Promise.all([
+        const [grpRes, bcastRes, discRes] = await Promise.all([
           fetch(`/api/group-settings?instanceId=${id}`),
           fetch(`/api/broadcasts?instanceId=${id}`),
+          fetch(`/api/discovered-groups?instanceId=${id}`),
         ]);
 
         const grpPayload = await grpRes.json();
@@ -73,6 +75,9 @@ export default function CommunityPage() {
 
         const bcastPayload = await bcastRes.json();
         if (bcastPayload.status === "success") setBroadcasts(bcastPayload.data);
+
+        const discPayload = await discRes.json();
+        if (discPayload.status === "success") setDiscoveredGroups(discPayload.data);
       }
     } catch {
       // Non-critical
@@ -159,6 +164,23 @@ export default function CommunityPage() {
     await fetch(`/api/group-settings?id=${id}`, { method: "DELETE" });
     setFeedback({ kind: "success", message: "Grupo eliminado" });
     await loadData();
+  }
+
+  async function handleDismissGroup(id: string) {
+    await fetch(`/api/discovered-groups?id=${id}`, { method: "DELETE" });
+    setDiscoveredGroups((prev) => prev.filter((g) => g.id !== id));
+  }
+
+  function openConfigureDiscovered(disc: { group_jid: string; group_name: string | null }) {
+    setEditingGroup(null);
+    setGroupJid(disc.group_jid);
+    setGroupName(disc.group_name || "");
+    setWelcomeEnabled(false);
+    setWelcomeMessage("");
+    setSpamFilterEnabled(false);
+    setBlockAllLinks(true);
+    setAllowedDomains("");
+    setShowGroupForm(true);
   }
 
   // --- Broadcast form ---
@@ -278,6 +300,51 @@ export default function CommunityPage() {
         ) : activeTab === "groups" ? (
           /* ===== GROUPS TAB ===== */
           <div className="mx-auto max-w-2xl space-y-4">
+            {discoveredGroups.length > 0 && (
+              <div className="rounded-2xl border border-[#e6a44e]/20 bg-[#e6a44e]/5 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6a44e]/20 text-xs">🔍</div>
+                  <p className="text-xs font-semibold text-[#e6a44e]">
+                    {discoveredGroups.length} grupo{discoveredGroups.length !== 1 ? "s" : ""} detectado{discoveredGroups.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                <p className="text-[10px] text-wa-text-secondary/60 mb-3">
+                  Estos grupos aparecieron en tu instancia. Configuralos para activar bienvenida y anti-spam.
+                </p>
+                <div className="space-y-2">
+                  {discoveredGroups.map((dg) => (
+                    <div key={dg.id} className="flex items-center justify-between rounded-xl bg-wa-header border border-wa-border p-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-xs font-bold text-[#e6a44e]">
+                          {dg.group_name?.[0]?.toUpperCase() || "#"}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-wa-text truncate">{dg.group_name || "Grupo sin nombre"}</p>
+                          <p className="text-[9px] text-wa-text-secondary/50 font-mono truncate">{dg.group_jid}</p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openConfigureDiscovered(dg)}
+                          className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25"
+                        >
+                          Configurar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDismissGroup(dg.id)}
+                          className="rounded-lg p-1.5 text-wa-text-secondary/40 transition hover:bg-wa-hover hover:text-wa-text-secondary"
+                        >
+                          <XIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium uppercase tracking-wide text-wa-text-secondary/60">
                 Grupos configurados
@@ -292,7 +359,7 @@ export default function CommunityPage() {
               </button>
             </div>
 
-            {groupSettings.length === 0 ? (
+            {groupSettings.length === 0 && discoveredGroups.length === 0 ? (
               <div className="flex flex-col items-center gap-4 py-12 text-center">
                 <div className="relative">
                   <div className="absolute -inset-3 rounded-full bg-[#e6a44e]/10 blur-xl" />
@@ -308,7 +375,7 @@ export default function CommunityPage() {
                 </div>
                 <div className="rounded-xl border border-wa-border bg-wa-header p-4 max-w-sm text-center">
                   <p className="text-xs text-wa-text-secondary/60">
-                    Necesitás el <strong>JID del grupo</strong> (formato: 123456789@g.us). Lo podes obtener desde Evolution API o el panel de administración.
+                    Los grupos se detectan automáticamente cuando el bot recibe mensajes. También podes agregar uno manualmente con el botón de arriba.
                   </p>
                 </div>
               </div>
