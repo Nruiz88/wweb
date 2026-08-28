@@ -22,11 +22,11 @@ async function processReminders() {
   const supabase = await createServerClient();
 
   const now = new Date();
-  const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const in23h = new Date(now.getTime() + 23 * 60 * 60 * 1000);
+  // Wider window since Vercel Hobby runs once per day
+  const in30h = new Date(now.getTime() + 30 * 60 * 60 * 1000);
 
-  const dateStr24h = in24h.toISOString().slice(0, 10);
-  const dateStr23h = in23h.toISOString().slice(0, 10);
+  const dateStrNow = now.toISOString().slice(0, 10);
+  const dateStr30h = in30h.toISOString().slice(0, 10);
 
   const { data: appointments, error } = await supabase
     .from("appointments")
@@ -37,8 +37,8 @@ async function processReminders() {
     `)
     .in("status", ["pending", "confirmed"])
     .eq("reminder_24h_sent", false)
-    .gte("appointment_date", dateStr23h)
-    .lte("appointment_date", dateStr24h);
+    .gte("appointment_date", dateStrNow)
+    .lte("appointment_date", dateStr30h);
 
   if (error) {
     return { status: "error" as const, error: error.message };
@@ -65,7 +65,8 @@ async function processReminders() {
 
     const apptDateTime = new Date(`${appt.appointment_date}T${appt.appointment_time}`);
     const hoursUntil = (apptDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-    if (hoursUntil < 22 || hoursUntil > 26) continue;
+    // Wider window (18-30h) since we run once per day
+    if (hoursUntil < 18 || hoursUntil > 30) continue;
 
     const phone = appt.customer_phone.replace("@s.whatsapp.net", "").replace("@lid", "");
     const dateDisplay = formatDate(appt.appointment_date, appt.appointment_time);
