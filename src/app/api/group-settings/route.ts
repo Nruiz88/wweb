@@ -6,6 +6,7 @@ import { syncConfiguredGroupNames } from "@/lib/group-names";
 import { fetchInstanceOwnerJid, findGroupInfos } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // GET: List group settings for an instance
 export async function GET(request: Request) {

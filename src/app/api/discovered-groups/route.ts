@@ -4,6 +4,7 @@ import { verifyUserAccess } from "@/lib/api-helpers";
 import { fetchAllGroups, fetchInstanceOwnerJid, findGroupInfos } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // GET: List WhatsApp groups where the bot is admin (live from Evolution),
 // with the real group name (subject). Marks which ones are already saved.
@@ -77,10 +78,10 @@ export async function GET(request: Request) {
       }),
     );
 
-    // Solo se listan grupos donde el bot es admin Y tienen nombre real.
-    // Nunca exponemos el JID al usuario.
+    // Solo se listan grupos donde el bot es admin Y tienen nombre real
+    // (resuelto en vivo o el guardado en group_settings). Nunca exponemos el JID.
     const listed = result.data
-      .filter((g) => g.isAdmin === true && g.name)
+      .filter((g) => g.isAdmin === true && (g.name || savedMap.get(g.id)))
       .map((g) => ({
         group_jid: g.id,
         group_name: g.name || savedMap.get(g.id) || null,

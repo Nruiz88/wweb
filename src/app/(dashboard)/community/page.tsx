@@ -7,6 +7,7 @@ import {
   ClockIcon,
   LoaderIcon,
   PenIcon,
+  RefreshIcon,
   SearchIcon,
   TrashIcon,
   XIcon,
@@ -31,7 +32,7 @@ export default function CommunityPage() {
   const [groupSettings, setGroupSettings] = useState<GroupSetting[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [discoveredGroups, setDiscoveredGroups] = useState<{ group_jid: string; group_name: string | null; saved: boolean }[]>([]);
-  const [liveSource, setLiveSource] = useState(true);
+  const [searchingGroups, setSearchingGroups] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingLiveGroup, setSavingLiveGroup] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
@@ -69,10 +70,11 @@ export default function CommunityPage() {
         const id = instPayload.data[0].id;
         setInstanceId(id);
 
-        const [grpRes, bcastRes, discRes] = await Promise.all([
+        // Solo datos de la DB (rápido). La discovery en vivo se hace a
+        // demanda con "Buscar grupos" (evita llamar a Evolution en cada carga).
+        const [grpRes, bcastRes] = await Promise.all([
           fetch(`/api/group-settings?instanceId=${id}`),
           fetch(`/api/broadcasts?instanceId=${id}`),
-          fetch(`/api/discovered-groups?instanceId=${id}`),
         ]);
 
         const grpPayload = await grpRes.json();
@@ -80,12 +82,6 @@ export default function CommunityPage() {
 
         const bcastPayload = await bcastRes.json();
         if (bcastPayload.status === "success") setBroadcasts(bcastPayload.data);
-
-        const discPayload = await discRes.json();
-        if (discPayload.status === "success") {
-          setDiscoveredGroups(discPayload.data);
-          setLiveSource(discPayload.source === "live");
-        }
       }
     } catch {
       // Non-critical
@@ -93,6 +89,23 @@ export default function CommunityPage() {
       setLoading(false);
     }
   }, []);
+
+  // Discovery en vivo de grupos/comunidades donde el bot es admin (a demanda).
+  const loadDiscoveredGroups = useCallback(async () => {
+    if (!instanceId) return;
+    setSearchingGroups(true);
+    try {
+      const discRes = await fetch(`/api/discovered-groups?instanceId=${instanceId}`);
+      const discPayload = await discRes.json();
+      if (discPayload.status === "success") {
+        setDiscoveredGroups(discPayload.data);
+      }
+    } catch {
+      // Non-critical
+    } finally {
+      setSearchingGroups(false);
+    }
+  }, [instanceId]);
 
   useEffect(() => {
     const t = setTimeout(() => void loadData(), 0);
@@ -361,55 +374,80 @@ export default function CommunityPage() {
         ) : activeTab === "groups" ? (
           /* ===== GROUPS TAB ===== */
           <div className="mx-auto max-w-2xl space-y-4">
-            {discoveredGroups.length > 0 && (
-              <div className="rounded-2xl border border-[#e6a44e]/20 bg-[#e6a44e]/5 p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6a44e]/20 text-xs">🔍</div>
-                  <p className="text-xs font-semibold text-[#e6a44e]">
-                    {liveSource ? "Grupos donde el bot es admin" : "Grupos capturados"}
-                  </p>
-                </div>
-                <p className="text-[10px] text-wa-text-secondary/60 mb-3">
-                  {liveSource
-                    ? "Grupos detectados en vivo desde WhatsApp. Guardá uno para configurar bienvenida, anti-spam y moderación."
-                    : "No se pudo consultar Evolution en vivo; mostrando los grupos capturados previamente por el webhook. Guardá uno o refrescá la instancia."}
-                </p>
-                <div className="space-y-2">
-                  {discoveredGroups.map((dg) => (
-                    <div key={dg.group_jid} className="flex items-center justify-between rounded-xl bg-wa-header border border-wa-border p-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-xs font-bold text-[#e6a44e]">
-                          {dg.group_name?.[0]?.toUpperCase() || "#"}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-wa-text truncate">{dg.group_name || "Grupo de WhatsApp"}</p>
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 gap-1">
-                        {dg.saved ? (
-                          <button
-                            type="button"
-                            onClick={() => openConfigureDiscovered(dg)}
-                            className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25"
-                          >
-                            Configurar
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={savingLiveGroup === dg.group_jid}
-                            onClick={() => void handleSaveLiveGroup(dg.group_jid, dg.group_name)}
-                            className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25 disabled:opacity-50"
-                          >
-                            {savingLiveGroup === dg.group_jid ? "Guardando..." : "Guardar grupo"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            {/* ===== Discovery (a demanda) ===== */}
+            <div className="rounded-2xl border border-[#e6a44e]/20 bg-[#e6a44e]/5 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6a44e]/20 text-xs">🔍</div>
+                <p className="text-xs font-semibold text-[#e6a44e]">Descubrir grupos</p>
               </div>
-            )}
+              <p className="text-[10px] text-wa-text-secondary/60 mb-3">
+                Consultá WhatsApp para encontrar los grupos y comunidades donde el bot es admin. Guardá los que quieras administrar y quedan en tu cuenta (sin volver a consultar).
+              </p>
+
+              {searchingGroups ? (
+                <div className="flex items-center justify-center gap-2 rounded-xl bg-wa-header border border-wa-border py-6 text-xs text-wa-text-secondary">
+                  <LoaderIcon className="h-4 w-4 animate-spin text-[#e6a44e]" />
+                  Buscando grupos...
+                </div>
+              ) : discoveredGroups.length > 0 ? (
+                <>
+                  <p className="text-[10px] text-wa-text-secondary/60 mb-2">
+                    {discoveredGroups.length} grupo{discoveredGroups.length !== 1 ? "s" : ""} donde el bot es admin.
+                  </p>
+                  <div className="space-y-2">
+                    {discoveredGroups.map((dg) => (
+                      <div key={dg.group_jid} className="flex items-center justify-between rounded-xl bg-wa-header border border-wa-border p-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-xs font-bold text-[#e6a44e]">
+                            {dg.group_name?.[0]?.toUpperCase() || "#"}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-wa-text truncate">{dg.group_name || "Grupo de WhatsApp"}</p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          {dg.saved ? (
+                            <button
+                              type="button"
+                              onClick={() => openConfigureDiscovered(dg)}
+                              className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25"
+                            >
+                              Configurar
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={savingLiveGroup === dg.group_jid}
+                              onClick={() => void handleSaveLiveGroup(dg.group_jid, dg.group_name)}
+                              className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25 disabled:opacity-50"
+                            >
+                              {savingLiveGroup === dg.group_jid ? "Guardando..." : "Guardar grupo"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadDiscoveredGroups()}
+                    className="mt-3 flex items-center gap-1.5 rounded-lg border border-wa-border bg-wa-header px-3 py-2 text-xs font-medium text-wa-text-secondary transition hover:bg-wa-hover hover:text-wa-text"
+                  >
+                    <RefreshIcon className="h-3.5 w-3.5" />
+                    Buscar de nuevo
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void loadDiscoveredGroups()}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#e6a44e] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#e6a44e]/90"
+                >
+                  <RefreshIcon className="h-4 w-4" />
+                  Buscar grupos
+                </button>
+              )}
+            </div>
 
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium uppercase tracking-wide text-wa-text-secondary/60">

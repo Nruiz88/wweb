@@ -21,15 +21,18 @@ async function evolutionRequest<T>(
   baseUrl: string,
   apiKey: string,
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs = 5000,
 ): Promise<EvolutionResult<T>> {
   const headers = new Headers(options.headers);
   headers.set("apikey", apiKey);
   headers.set("Content-Type", "application/json");
 
-  // Timeout de 5s: evita colgar el request si Railway duerme o no responde
+  // Timeout por defecto 5s (evita colgar el request si Railway duerme).
+  // Operaciones de grupos pueden ser MUCHO más lentas (issue EvolutionAPI#1883:
+  // fetchAllGroups tarda 25s+) → se pasa un timeout mayor explícitamente.
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(`${baseUrl}${path}`, {
@@ -56,7 +59,7 @@ async function evolutionRequest<T>(
       return {
         ok: false,
         status: null,
-        message: "Timeout: Evolution API no respondió en 5s",
+        message: `Timeout: Evolution API no respondió en ${timeoutMs}ms`,
       };
     }
     return {
@@ -434,6 +437,8 @@ export async function fetchInstanceOwnerJid(
     baseUrl,
     apiKey,
     `/instance/fetchInstances?instanceName=${encodeURIComponent(instanceName)}`,
+    {},
+    20000,
   );
   if (!result.ok) return null;
 
@@ -470,6 +475,16 @@ function isParticipantAdmin(p: Record<string, unknown>): boolean {
   return p.isAdmin === true || p.isSuperAdmin === true;
 }
 
+/**
+ * Participantes de un grupo: v2.3.5+ puede devolver `participantsData`
+ * (con números convertidos de LID) además del legacy `participants`.
+ */
+function participantsOf(g: Record<string, unknown>): Array<Record<string, unknown>> {
+  if (Array.isArray(g.participants)) return g.participants as Array<Record<string, unknown>>;
+  if (Array.isArray(g.participantsData)) return g.participantsData as Array<Record<string, unknown>>;
+  return [];
+}
+
 /** Compare two WhatsApp JIDs ignoring the device/@lid suffix when possible. */
 function jidsMatch(a: string, b: string): boolean {
   if (a === b) return true;
@@ -494,10 +509,14 @@ export async function findGroupInfos(
   groupJid: string,
   botOwnerJid?: string,
 ): Promise<EvolutionResult<EvolutionGroup>> {
+  // getParticipants=true: por defecto findGroupInfos no trae participants
+  // (issue EvolutionAPI#2124) y sin ellos no podemos saber si el bot es admin.
   const result = await evolutionRequest<Record<string, unknown>>(
     baseUrl,
     apiKey,
-    `/group/findGroupInfos/${instanceName}?groupJid=${encodeURIComponent(groupJid)}`,
+    `/group/findGroupInfos/${instanceName}?groupJid=${encodeURIComponent(groupJid)}&getParticipants=true`,
+    {},
+    20000,
   );
   if (!result.ok) return result;
 
@@ -509,8 +528,8 @@ export async function findGroupInfos(
   ).trim();
 
   let isAdmin = false;
-  if (Array.isArray(g.participants)) {
-    const participants = g.participants as Array<Record<string, unknown>>;
+  const participants = participantsOf(g);
+  if (participants.length > 0) {
     const ownerField = String(g.owner ?? "").trim();
     const target = botOwnerJid
       ? participants.find((p) => jidsMatch(String(p.id ?? p.jid ?? ""), botOwnerJid))
@@ -551,6 +570,8 @@ export async function fetchAllGroups(
     baseUrl,
     apiKey,
     `/group/fetchAllGroups/${instanceName}?getParticipants=true`,
+    {},
+    20000,
   );
 
   if (!result.ok) return result;
@@ -590,8 +611,8 @@ export async function fetchAllGroups(
     // when the group has exactly the bot (can't be determined reliably) — so
     // we keep it false unless we can match the owner.
     let isAdmin = false;
-    if (Array.isArray(g.participants)) {
-      const participants = g.participants as Array<Record<string, unknown>>;
+    const participants = participantsOf(g);
+    if (participants.length > 0) {
       if (ownerJid) {
         const botParticipant = participants.find((p) => {
           const pid = String(p.id ?? p.jid ?? "");
