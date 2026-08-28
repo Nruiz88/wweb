@@ -8,7 +8,7 @@ import { handleGroupWelcome } from "@/lib/webhook/group-welcome";
 import { handleGroupSpam } from "@/lib/webhook/group-spam";
 import { handleWelcome } from "@/lib/webhook/welcome";
 import { handleOutsideHours } from "@/lib/webhook/outside-hours";
-import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect } from "@/lib/webhook/booking";
+import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect, isAgendaActive } from "@/lib/webhook/booking";
 import { handleMenuTap, handleMenuTextReply } from "@/lib/webhook/menus";
 import { handleAutoReply } from "@/lib/webhook/auto-reply";
 import type { PlanType } from "@/lib/supabase/types";
@@ -259,10 +259,14 @@ export async function POST(request: Request) {
 
     // Agenda menu: agenda_hoy / agenda_proximo / agenda_completa
     // (also matches plain-text replies: "1", "hoy", "próximo", "completa", etc.)
+    // Solo responde si la sesión de agenda está activa (se marca al escribir
+    // "turno" y se limpia al agendar) → tras agendar, un número ya no vuelve a
+    // disparar el menú; para reiniciar hay que escribir la palabra clave.
     const menuTextMatch = checkId.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "").trim();
     if (
-      checkId === "agenda_hoy" || checkId === "agenda_proximo" || checkId === "agenda_completa" ||
-      ["1", "hoy", "librehoy", "2", "proximo", "masproximo", "3", "completa", "agendacompleta"].includes(menuTextMatch)
+      isAgendaActive(ctx) &&
+      (checkId === "agenda_hoy" || checkId === "agenda_proximo" || checkId === "agenda_completa" ||
+      ["1", "hoy", "librehoy", "2", "proximo", "masproximo", "3", "completa", "agendacompleta"].includes(menuTextMatch))
     ) {
       ctx.effectiveText =
         checkId === "1" || menuTextMatch === "hoy" || menuTextMatch === "librehoy" ? "agenda_hoy"

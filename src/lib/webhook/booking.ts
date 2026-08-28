@@ -40,14 +40,44 @@ function localTimeMinutes(now: Date): number {
 const pendingDate = new Map<string, string>();
 const PENDING_TTL_MS = 10 * 60 * 1000;
 
+// In-memory agenda session: true mientras el usuario navega el menú de agenda
+// (turno → 1/2/3 → slot). Se limpia al AGENDAR un turno para que el flujo
+// termine: un número posterior ya no debe re-disparar el menú de agenda; para
+// volver a empezar hay que escribir la palabra clave ("turno", "agendar"...).
+const agendaActive = new Map<string, boolean>();
+const AGENDA_TTL_MS = 15 * 60 * 1000;
+
+function agendaKey(ctx: WebhookContext): string {
+  return `${ctx.instance.id}:${ctx.remoteJid}`;
+}
+
+function markAgendaActive(ctx: WebhookContext): void {
+  const key = agendaKey(ctx);
+  agendaActive.set(key, true);
+  setTimeout(() => agendaActive.delete(key), AGENDA_TTL_MS);
+}
+
+function clearAgendaActive(ctx: WebhookContext): void {
+  agendaActive.delete(agendaKey(ctx));
+}
+
+/** True si el usuario está dentro del flujo de agenda (menú visible). */
+export function isAgendaActive(ctx: WebhookContext): boolean {
+  return agendaActive.get(agendaKey(ctx)) === true;
+}
+
 function rememberDate(ctx: WebhookContext, date: string): void {
-  const key = `${ctx.instance.id}:${ctx.remoteJid}`;
+  const key = agendaKey(ctx);
   pendingDate.set(key, date);
   setTimeout(() => pendingDate.delete(key), PENDING_TTL_MS);
 }
 
+function peekPendingDate(ctx: WebhookContext): string | null {
+  return pendingDate.get(agendaKey(ctx)) ?? null;
+}
+
 function getPendingDate(ctx: WebhookContext): string | null {
-  const key = `${ctx.instance.id}:${ctx.remoteJid}`;
+  const key = agendaKey(ctx);
   const date = pendingDate.get(key) ?? null;
   if (date) pendingDate.delete(key);
   return date;
@@ -130,6 +160,10 @@ async function getAvailableSlots(
  */
 export async function handleAgendaMenu(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
   const { effectiveText } = ctx;
+
+  // Mientras se muestra cualquier opción del menú de agenda, la sesión está
+  // activa (permite responder con 1/2/3 o con un número de horario).
+  markAgendaActive(ctx);
 
   if (effectiveText === "agenda_hoy") {
     return handleAgendaHoy(ctx);
@@ -420,7 +454,7 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
   if (!/^\d{1,2}$/.test(clean)) return null;
   const index = parseInt(clean, 10);
 
-  // "0" → volver al menú de agenda
+  // "0" → volver al menú de agenda (consume el estado de la fecha)
   if (index === 0) {
     const date = getPendingDate(ctx);
     if (date) {
@@ -437,7 +471,8 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
 
   if (index < 1 || index > 30) return null;
 
-  const date = getPendingDate(ctx);
+  // Peek (no consume): un intento inválido no rompe el flujo del usuario.
+  const date = peekPendingDate(ctx);
   if (!date) return null;
 
   const { slots } = await getAvailableSlots(ctx, date);
@@ -486,6 +521,10 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
     .single();
 
   if (newAppt) {
+    // Turno agendado → el flujo de agenda TERMINA. Los números posteriores
+    // ya no deben re-disparar el menú; se vuelve a empezar con la palabra clave.
+    getPendingDate(ctx);
+    clearAgendaActive(ctx);
     const dateStr = formatDateStr(date);
     const [h, m] = chosen.split(":");
     await sendTextMessage(
