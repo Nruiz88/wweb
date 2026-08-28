@@ -850,6 +850,11 @@ export default function CommunityPage() {
                   onChange={(e) => setBroadcastMessage(e.target.value)}
                   className="resize-none rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
                 />
+                <p className="text-[10px] text-wa-text-secondary/50">
+                  Usá <code className="text-[#e6a44e]">@everyone</code> para mencionar a todos, o{" "}
+                  <code className="text-[#e6a44e]">@número</code> (ej. @5492995885273) para mencionar a un contacto.
+                  Se agrega automáticamente la leyenda &quot;Enviado por el Admin Bot&quot;.
+                </p>
               </div>
 
               <div className="flex flex-col gap-1.5">

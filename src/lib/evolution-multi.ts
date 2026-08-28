@@ -43,12 +43,21 @@ async function evolutionRequest<T>(
     });
 
     const raw = await res.text();
-    const data = raw ? JSON.parse(raw) : null;
+    // Algunos endpoints responden 200/201 con body vacío o no-JSON → no debe
+    // contarse como fallo (el mensaje ya se envió).
+    let data: unknown = null;
+    if (raw) {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = raw;
+      }
+    }
 
     if (!res.ok) {
       const message =
-        data && typeof data.message === "string"
-          ? data.message
+        data && typeof data === "object" && typeof (data as { message?: unknown }).message === "string"
+          ? (data as { message: string }).message
           : `Evolution API respondió con estado ${res.status}`;
       return { ok: false, status: res.status, message };
     }
@@ -263,7 +272,8 @@ export async function sendTextMessage(
     {
       method: "POST",
       body: JSON.stringify(payload),
-    }
+    },
+    15000,
   );
 }
 
@@ -308,7 +318,8 @@ export async function sendButtonMessage(
     {
       method: "POST",
       body: JSON.stringify(payload),
-    }
+    },
+    15000,
   );
 }
 
@@ -344,7 +355,8 @@ export async function sendListMessage(
     {
       method: "POST",
       body: JSON.stringify(payload),
-    }
+    },
+    15000,
   );
 }
 
@@ -392,7 +404,9 @@ export async function sendGroupMessage(
     text,
   };
   if (mentions && mentions.length > 0) {
-    payload.mentionsEveryOne = mentions.includes("everyone");
+    // OJO bug EvolutionAPI#2431: en algunas versiones `mentionsEveryOne:false`
+    // igual menciona a todos → solo se envía el campo cuando es true.
+    if (mentions.includes("everyone")) payload.mentionsEveryOne = true;
     payload.mentioned = mentions.filter((m) => m !== "everyone");
   }
   if (typeof delay === "number" && delay >= 0) {
@@ -406,7 +420,8 @@ export async function sendGroupMessage(
     {
       method: "POST",
       body: JSON.stringify(payload),
-    }
+    },
+    15000,
   );
 }
 
@@ -687,33 +702,35 @@ export async function mapLimit<T, R>(
  * DB local de Evolution, así que es RÁPIDO. fetchAllGroups es lentísimo
  * (25s+/timeout, issue #1883) incluso sin participants, así que discovery y
  * sync usan findChats para listar grupos y luego findGroupInfos por grupo.
- * Se pagina con take/skip (filtro isGroup) para no quedarse con una lista
- * truncada.
+ * Se pagina con take/skip y se filtran los grupos client-side (el filtro
+ * `where: {isGroup:true}` puede devolver parcial en algunas versiones → no se
+ * usa para no perder grupos).
  */
 export async function fetchAllChats(
   baseUrl: string,
   apiKey: string,
   instanceName: string,
 ): Promise<EvolutionResult<EvolutionChat[]>> {
-  const chats: EvolutionChat[] = [];
-  const seen = new Set<string>();
-  const take = 300;
+  const groups = new Map<string, string>();
+  const take = 500;
   let skip = 0;
 
-  for (let page = 0; page < 40; page++) {
+  for (let page = 0; page < 24; page++) {
     const result = await evolutionRequest<unknown>(
       baseUrl,
       apiKey,
       `/chat/findChats/${instanceName}`,
       {
         method: "POST",
-        body: JSON.stringify({ where: { isGroup: true }, take, skip }),
+        body: JSON.stringify({ take, skip }),
       },
       20000,
     );
     if (!result.ok) {
       // Si ya tenemos grupos, devolvemos los que hay en vez de fallar.
-      return chats.length > 0 ? { ok: true, status: 200, data: chats } : result;
+      return groups.size > 0
+        ? { ok: true, status: 200, data: [...groups.entries()].map(([remoteJid, name]) => ({ remoteJid, name })) }
+        : result;
     }
 
     const raw = result.data as unknown;
@@ -730,15 +747,14 @@ export async function fetchAllChats(
       const c = item as Record<string, unknown>;
       const remoteJid = String(c.remoteJid ?? c.jid ?? "").trim();
       if (!remoteJid || !remoteJid.includes("@g.us")) continue; // solo grupos
-      if (seen.has(remoteJid)) continue;
-      seen.add(remoteJid);
+      if (groups.has(remoteJid)) continue;
       const name = String(c.name ?? c.subject ?? c.groupName ?? "").trim();
-      chats.push({ remoteJid, name });
+      groups.set(remoteJid, name);
     }
 
     if (list.length < take) break;
     skip += take;
   }
 
-  return { ok: true, status: 200, data: chats };
+  return { ok: true, status: 200, data: [...groups.entries()].map(([remoteJid, name]) => ({ remoteJid, name })) };
 }

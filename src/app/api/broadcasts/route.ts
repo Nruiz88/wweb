@@ -5,6 +5,10 @@ import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 import { sendGroupMessage } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+// Leyenda que se agrega al final de cada mensaje de broadcast.
+const BROADCAST_FOOTER = "\n\n— Enviado por el Admin Bot";
 
 // GET: List broadcasts for an instance
 export async function GET(request: Request) {
@@ -126,6 +130,22 @@ export async function POST(request: Request) {
 
     const nameMap = new Map((groupNames || []).map((g) => [g.group_jid, g.group_name]));
 
+    // Mentions: `@<número>` (ej @5492995885273) menciona a ese contacto en cada
+    // grupo, `@everyone` menciona a todos. El texto se mantiene con los @.
+    const mentionedNumbers: string[] = [];
+    const mentionRe = /@(\d{6,15})/g;
+    let mt: RegExpExecArray | null;
+    while ((mt = mentionRe.exec(message))) {
+      if (!mentionedNumbers.includes(mt[1])) mentionedNumbers.push(mt[1]);
+    }
+    const mentionsEveryone = /@everyone/i.test(message);
+    const mentions =
+      mentionedNumbers.length > 0 || mentionsEveryone
+        ? [...mentionedNumbers, ...(mentionsEveryone ? ["everyone"] : [])]
+        : undefined;
+
+    const finalText = `${message}${BROADCAST_FOOTER}`;
+
     for (const jid of groupJids) {
       try {
         const result = await sendGroupMessage(
@@ -133,9 +153,9 @@ export async function POST(request: Request) {
           instance.evolution_api_key,
           instance.instance_name,
           jid,
-          message,
+          finalText,
+          mentions,
           undefined,
-          2000,
         );
 
         if (result.ok) {
