@@ -29,7 +29,7 @@ export default function AdminServers({ capacities }: { capacities: ServerCapacit
     <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-wa-text">Servidores (Railway) y cupos</h3>
-        <span className="text-[10px] text-wa-text-secondary/50">maximo 10 instancias por servidor</span>
+        <span className="text-[10px] text-wa-text-secondary/50">máximo 10 bots por servidor</span>
       </div>
 
       <div className="mt-3 space-y-3">
@@ -57,7 +57,7 @@ export default function AdminServers({ capacities }: { capacities: ServerCapacit
                 <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: full ? "#ef4444" : "#00a884" }} />
               </div>
               <p className="mt-1 text-[10px] text-wa-text-secondary/60">
-                {server.instance_count}/{server.max_instances} instancias (WhatsApp) en este servidor
+                {server.instance_count}/{server.max_instances} usuarios en este servidor
               </p>
 
               <div className="mt-3 space-y-2">

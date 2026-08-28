@@ -271,7 +271,7 @@ export default function CalendarPage() {
         {!instanceId ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <CalendarIcon className="h-12 w-12 text-wa-text-secondary/20" />
-            <p className="text-sm text-wa-text-secondary">Espera a tener una instancia asignada</p>
+            <p className="text-sm text-wa-text-secondary">Espera a tener un servidor asignado</p>
           </div>
         ) : loading ? (
           <div className="flex items-center justify-center py-16">

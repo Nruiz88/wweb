@@ -261,7 +261,7 @@ export default function AutoResponsesPage() {
         {!instanceId ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <ZapIcon className="h-12 w-12 text-wa-text-secondary/20" />
-            <p className="text-sm text-wa-text-secondary">Espera a que el administrador te asigne una instancia</p>
+            <p className="text-sm text-wa-text-secondary">Espera a que el administrador te asigne un servidor</p>
           </div>
         ) : loading ? (
           <div className="flex items-center justify-center py-16">

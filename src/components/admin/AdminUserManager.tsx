@@ -292,11 +292,9 @@ export default function AdminUserManager({ users, instances, plans, selectedInst
                             )
                           : void handleAssign(user.id)
                       }
-                      disabled={isCurrentlyAssigning || user.role === "admin" || !selectedInstance}
+                      disabled={isCurrentlyAssigning || !selectedInstance}
                       className={`shrink-0 rounded-lg px-2.5 py-1 text-[10px] font-medium transition ${
-                        user.role === "admin"
-                          ? "cursor-not-allowed opacity-30 border border-wa-border bg-wa-header text-wa-text-secondary"
-                          : isAssigned
+                        isAssigned
                           ? "border border-[#00a884]/30 bg-[#00a884]/10 text-[#00a884]"
                           : "border border-wa-border bg-wa-header text-wa-text-secondary hover:bg-wa-hover hover:text-wa-text"
                       }`}
@@ -352,7 +350,7 @@ export default function AdminUserManager({ users, instances, plans, selectedInst
                       {/* Instance assignment */}
                       <div>
                         <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-wa-text-secondary/60">
-                          Instancia
+                          Servidor
                         </label>
                         {isAssigned ? (
                           <button
@@ -372,10 +370,10 @@ export default function AdminUserManager({ users, instances, plans, selectedInst
                           <button
                             type="button"
                             onClick={() => void handleAssign(user.id)}
-                            disabled={isCurrentlyAssigning || user.role === "admin"}
+                            disabled={isCurrentlyAssigning}
                             className="w-full rounded-lg border border-wa-border bg-wa-header px-2.5 py-1.5 text-xs font-medium text-wa-text-secondary transition hover:bg-wa-hover hover:text-wa-text disabled:opacity-40"
                           >
-                            {isCurrentlyAssigning ? "..." : `Asignar a ${selectedInst?.instance_name || "instancia"}`}
+                            {isCurrentlyAssigning ? "..." : `Asignar a ${selectedInst?.instance_name || "servidor"}`}
                           </button>
                         )}
                       </div>

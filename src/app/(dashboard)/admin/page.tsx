@@ -49,7 +49,7 @@ interface ActivityPayload {
 
 const TABS = [
   { id: "users", label: "Usuarios", icon: UsersIcon },
-  { id: "instances", label: "Instancias", icon: MessageCircleIcon },
+  { id: "instances", label: "Servidores", icon: MessageCircleIcon },
   { id: "activity", label: "Actividad", icon: ClockIcon },
   { id: "servers", label: "Servidores", icon: SettingsIcon },
 ] as const;

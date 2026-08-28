@@ -44,7 +44,7 @@ export default function AdminStats({ stats }: { stats: Stats }) {
       {/* Core Stats */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard icon={<UsersIcon className="h-5 w-5" />} value={stats.totalUsers} label="Usuarios" accent="#53bdeb" sub={stats.recentUsers7d > 0 ? `+${stats.recentUsers7d} esta semana` : undefined} />
-        <StatCard icon={<MessageCircleIcon className="h-5 w-5" />} value={stats.totalInstances} label="Instancias" accent="#00a884" sub={`${stats.connectedInstances} conectada${stats.connectedInstances !== 1 ? "s" : ""}`} />
+        <StatCard icon={<MessageCircleIcon className="h-5 w-5" />} value={stats.totalInstances} label="Servidores" accent="#00a884" sub={`${stats.connectedInstances} conectado${stats.connectedInstances !== 1 ? "s" : ""}`} />
         <StatCard icon={<ZapIcon className="h-5 w-5" />} value={stats.totalAutoResponses} label="Auto-respuestas" accent="#e6a44e" sub={`${stats.activeAutoResponses} activa${stats.activeAutoResponses !== 1 ? "s" : ""}`} />
         <StatCard icon={<ClockIcon className="h-5 w-5" />} value={stats.totalLogs} label="Respuestas enviadas" accent="#00a884" sub={stats.recentLogs24h > 0 ? `+${stats.recentLogs24h} en 24h` : undefined} />
       </div>

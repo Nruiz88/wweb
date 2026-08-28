@@ -95,7 +95,7 @@ export default function AdminUsers({ users, instances, selectedInstance, onSelec
       {instances.length > 0 ? (
         <div className="rounded-2xl border border-wa-border bg-wa-header p-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-wa-text">Instancia activa</h3>
+            <h3 className="text-sm font-semibold text-wa-text">Servidor activo</h3>
             <span className="text-[10px] text-wa-text-secondary/50">{instances.length} total</span>
           </div>
           <select
@@ -115,7 +115,7 @@ export default function AdminUsers({ users, instances, selectedInstance, onSelec
           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-wa-text-secondary/10">
             <ShieldIcon className="h-7 w-7 text-wa-text-secondary/30" />
           </div>
-          <p className="text-sm font-medium text-wa-text-secondary">No hay instancias creadas</p>
+          <p className="text-sm font-medium text-wa-text-secondary">No hay servidores creados</p>
           <p className="mt-1 text-xs text-wa-text-secondary/50">Crea una en Configuracion primero</p>
         </div>
       )}

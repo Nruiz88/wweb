@@ -130,7 +130,7 @@ export default function SettingsPage() {
         setFeedback({ kind: "error", message: payload.error });
         return;
       }
-      setFeedback({ kind: "success", message: "Instancia creada correctamente" });
+      setFeedback({ kind: "success", message: "Servidor creado correctamente" });
       setShowForm(false);
       setInstanceName("");
       setEvolutionApiUrl("");
@@ -144,7 +144,7 @@ export default function SettingsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Eliminar esta instancia y todas sus auto-respuestas?")) return;
+    if (!confirm("Eliminar este servidor y todas sus auto-respuestas?")) return;
     const res = await fetch(`/api/instances?id=${id}`, { method: "DELETE" });
     const payload = await res.json();
     if (payload.status === "success") await loadData();
@@ -195,7 +195,7 @@ export default function SettingsPage() {
             className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#00a884] to-[#25d366] px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-[#00a884]/20 transition-all hover:shadow-md hover:shadow-[#00a884]/30"
           >
             <PlusIcon className="h-3.5 w-3.5" />
-            Nueva instancia
+Nuevo servidor
           </button>
         )}
       </div>
@@ -223,7 +223,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <p className="text-base font-semibold text-wa-text">
-                {isAdmin ? "Sin instancias" : "Sin instancia asignada"}
+                {isAdmin ? "Sin servidores" : "Sin servidor asignado"}
               </p>
               <p className="mt-1 text-sm text-wa-text-secondary">
                 {isAdmin ? "Crea una para que los usuarios conecten WhatsApp" : "Pide al administrador que te asigne una"}
@@ -304,14 +304,14 @@ export default function SettingsPage() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <div className="mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-5 py-4">
-              <h3 className="text-base font-semibold text-wa-text">Nueva instancia</h3>
+              <h3 className="text-base font-semibold text-wa-text">Nuevo servidor</h3>
               <button type="button" onClick={() => setShowForm(false)} className="rounded-lg p-1 text-wa-text-secondary hover:text-wa-text">
                 <XIcon className="h-5 w-5" />
               </button>
             </div>
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">Nombre de instancia</label>
+                <label className="text-xs font-semibold text-wa-text-secondary">Nombre de servidor</label>
                 <input type="text" placeholder="mi-whatsapp" value={instanceName} onChange={(e) => setInstanceName(e.target.value)} className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none transition" />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -326,7 +326,7 @@ export default function SettingsPage() {
                 <button type="button" onClick={() => setShowForm(false)} className="flex-1 rounded-xl border border-wa-border py-3 text-sm font-medium text-wa-text-secondary hover:bg-wa-hover transition">Cancelar</button>
                 <button type="button" onClick={() => void handleCreate()} disabled={saving || !instanceName || !evolutionApiUrl || !evolutionApiKey} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] py-3 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/20 transition-all hover:shadow-xl disabled:opacity-50">
                   {saving ? <LoaderIcon className="h-4 w-4 animate-spin" /> : null}
-                  {saving ? "Creando..." : "Crear instancia"}
+                  {saving ? "Creando..." : "Crear servidor"}
                 </button>
               </div>
             </div>
