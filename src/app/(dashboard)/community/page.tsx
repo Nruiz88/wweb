@@ -505,8 +505,9 @@ export default function CommunityPage() {
                 </button>
               )}
 
-              {/* Agregar manual por JID (fallback) */}
-              {!showManualAdd ? (
+              {/* Agregar manual por JID (fallback) — SOLO admins (el JID lo conoce
+                  el operador con acceso al manager de Evolution, no el usuario). */}
+              {isAdmin && !showManualAdd && (
                 <button
                   type="button"
                   onClick={() => setShowManualAdd(true)}
@@ -514,7 +515,8 @@ export default function CommunityPage() {
                 >
                   ¿No aparece tu grupo? Agregalo por ID
                 </button>
-              ) : (
+              )}
+              {isAdmin && showManualAdd && (
                 <div className="mt-3 rounded-xl border border-wa-border bg-wa-header p-3 fade-up">
                   <p className="text-[10px] text-wa-text-secondary/60 mb-2">
                     Pegá el ID del grupo (lo encontrás en el panel de Evolution) y verificamos que el bot sea admin.

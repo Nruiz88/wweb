@@ -1,20 +1,19 @@
 import { NextResponse } from "next/server";
-import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
-import { verifyUserAccess } from "@/lib/api-helpers";
+import { createServerClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/admin/auth";
 import { fetchInstanceOwnerJid, findGroupInfos } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// POST /api/manual-group — Agregar un grupo por JID (fallback para grupos que
-// no aparecen en findChats porque no están en la DB local de Evolution).
+// POST /api/manual-group — SOLO ADMINS. Agregar un grupo por JID (fallback para
+// grupos que no aparecen en findChats porque no están en la DB local de
+// Evolution). El JID lo conoce el operador (acceso al manager), no el usuario.
 // Verifica con findGroupInfos que el bot sea admin y persiste en
 // discovered_groups → aparece en la lista de "Buscar grupos" para guardar.
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   const supabase = await createServerClient();
 
@@ -35,11 +34,6 @@ export async function POST(request: Request) {
   const fullJid = trimmed.includes("@") ? trimmed : `${trimmed}@g.us`;
   if (!/^\d{8,}@g\.us$/i.test(fullJid)) {
     return NextResponse.json({ status: "error", error: "JID de grupo inválido" }, { status: 400 });
-  }
-
-  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
   const { data: instance } = await supabase
