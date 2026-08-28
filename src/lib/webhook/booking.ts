@@ -165,7 +165,7 @@ async function handleAgendaHoy(ctx: WebhookContext): Promise<{ status: string; m
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
-      "❌ Hoy no hay horarios configurados. Respondé 2 para ver el próximo día o 3 para la agenda completa.",
+      "❌ *Hoy no hay horarios configurados.*\n\nRespondé 2️⃣ para ver el próximo día o 3️⃣ para la agenda completa.",
       1500,
     );
     return { status: "success", matched: "[turno hoy sin agenda]" };
@@ -175,18 +175,21 @@ async function handleAgendaHoy(ctx: WebhookContext): Promise<{ status: string; m
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
-      "❌ Hoy no quedan horarios libres. Respondé 2 para ver el próximo día o 3 para la agenda completa.",
+      "❌ *Hoy no quedan horarios libres.*\n\nRespondé 2️⃣ para ver el próximo día o 3️⃣ para la agenda completa.",
       1500,
     );
     return { status: "success", matched: "[turno hoy sin slots]" };
   }
 
   const dateStr = formatDateStr(today);
-  const list = slots.map((t, i) => `${i + 1}. ${t}`).join("\n");
+  const list = slots.map((t, i) => `   ${i + 1}.  🕐  ${t} hs`).join("\n");
   await sendTextMessage(
     instance.evolution_api_url, instance.evolution_api_key,
     instance.instance_name, phoneNumber,
-    `🕐 Horarios libres HOY (${dateStr}):\n\n${list}\n\nRespondé con el número del horario que querés.`,
+    `🕐 *Horarios libres HOY* — ${dateStr}\n\n` +
+      `_Elegí un horario y respondé con su número:_\n\n` +
+      `${list}\n\n` +
+      `0️⃣  🔙 Volver atrás`,
     1500,
   );
   rememberDate(ctx, today);
@@ -205,11 +208,14 @@ async function handleAgendaProximo(ctx: WebhookContext): Promise<{ status: strin
     const { slots } = await getAvailableSlots(ctx, dateStr);
     if (slots.length > 0) {
       const dateStr2 = formatDateStr(dateStr);
-      const list = slots.map((t, idx) => `${idx + 1}. ${t}`).join("\n");
+      const list = slots.map((t, idx) => `   ${idx + 1}.  🕐  ${t} hs`).join("\n");
       await sendTextMessage(
         instance.evolution_api_url, instance.evolution_api_key,
         instance.instance_name, phoneNumber,
-        `⏭️ Próximo día con horarios libres: ${dateStr2}\n\n${list}\n\nRespondé con el número del horario que querés.`,
+        `⏭️ *Próximo día con horarios libres* — ${dateStr2}\n\n` +
+          `_Elegí un horario y respondé con su número:_\n\n` +
+          `${list}\n\n` +
+          `0️⃣  🔙 Volver atrás`,
         1500,
       );
       rememberDate(ctx, dateStr);
@@ -220,7 +226,7 @@ async function handleAgendaProximo(ctx: WebhookContext): Promise<{ status: strin
   await sendTextMessage(
     instance.evolution_api_url, instance.evolution_api_key,
     instance.instance_name, phoneNumber,
-    "No encontré disponibilidad en los próximos 14 días. Escribí más tarde.",
+    "❌ No encontré disponibilidad en los próximos 14 días. Escribí más tarde.",
     1500,
   );
   return { status: "success", matched: "[turno sin disponibilidad]" };
@@ -413,6 +419,22 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
   const clean = effectiveText.trim();
   if (!/^\d{1,2}$/.test(clean)) return null;
   const index = parseInt(clean, 10);
+
+  // "0" → volver al menú de agenda
+  if (index === 0) {
+    const date = getPendingDate(ctx);
+    if (date) {
+      await sendTextMessage(
+        instance.evolution_api_url, instance.evolution_api_key,
+        instance.instance_name, phoneNumber,
+        "🔙 Volviste al menú de agenda.\n\n1️⃣ 🕐 Libre hoy\n2️⃣ ⏭️ Libre más próximo\n3️⃣ 📅 Agenda completa\n\nRespondé con el número o la opción 👇",
+        1500,
+      );
+      return { status: "success", matched: "[turno volver]" };
+    }
+    return null;
+  }
+
   if (index < 1 || index > 30) return null;
 
   const date = getPendingDate(ctx);

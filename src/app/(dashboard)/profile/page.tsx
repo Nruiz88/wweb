@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Profile } from "@/lib/supabase/types";
+import { slugify } from "@/lib/slug";
 import {
   CheckIcon,
   LoaderIcon,
@@ -58,6 +59,22 @@ export default function ProfilePage() {
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [email, setEmail] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const publicAgendaLink = useMemo(() => {
+    const base = window.location.origin;
+    const identifier = businessName.trim() ? slugify(businessName) : slugify(email);
+    return identifier ? `${base}/agendar?business=${encodeURIComponent(identifier)}` : null;
+  }, [businessName, email]);
+
+  async function copyLink() {
+    if (!publicAgendaLink) return;
+    try {
+      await navigator.clipboard.writeText(publicAgendaLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard unavailable */ }
+  }
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -215,6 +232,41 @@ export default function ProfilePage() {
                   </p>
                 </div>
               )}
+
+            {/* Public agenda card */}
+            <div className="rounded-2xl border border-wa-border bg-wa-header p-5">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-[#e6a44e]">
+                  <ClockIcon className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-wa-text">Agenda pública</h3>
+                  <p className="text-[10px] text-wa-text-secondary/60">
+                    Compartí este link para que tus clientes agenden solos
+                  </p>
+                </div>
+              </div>
+
+              {publicAgendaLink ? (
+                <>
+                  <p className="mt-3 truncate rounded-xl border border-wa-border bg-wa-input px-4 py-2.5 font-mono text-[10px] text-wa-text-secondary">
+                    {publicAgendaLink}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void copyLink()}
+                    className="mt-2 flex items-center gap-1.5 rounded-lg border border-[#e6a44e]/40 bg-[#e6a44e]/10 px-3 py-2 text-xs font-semibold text-[#e6a44e] transition hover:bg-[#e6a44e]/20"
+                  >
+                    {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <MessageCircleIcon className="h-3.5 w-3.5" />}
+                    {copied ? "¡Copiado!" : "Copiar link"}
+                  </button>
+                </>
+              ) : (
+                <p className="mt-3 text-xs text-wa-text-secondary/60">
+                  Cargá el nombre de tu negocio arriba para generar el link de agenda.
+                </p>
+              )}
+            </div>
 
             {/* Form */}
             <div className="rounded-2xl border border-wa-border bg-wa-header p-5 space-y-4">
