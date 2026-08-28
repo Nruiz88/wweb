@@ -64,6 +64,7 @@ export default function CommunityPage() {
   const [showBroadcastForm, setShowBroadcastForm] = useState(false);
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
+  const [broadcastFooter, setBroadcastFooter] = useState("");
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [savingBroadcast, setSavingBroadcast] = useState(false);
 
@@ -324,6 +325,7 @@ export default function CommunityPage() {
           message: broadcastMessage,
           groupJids: selectedGroups,
           sendNow,
+          footer: broadcastFooter,
         }),
       });
       const payload = await res.json();
@@ -962,8 +964,20 @@ export default function CommunityPage() {
                 <p className="text-[10px] text-wa-text-secondary/50">
                   Usá <code className="text-[#e6a44e]">@everyone</code> para mencionar a todos, o{" "}
                   <code className="text-[#e6a44e]">@número</code> (ej. @5492995885273) para mencionar a un contacto.
-                  Se agrega automáticamente la leyenda &quot;Enviado por el Admin Bot&quot;.
                 </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-wa-text-secondary">
+                  Leyenda al final <span className="text-wa-text-secondary/40">(opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: — Enviado por la administración"
+                  value={broadcastFooter}
+                  onChange={(e) => setBroadcastFooter(e.target.value)}
+                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                />
               </div>
 
               <div className="flex flex-col gap-1.5">
