@@ -195,6 +195,13 @@ CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_broadcast ON broadcast_recip
 CREATE INDEX IF NOT EXISTS idx_discovered_groups_instance ON discovered_groups(instance_id);
 
 -- 10. Grants (so service_role can access new tables)
+GRANT ALL ON public.profiles TO service_role;
+GRANT ALL ON public.subscriptions TO service_role;
+GRANT ALL ON public.instance_addons TO service_role;
+GRANT ALL ON public.instances TO service_role;
+GRANT ALL ON public.user_instances TO service_role;
+GRANT ALL ON public.auto_responses TO service_role;
+GRANT ALL ON public.response_logs TO service_role;
 GRANT ALL ON public.business_hours TO service_role;
 GRANT ALL ON public.appointments TO service_role;
 GRANT ALL ON public.group_settings TO service_role;

@@ -248,3 +248,23 @@ EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN
   ALTER TABLE group_settings ADD COLUMN banned_words_reply TEXT DEFAULT NULL;
 EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+-- ============================================
+-- Grants (service_role) — permite a createServerClient
+-- leer/escribir todas las tablas (bypass de RLS).
+-- Sin estos GRANTs, los endpoints admin fallan con
+-- "permission denied for table subscriptions".
+-- ============================================
+GRANT ALL ON public.profiles TO service_role;
+GRANT ALL ON public.subscriptions TO service_role;
+GRANT ALL ON public.instance_addons TO service_role;
+GRANT ALL ON public.instances TO service_role;
+GRANT ALL ON public.user_instances TO service_role;
+GRANT ALL ON public.auto_responses TO service_role;
+GRANT ALL ON public.response_logs TO service_role;
+GRANT ALL ON public.business_hours TO service_role;
+GRANT ALL ON public.appointments TO service_role;
+GRANT ALL ON public.group_settings TO service_role;
+GRANT ALL ON public.broadcasts TO service_role;
+GRANT ALL ON public.broadcast_recipients TO service_role;
+GRANT ALL ON public.discovered_groups TO service_role;
