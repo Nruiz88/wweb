@@ -82,24 +82,22 @@ export default function ProfilePage() {
     let cancelled = false;
     async function loadUpcoming() {
       try {
-        const instRes = await fetch("/api/instances");
+        const instRes = await fetch("/api/instances?lite=1");
         const instPayload = await instRes.json();
         if (instPayload.status !== "success" || !instPayload.data?.length) return;
         const now = new Date();
         const from = now.toISOString().slice(0, 10);
         const to = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const appts: { date: string; time: string; name: string | null }[] = [];
-        for (const inst of instPayload.data) {
-          const res = await fetch(`/api/appointments?instanceId=${inst.id}&from=${from}&to=${to}`);
-          const payload = await res.json();
-          if (payload.status === "success") {
-            for (const a of payload.data) {
-              if (a.status === "pending" || a.status === "confirmed") {
-                appts.push({ date: a.appointment_date, time: a.appointment_time, name: a.customer_name || a.customer_phone });
-              }
-            }
-          }
-        }
+        const apptResults = await Promise.all(
+          instPayload.data.map(async (inst: { id: string }) => {
+            const res = await fetch(`/api/appointments?instanceId=${inst.id}&from=${from}&to=${to}`);
+            const payload = await res.json();
+            return payload.status === "success" ? (payload.data as { status: string; appointment_date: string; appointment_time: string; customer_name: string | null; customer_phone: string | null }[]) : [];
+          })
+        );
+        const appts = apptResults.flat().filter(
+          (a) => a.status === "pending" || a.status === "confirmed"
+        ).map((a) => ({ date: a.appointment_date, time: a.appointment_time, name: a.customer_name || a.customer_phone }));
         if (!cancelled) setUpcoming(appts.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).slice(0, 5));
       } catch { /* non-critical */ }
     }

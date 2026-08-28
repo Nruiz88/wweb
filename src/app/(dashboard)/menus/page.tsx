@@ -85,7 +85,7 @@ export default function MenusPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const instRes = await fetch("/api/instances");
+      const instRes = await fetch("/api/instances?lite=1");
       const instPayload = await instRes.json();
 
       if (instPayload.status === "success" && instPayload.data?.length > 0) {
@@ -602,7 +602,7 @@ export default function MenusPage() {
                               className="w-full rounded-xl border border-wa-border bg-wa-panel px-3 py-2 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
                             />
                             <p className="text-[10px] text-wa-text-secondary/60">
-                              Cuando el cliente toca "{btn.text || `Botón ${idx + 1}`}", se abre este submenú con sus botones. El botón "⬅ Volver" se agrega solo.
+                              Cuando el cliente toca &quot;{btn.text || `Botón ${idx + 1}`}&quot;, se abre este submenú con sus botones. El botón &quot;⬅ Volver&quot; se agrega solo.
                             </p>
                             {btn.submenu.buttons.map((sb, subIdx) => (
                               <div key={sb.id} className="flex items-center gap-2">

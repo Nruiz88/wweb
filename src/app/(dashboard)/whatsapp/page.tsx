@@ -101,7 +101,7 @@ export default function WhatsAppPage() {
   useEffect(() => {
     const t = setTimeout(async () => {
       try {
-        const res = await fetch("/api/instances");
+        const res = await fetch("/api/instances?lite=1");
         const payload = await res.json();
         if (payload.status === "success" && payload.data?.length > 0) {
           setMyInstances(payload.data);

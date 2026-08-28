@@ -6,7 +6,7 @@ import { sanitizeString } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 
 // GET: Get current user's profile
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -15,52 +15,71 @@ export async function GET() {
 
   const supabase = await createServerClient();
 
-  const { data: profile, error } = await supabase
-    .from("profiles")
-    .select("id, email, full_name, role, business_name, phone, address, created_at")
-    .eq("id", user.id)
-    .single();
+  // lite=1: solo el plan (1 query). Para el layout/nav que solo muestra el badge.
+  const lite = new URL(request.url).searchParams.get("lite") === "1";
+  if (lite) {
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("plan_type, status")
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({
+      status: "success",
+      data: {
+        subscription: sub
+          ? { plan_type: sub.plan_type, status: sub.status }
+          : { plan_type: "starter", status: "active" },
+      },
+    });
   }
 
-  // Fetch subscription
-  const { data: sub } = await supabase
-    .from("subscriptions")
-    .select("plan_type, status, max_instances, updated_at")
-    .eq("user_id", user.id)
-    .single();
+  const [profileRes, subRes, usedRes, addonRes] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, email, full_name, role, business_name, phone, address, created_at")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("subscriptions")
+      .select("plan_type, status, max_instances, updated_at")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("user_instances")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id),
+    supabase
+      .from("instance_addons")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("status", "active"),
+  ]);
 
-  // Count used instances
-  const { count: usedInstances } = await supabase
-    .from("user_instances")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", user.id);
+  if (profileRes.error) {
+    return NextResponse.json({ status: "error", error: safeErrorMessage(profileRes.error) }, { status: 500 });
+  }
 
-  // Count addons
-  const { count: addonCount } = await supabase
-    .from("instance_addons")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", user.id)
-    .eq("status", "active");
+  const sub = subRes.data;
+  const usedInstances = usedRes.count ?? 0;
+  const addonCount = addonRes.count ?? 0;
 
   return NextResponse.json({
     status: "success",
     data: {
-      ...profile,
+      ...profileRes.data,
       subscription: sub ? {
         plan_type: sub.plan_type,
         status: sub.status,
         max_instances: sub.max_instances,
-        used_instances: usedInstances ?? 0,
-        addons: addonCount ?? 0,
+        used_instances: usedInstances,
+        addons: addonCount,
         updated_at: sub.updated_at,
       } : {
         plan_type: "starter",
         status: "active",
         max_instances: 1,
-        used_instances: usedInstances ?? 0,
+        used_instances: usedInstances,
         addons: 0,
         updated_at: null,
       },

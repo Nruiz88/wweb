@@ -28,7 +28,7 @@ function sanitizeInstance(instance: InstanceRow) {
 // Caché del estado en vivo: evita llamar a Evolution API en cada request.
 // Solo se refresca si el dato tiene mas de TTL_MS de antiguedad.
 const statusCache = new Map<string, { status: string; at: number }>();
-const STATUS_TTL_MS = 10_000;
+const STATUS_TTL_MS = 60_000;
 
 async function withLiveStatus(
   supabase: Awaited<ReturnType<typeof createServerClient>>,
@@ -74,7 +74,11 @@ async function withLiveStatus(
 }
 
 // GET: List instances
-export async function GET() {
+export async function GET(request: Request) {
+  // lite=1: no llama a Evolution API (estado en DB). Ideal para páginas que
+  // solo necesitan el id/nombre de la instancia para sus propios queries.
+  const lite = new URL(request.url).searchParams.get("lite") === "1";
+
   // Use SSR client to read session from request cookies
   const { createServerClient: createSSRClient } = await import("@supabase/ssr");
   const { cookies } = await import("next/headers");
@@ -113,6 +117,9 @@ export async function GET() {
       return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
     }
 
+    if (lite) {
+      return NextResponse.json({ status: "success", data: (instances as InstanceRow[]).map(sanitizeInstance), role: "admin" });
+    }
     const live = await withLiveStatus(supabase, instances as InstanceRow[]);
     return NextResponse.json({ status: "success", data: live, role: "admin" });
   }
@@ -135,6 +142,9 @@ export async function GET() {
     return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
+  if (lite) {
+    return NextResponse.json({ status: "success", data: (instances as InstanceRow[]).map(sanitizeInstance), role: "user" });
+  }
   const live = await withLiveStatus(supabase, instances as InstanceRow[]);
   return NextResponse.json({ status: "success", data: live, role: "user" });
 }

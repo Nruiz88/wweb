@@ -81,7 +81,7 @@ export default function SettingsPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/instances");
+    const res = await fetch("/api/instances?lite=1");
     const payload = await res.json();
     if (payload.status === "success") {
       setInstances(payload.data);

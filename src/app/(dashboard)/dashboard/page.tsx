@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   CheckIcon,
   LoaderIcon,
@@ -39,6 +40,34 @@ function WaitingBadge() {
   );
 }
 
+// Sub-función: estado de las instancias (vivo, puede tocar Evolution API)
+async function fetchInstances() {
+  const res = await fetch("/api/instances");
+  const payload = await res.json();
+  const hasInstance = payload.status === "success" && payload.data?.length > 0;
+  const whatsappConnected = payload.data?.[0]?.status === "open";
+  const instanceId = hasInstance ? payload.data[0].id : null;
+  return { hasInstance, whatsappConnected, instanceId };
+}
+
+// Sub-función: cantidad de auto-respuestas (Starter)
+async function fetchAutoResponses(instanceId: string) {
+  const res = await fetch(`/api/auto-responses?instanceId=${instanceId}`);
+  const payload = await res.json();
+  return payload.status === "success" ? payload.data?.length || 0 : 0;
+}
+
+// Sub-función: onboarding pendiente (no requiere instancia)
+async function fetchOnboarding() {
+  try {
+    const res = await fetch("/api/onboarding");
+    const payload = await res.json();
+    return payload.status === "success" && !payload.data.completed;
+  } catch {
+    return false;
+  }
+}
+
 export default function DashboardPage() {
   const [status, setStatus] = useState<Status>({
     hasInstance: false,
@@ -48,25 +77,19 @@ export default function DashboardPage() {
   });
   const [showWizard, setShowWizard] = useState(false);
 
+  // Función principal: orquesta las sub-funciones segun el estado/plan
   const loadStatus = useCallback(async () => {
     try {
-      const instRes = await fetch("/api/instances");
-      const instPayload = await instRes.json();
-
-      const hasInstance = instPayload.status === "success" && instPayload.data?.length > 0;
-      const whatsappConnected = instPayload.data?.[0]?.status === "open";
-      const instanceId = hasInstance ? instPayload.data[0].id : null;
-
+      const [instInfo, needsOnboarding] = await Promise.all([
+        fetchInstances(),
+        fetchOnboarding(),
+      ]);
       let autoResponses = 0;
-      if (instanceId) {
-        const arRes = await fetch(`/api/auto-responses?instanceId=${instanceId}`);
-        const arPayload = await arRes.json();
-        if (arPayload.status === "success") {
-          autoResponses = arPayload.data?.length || 0;
-        }
+      if (instInfo.instanceId) {
+        autoResponses = await fetchAutoResponses(instInfo.instanceId);
       }
-
-      setStatus({ hasInstance, whatsappConnected, autoResponses, loading: false });
+      setStatus({ ...instInfo, autoResponses, loading: false });
+      if (instInfo.hasInstance && needsOnboarding) setShowWizard(true);
     } catch {
       setStatus((prev) => ({ ...prev, loading: false }));
     }
@@ -76,23 +99,6 @@ export default function DashboardPage() {
     const t = setTimeout(() => void loadStatus(), 0);
     return () => clearTimeout(t);
   }, [loadStatus]);
-
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      if (status.hasInstance && !status.loading) {
-        try {
-          const res = await fetch("/api/onboarding");
-          const payload = await res.json();
-          if (payload.status === "success" && !payload.data.completed) {
-            setShowWizard(true);
-          }
-        } catch {
-          // Non-critical: don't show wizard on error
-        }
-      }
-    }, 0);
-    return () => clearTimeout(t);
-  }, [status.hasInstance, status.loading]);
 
   function handleWizardComplete() {
     setShowWizard(false);
@@ -126,7 +132,7 @@ export default function DashboardPage() {
             </p>
             <div className="mt-6 rounded-xl border border-wa-border bg-wa-header p-4">
               <p className="text-xs text-wa-text-secondary/60">
-                Mientras tanto, podes completar tu <a href="/profile" className="text-[#00a884] hover:underline">perfil</a>
+                Mientras tanto, podes completar tu <Link href="/profile" prefetch={false} className="text-[#00a884] hover:underline">perfil</Link>
               </p>
             </div>
           </div>
@@ -190,8 +196,9 @@ export default function DashboardPage() {
             </div>
 
             {/* Step 1 */}
-            <a
+            <Link
               href="/whatsapp"
+              prefetch={false}
               className={`group relative flex items-center gap-4 overflow-hidden rounded-2xl border p-4 transition-all ${
                 step1Done
                   ? "border-[#00a884]/20 bg-gradient-to-r from-[#00a884]/5 to-transparent"
@@ -212,11 +219,12 @@ export default function DashboardPage() {
                 </p>
               </div>
               <ArrowRightIcon className="h-4 w-4 shrink-0 text-wa-text-secondary/30 transition group-hover:text-[#00a884]/60 group-hover:translate-x-1" />
-            </a>
+            </Link>
 
             {/* Step 2 */}
-            <a
+            <Link
               href="/auto-responses"
+              prefetch={false}
               className={`group relative flex items-center gap-4 overflow-hidden rounded-2xl border p-4 transition-all ${
                 step2Done
                   ? "border-[#00a884]/20 bg-gradient-to-r from-[#00a884]/5 to-transparent"
@@ -249,7 +257,7 @@ export default function DashboardPage() {
                 </p>
               </div>
               <ArrowRightIcon className={`h-4 w-4 shrink-0 transition ${step1Done ? "text-wa-text-secondary/30 group-hover:text-[#e6a44e]/60 group-hover:translate-x-1" : "text-wa-text-secondary/20"}`} />
-            </a>
+            </Link>
 
             {/* Step 3 */}
             <div className={`relative overflow-hidden rounded-2xl border p-4 transition-all ${

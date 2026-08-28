@@ -19,7 +19,7 @@ export function useUserPlan() {
       try {
         const [meRes, profileRes] = await Promise.all([
           fetch("/api/auth/me"),
-          fetch("/api/profile"),
+          fetch("/api/profile?lite=1"),
         ]);
 
         const mePayload = await meRes.json();

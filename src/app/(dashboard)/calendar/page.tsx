@@ -59,7 +59,7 @@ export default function CalendarPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const instRes = await fetch("/api/instances");
+      const instRes = await fetch("/api/instances?lite=1");
       const instPayload = await instRes.json();
       if (instPayload.status === "success" && instPayload.data?.length > 0) {
         const id = instPayload.data[0].id;
@@ -72,16 +72,16 @@ export default function CalendarPage() {
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + 14);
 
-        const apptRes = await fetch(
-          `/api/appointments?instanceId=${id}&from=${weekStart.toISOString().slice(0, 10)}&to=${weekEnd.toISOString().slice(0, 10)}`,
-        );
+        const [apptRes, hoursRes] = await Promise.all([
+          fetch(
+            `/api/appointments?instanceId=${id}&from=${weekStart.toISOString().slice(0, 10)}&to=${weekEnd.toISOString().slice(0, 10)}`,
+          ),
+          fetch(`/api/business-hours?instanceId=${id}`),
+        ]);
         const apptPayload = await apptRes.json();
         if (apptPayload.status === "success") {
           setAppointments(apptPayload.data);
         }
-
-        // Load business hours
-        const hoursRes = await fetch(`/api/business-hours?instanceId=${id}`);
         const hoursPayload = await hoursRes.json();
         if (hoursPayload.status === "success") {
           setBusinessHours(hoursPayload.data);

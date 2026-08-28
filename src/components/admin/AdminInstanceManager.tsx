@@ -163,7 +163,7 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
       {justCreated && (
         <div className="mt-3 rounded-xl border border-[#00a884]/30 bg-[#00a884]/5 p-4 fade-up">
           <p className="text-xs font-semibold text-[#00a884]">
-            ✅ Instancia "{justCreated.name}" creada
+            ✅ Instancia &quot;{justCreated.name}&quot; creada
           </p>
           <p className="mt-1 text-[10px] text-wa-text-secondary/60">
             Asignala a un usuario para que pueda conectar WhatsApp

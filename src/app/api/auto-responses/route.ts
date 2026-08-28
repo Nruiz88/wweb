@@ -35,7 +35,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("auto_responses")
-    .select("*")
+    .select("id, keyword, regex_pattern, response_text, response_type, menu_config, is_active, schedule")
     .eq("instance_id", instanceId);
 
   if (type === "text" || type === "menu") {

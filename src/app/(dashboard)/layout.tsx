@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import {
@@ -64,7 +65,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const [isAdmin, setIsAdmin] = useState(false);
   const [userName, setUserName] = useState("");
-  const [loaded, setLoaded] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [userPlan, setUserPlan] = useState<string | null>(null);
@@ -75,31 +75,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     async function init() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
+        if (cancelled || !user) return;
+
+        setUserName(user.user_metadata?.full_name || user.email || "");
+        // Rol y plan en paralelo (sin llamadas a Evolution API)
+        const [meRes, profileRes] = await Promise.all([
+          fetch("/api/auth/me"),
+          fetch("/api/profile?lite=1"),
+        ]);
+        const mePayload = await meRes.json();
+        const profilePayload = await profileRes.json();
         if (cancelled) return;
 
-        if (user) {
-          setUserName(user.user_metadata?.full_name || user.email || "");
-          // Determinar rol via /api/auth/me (usa service role, sin RLS
-          // ni llamadas a Evolution API)
-          try {
-            const res = await fetch("/api/auth/me");
-            const payload = await res.json();
-            if (!cancelled && payload.status === "success" && payload.data?.role === "admin") {
-              setIsAdmin(true);
-              if (payload.data.full_name) setUserName(payload.data.full_name);
-            }
-            // Fetch subscription plan
-            try {
-              const subRes = await fetch("/api/profile");
-              const subPayload = await subRes.json();
-              if (!cancelled && subPayload.status === "success" && subPayload.data?.subscription) {
-                setUserPlan(subPayload.data.subscription.plan_type);
-              }
-            } catch { /* non-critical */ }
-          } catch { /* non-critical */ }
+        if (mePayload.status === "success" && mePayload.data?.role === "admin") {
+          setIsAdmin(true);
+          if (mePayload.data.full_name) setUserName(mePayload.data.full_name);
         }
-      } catch { /* auth error */ }
-      finally { if (!cancelled) setLoaded(true); }
+        if (profilePayload.status === "success" && profilePayload.data?.subscription) {
+          setUserPlan(profilePayload.data.subscription.plan_type);
+        }
+      } catch { /* non-critical */ }
     }
 
     void init();
@@ -127,24 +122,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return items;
   }, [isAdmin, userPlan]);
 
-  if (!loaded) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#00a884] border-t-transparent" />
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-full flex-col bg-background">
       {/* ===== DESKTOP TOP NAV (lg+) ===== */}
       <header className="hidden border-b border-wa-border bg-wa-panel lg:flex">
         <div className="flex w-full items-center px-4 xl:px-6">
           {/* Logo */}
-          <a href="/dashboard" className="flex items-center gap-2.5 py-3 pr-6 border-r border-wa-border mr-4">
+          <Link href="/dashboard" prefetch={false} className="flex items-center gap-2.5 py-3 pr-6 border-r border-wa-border mr-4">
             <LogoMark />
             <span className="text-sm font-bold text-wa-text">Boti</span>
-          </a>
+          </Link>
 
           {/* Nav links */}
           <nav className="flex items-center gap-1 flex-1">
@@ -171,9 +158,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     {openDropdown === item.href && (
                       <div className="absolute left-0 top-full z-50 mt-1 w-52 rounded-xl border border-wa-border bg-wa-panel p-1.5 shadow-xl shadow-black/30">
                         {item.children.map((child) => (
-                          <a
+                          <Link
                             key={child.href}
                             href={child.href}
+                            prefetch={false}
                             onClick={() => setOpenDropdown(null)}
                             className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
                               pathname === child.href.split("?")[0]
@@ -182,7 +170,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                             }`}
                           >
                             {child.label}
-                          </a>
+                          </Link>
                         ))}
                       </div>
                     )}
@@ -191,9 +179,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               }
               const active = pathname === item.href;
               return (
-                <a
+                <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={false}
                   className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
                     active
                       ? "bg-[#00a884]/10 text-[#00a884]"
@@ -202,7 +191,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 >
                   <Icon className="h-4 w-4" />
                   {item.label}
-                </a>
+                </Link>
               );
             })}
           </nav>
@@ -284,9 +273,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             const Icon = item.icon;
             const active = pathname === item.href;
             return (
-              <a
+              <Link
                 key={item.href}
                 href={item.href}
+                prefetch={false}
                 onClick={() => setMobileMenuOpen(false)}
                 className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
                   active
@@ -296,7 +286,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               >
                 <Icon className="h-5 w-5" />
                 {item.label}
-              </a>
+              </Link>
             );
           })}
           <div className="border-t border-wa-border pt-2 mt-2">

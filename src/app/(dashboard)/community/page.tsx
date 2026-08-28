@@ -64,7 +64,7 @@ export default function CommunityPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const instRes = await fetch("/api/instances");
+      const instRes = await fetch("/api/instances?lite=1");
       const instPayload = await instRes.json();
       if (instPayload.status === "success" && instPayload.data?.length > 0) {
         const id = instPayload.data[0].id;

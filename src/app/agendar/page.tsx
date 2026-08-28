@@ -71,7 +71,8 @@ function PublicAgendaContent() {
   }, [business, user]);
 
   useEffect(() => {
-    void loadAgenda();
+    const t = setTimeout(() => void loadAgenda(), 0);
+    return () => clearTimeout(t);
   }, [loadAgenda]);
 
   const current = useMemo(

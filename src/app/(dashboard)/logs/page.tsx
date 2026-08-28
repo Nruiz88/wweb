@@ -74,7 +74,7 @@ export default function LogsPage() {
   const totalPages = Math.ceil(total / pageSize);
 
   const loadInstances = useCallback(async () => {
-    const res = await fetch("/api/instances");
+    const res = await fetch("/api/instances?lite=1");
     const payload = await res.json();
     if (payload.status === "success") {
       setInstances(payload.data);
@@ -98,7 +98,8 @@ export default function LogsPage() {
 
   // Reset page when switching instances
   useEffect(() => {
-    setPage(0);
+    const t = setTimeout(() => setPage(0), 0);
+    return () => clearTimeout(t);
   }, [selectedInstance]);
 
   useEffect(() => {
