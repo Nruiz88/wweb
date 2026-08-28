@@ -32,6 +32,7 @@ export default function CommunityPage() {
   const [groupSettings, setGroupSettings] = useState<GroupSetting[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [discoveredGroups, setDiscoveredGroups] = useState<{ group_jid: string; group_name: string | null; saved: boolean }[]>([]);
+  const [liveSource, setLiveSource] = useState(true);
   const [loading, setLoading] = useState(true);
   const [savingLiveGroup, setSavingLiveGroup] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
@@ -82,7 +83,10 @@ export default function CommunityPage() {
         if (bcastPayload.status === "success") setBroadcasts(bcastPayload.data);
 
         const discPayload = await discRes.json();
-        if (discPayload.status === "success") setDiscoveredGroups(discPayload.data);
+        if (discPayload.status === "success") {
+          setDiscoveredGroups(discPayload.data);
+          setLiveSource(discPayload.source === "live");
+        }
       }
     } catch {
       // Non-critical
@@ -364,11 +368,13 @@ export default function CommunityPage() {
                 <div className="flex items-center gap-2 mb-3">
                   <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6a44e]/20 text-xs">🔍</div>
                   <p className="text-xs font-semibold text-[#e6a44e]">
-                    Grupos donde el bot es admin
+                    {liveSource ? "Grupos donde el bot es admin" : "Grupos capturados"}
                   </p>
                 </div>
                 <p className="text-[10px] text-wa-text-secondary/60 mb-3">
-                  Grupos detectados en vivo desde WhatsApp. Guardá uno para configurar bienvenida, anti-spam y moderación.
+                  {liveSource
+                    ? "Grupos detectados en vivo desde WhatsApp. Guardá uno para configurar bienvenida, anti-spam y moderación."
+                    : "No se pudo consultar Evolution en vivo; mostrando los grupos capturados previamente por el webhook. Guardá uno o refrescá la instancia."}
                 </p>
                 <div className="space-y-2">
                   {discoveredGroups.map((dg) => (

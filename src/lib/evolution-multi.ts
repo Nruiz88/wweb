@@ -398,6 +398,7 @@ export interface EvolutionGroup {
  * Get the JID of the WhatsApp user logged into the instance.
  * Used to determine if the bot is admin of a group.
  * GET /instance/fetchInstances?instanceName=... → owner / ownerJid.
+ * Handles multiple response shapes across Evolution versions.
  */
 export async function fetchInstanceOwnerJid(
   baseUrl: string,
@@ -413,16 +414,21 @@ export async function fetchInstanceOwnerJid(
 
   const data = result.data;
   if (Array.isArray(data)) {
-    const inst = data[0] as Record<string, unknown> | undefined;
-    if (!inst) return null;
-    const nested = inst.instance as Record<string, unknown> | undefined;
-    const owner = String(nested?.owner ?? inst.owner ?? nested?.ownerJid ?? inst.ownerJid ?? "");
-    return owner || null;
+    for (const entry of data) {
+      if (!entry || typeof entry !== "object") continue;
+      const obj = entry as Record<string, unknown>;
+      const nested = obj.instance as Record<string, unknown> | undefined;
+      const owner = String(
+        nested?.owner ?? obj.owner ?? nested?.ownerJid ?? obj.ownerJid ?? "",
+      ).trim();
+      if (owner) return owner;
+    }
+    return null;
   }
   if (data && typeof data === "object") {
     const obj = data as Record<string, unknown>;
     const inst = (obj.instance ?? obj) as Record<string, unknown>;
-    const owner = String(inst.owner ?? inst.ownerJid ?? obj.owner ?? "");
+    const owner = String(inst.owner ?? inst.ownerJid ?? obj.owner ?? "").trim();
     return owner || null;
   }
   return null;
@@ -437,6 +443,16 @@ function isParticipantAdmin(p: Record<string, unknown>): boolean {
   }
   if (typeof admin === "boolean") return admin;
   return p.isAdmin === true || p.isSuperAdmin === true;
+}
+
+/** Compare two WhatsApp JIDs ignoring the device/@lid suffix when possible. */
+function jidsMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  const norm = (j: string) =>
+    j.replace("@s.whatsapp.net", "").replace("@lid", "").replace("@g.us", "").replace(/\D/g, "");
+  const na = norm(a);
+  const nb = norm(b);
+  return na.length > 5 && na === nb;
 }
 
 /**
@@ -488,22 +504,29 @@ export async function fetchAllGroups(
     const name = String(g.name ?? g.subject ?? "").trim();
 
     // The bot is admin when a participant matching the instance owner JID
-    // has an admin role. Without ownerJid we can't confirm — mark as non-admin.
+    // has an admin role. Without ownerJid we fall back to "any admin" only
+    // when the group has exactly the bot (can't be determined reliably) — so
+    // we keep it false unless we can match the owner.
     let isAdmin = false;
     if (Array.isArray(g.participants)) {
       const participants = g.participants as Array<Record<string, unknown>>;
       if (ownerJid) {
         const botParticipant = participants.find((p) => {
           const pid = String(p.id ?? p.jid ?? "");
-          return pid === ownerJid || pid === ownerJid.replace("@s.whatsapp.net", "@lid");
+          return jidsMatch(pid, ownerJid);
         });
         isAdmin = !!botParticipant && isParticipantAdmin(botParticipant);
-      } else if (participants.length === 0) {
-        isAdmin = false;
-      } else if (participants.some((p) => isParticipantAdmin(p))) {
-        // Legacy versions may not expose the owner JID; keep it undefined so the
-        // caller can decide (filtering strict requires ownerJid).
-        isAdmin = false;
+      } else {
+        // No owner JID available: Evolution only returns groups the bot belongs
+        // to, so if exactly one participant is the bot admin candidate we can
+        // still detect it via the `owner` field or single-admin groups.
+        const ownerField = String(g.owner ?? "").trim();
+        if (ownerField) {
+          const ownerParticipant = participants.find((p) =>
+            jidsMatch(String(p.id ?? p.jid ?? ""), ownerField),
+          );
+          isAdmin = !!ownerParticipant && isParticipantAdmin(ownerParticipant);
+        }
       }
     }
 
