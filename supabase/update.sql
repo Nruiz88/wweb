@@ -268,3 +268,4 @@ GRANT ALL ON public.group_settings TO service_role;
 GRANT ALL ON public.broadcasts TO service_role;
 GRANT ALL ON public.broadcast_recipients TO service_role;
 GRANT ALL ON public.discovered_groups TO service_role;
+GRANT ALL ON public.group_discovery_cache TO service_role;

@@ -6,37 +6,17 @@ import { fetchAllChats, fetchInstanceOwnerJid, findGroupInfos, mapLimit } from "
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// GET: List WhatsApp groups where the bot is admin (live from Evolution),
-// with the real group name (subject). Marks which ones are already saved.
-// No longer depends on the webhook auto-capture table.
-export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
+// TTL del caché: el resultado de "Buscar grupos" se guarda temporalmente en
+// group_discovery_cache y expira a los pocos minutos (no se acumula).
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
-  const supabase = await createServerClient();
-  const { searchParams } = new URL(request.url);
-  const instanceId = searchParams.get("instanceId");
-
-  if (!instanceId) {
-    return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
-  }
-
-  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-  }
-
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("instance_name, evolution_api_url, evolution_api_key")
-    .eq("id", instanceId)
-    .single();
-  if (!instance) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-  }
-
+// Ejecuta la búsqueda completa en Evolution (enumerar grupos + confirmar admin
+// + nombre real por grupo) y devuelve la lista de grupos donde el bot es admin.
+async function runDiscovery(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  instanceId: string,
+  instance: { instance_name: string; evolution_api_url: string; evolution_api_key: string },
+) {
   // Groups already saved in group_settings
   const { data: saved } = await supabase
     .from("group_settings")
@@ -76,8 +56,7 @@ export async function GET(request: Request) {
 
   // Confirmar admin + nombre real por grupo (findGroupInfos trae participants
   // y el phoneNumber del bot → detección admin correcta, incluso con LID).
-  // Concurrencia limitada para no saturar Evolution (evita 429/timeouts que
-  // hacían inconsistente la lista).
+  // Concurrencia limitada para no saturar Evolution.
   const verified = await mapLimit(groupJids, 6, async ({ jid, name }) => {
     const info = await findGroupInfos(
       instance.evolution_api_url,
@@ -94,7 +73,7 @@ export async function GET(request: Request) {
 
   // Solo se listan grupos donde el bot es admin Y tienen nombre real
   // (resuelto en vivo o el guardado en group_settings). Nunca exponemos el JID.
-  const listed = verified
+  return verified
     .filter((g) => g.isAdmin && (g.name || savedMap.get(g.jid)))
     .map((g) => ({
       group_jid: g.jid,
@@ -102,6 +81,92 @@ export async function GET(request: Request) {
       saved: savedMap.has(g.jid),
     }))
     .sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));
+}
+
+// GET: lee el caché temporal (sin consultar Evolution).
+export async function GET(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  }
+
+  const supabase = await createServerClient();
+  const { searchParams } = new URL(request.url);
+  const instanceId = searchParams.get("instanceId");
+
+  if (!instanceId) {
+    return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
+  }
+
+  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
+  if (!hasAccess) {
+    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+  }
+
+  const now = new Date().toISOString();
+  const { data: cached } = await supabase
+    .from("group_discovery_cache")
+    .select("data")
+    .eq("instance_id", instanceId)
+    .gte("expires_at", now)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (cached) {
+    return NextResponse.json({ status: "success", data: cached.data, source: "cache" });
+  }
+
+  // Limpieza de entradas vencidas (temporal, no se acumulan).
+  await supabase.from("group_discovery_cache").delete().eq("instance_id", instanceId);
+  return NextResponse.json({ status: "success", data: [], source: "none" });
+}
+
+// POST: ejecuta "Buscar grupos" en Evolution, guarda el JSON temporal en la DB
+// y lo devuelve. El resultado se consume desde el caché durante unos minutos.
+export async function POST(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  }
+
+  const supabase = await createServerClient();
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
+  }
+  const { instanceId } = (body ?? {}) as { instanceId?: string };
+
+  if (!instanceId) {
+    return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
+  }
+
+  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
+  if (!hasAccess) {
+    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+  }
+
+  const { data: instance } = await supabase
+    .from("instances")
+    .select("instance_name, evolution_api_url, evolution_api_key")
+    .eq("id", instanceId)
+    .single();
+  if (!instance) {
+    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+  }
+
+  const listed = await runDiscovery(supabase, instanceId, instance);
+
+  // Guardar temporalmente (un solo registro por instancia) y limpiar vencidos.
+  await supabase.from("group_discovery_cache").delete().eq("instance_id", instanceId);
+  await supabase.from("group_discovery_cache").insert({
+    instance_id: instanceId,
+    data: listed,
+    expires_at: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
+  });
 
   return NextResponse.json({ status: "success", data: listed, source: "live" });
 }

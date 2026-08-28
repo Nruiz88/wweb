@@ -71,10 +71,11 @@ export default function CommunityPage() {
         setInstanceId(id);
 
         // Solo datos de la DB (rápido). La discovery en vivo se hace a
-        // demanda con "Buscar grupos" (evita llamar a Evolution en cada carga).
-        const [grpRes, bcastRes] = await Promise.all([
+        // demanda con "Buscar grupos" (POST → guarda JSON temporal en DB).
+        const [grpRes, bcastRes, discRes] = await Promise.all([
           fetch(`/api/group-settings?instanceId=${id}`),
           fetch(`/api/broadcasts?instanceId=${id}`),
+          fetch(`/api/discovered-groups?instanceId=${id}`),
         ]);
 
         const grpPayload = await grpRes.json();
@@ -82,6 +83,13 @@ export default function CommunityPage() {
 
         const bcastPayload = await bcastRes.json();
         if (bcastPayload.status === "success") setBroadcasts(bcastPayload.data);
+
+        // Si hay caché temporal vigente del último "Buscar grupos", lo mostramos
+        // sin volver a consultar Evolution.
+        const discPayload = await discRes.json();
+        if (discPayload.status === "success" && discPayload.data?.length > 0) {
+          setDiscoveredGroups(discPayload.data);
+        }
       }
     } catch {
       // Non-critical
@@ -91,11 +99,17 @@ export default function CommunityPage() {
   }, []);
 
   // Discovery en vivo de grupos/comunidades donde el bot es admin (a demanda).
+  // POST consulta Evolution y guarda el JSON temporal en la DB (se consume del
+  // caché unos minutos sin re-consultar).
   const loadDiscoveredGroups = useCallback(async () => {
     if (!instanceId) return;
     setSearchingGroups(true);
     try {
-      const discRes = await fetch(`/api/discovered-groups?instanceId=${instanceId}`);
+      const discRes = await fetch("/api/discovered-groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instanceId }),
+      });
       const discPayload = await discRes.json();
       if (discPayload.status === "success") {
         setDiscoveredGroups(discPayload.data);

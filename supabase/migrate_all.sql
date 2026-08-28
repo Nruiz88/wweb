@@ -105,6 +105,16 @@ CREATE TABLE IF NOT EXISTS discovered_groups (
   UNIQUE(instance_id, group_jid)
 );
 
+-- 7c1b. group_discovery_cache (Community: caché temporal de "Buscar grupos")
+CREATE TABLE IF NOT EXISTS group_discovery_cache (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  instance_id UUID REFERENCES instances(id) ON DELETE CASCADE NOT NULL,
+  data JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_group_discovery_cache_instance ON group_discovery_cache(instance_id);
+
 -- 7c2. Moderación por palabras prohibidas (por grupo)
 DO $$ BEGIN
   ALTER TABLE group_settings ADD COLUMN banned_words_enabled BOOLEAN DEFAULT false;
@@ -138,6 +148,14 @@ CREATE POLICY "discovered_groups access" ON discovered_groups FOR ALL
   USING (
     EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
     OR EXISTS (SELECT 1 FROM user_instances WHERE instance_id = discovered_groups.instance_id AND user_id = auth.uid())
+  );
+
+ALTER TABLE group_discovery_cache ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "group_discovery_cache access" ON group_discovery_cache;
+CREATE POLICY "group_discovery_cache access" ON group_discovery_cache FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
+    OR EXISTS (SELECT 1 FROM user_instances WHERE instance_id = group_discovery_cache.instance_id AND user_id = auth.uid())
   );
 
 -- Policies
@@ -208,6 +226,7 @@ GRANT ALL ON public.group_settings TO service_role;
 GRANT ALL ON public.broadcasts TO service_role;
 GRANT ALL ON public.broadcast_recipients TO service_role;
 GRANT ALL ON public.discovered_groups TO service_role;
+GRANT ALL ON public.group_discovery_cache TO service_role;
 
 -- 11. Triggers
 DROP TRIGGER IF EXISTS appointments_updated_at ON public.appointments;
