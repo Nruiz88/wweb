@@ -53,7 +53,7 @@ export default function CalendarPage() {
 
   // Business hours form
   const [showHoursForm, setShowHoursForm] = useState(false);
-  const [hoursSchedule, setHoursSchedule] = useState<{ day: number; start: string; end: string; active: boolean }[]>([]);
+  const [hoursSchedule, setHoursSchedule] = useState<{ day: number; start: string; end: string; duration: number; active: boolean }[]>([]);
   const [savingHours, setSavingHours] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -152,6 +152,7 @@ export default function CalendarPage() {
         day,
         start: existing?.start_time || "09:00",
         end: existing?.end_time || "18:00",
+        duration: existing?.slot_duration_min || 30,
         active: existing?.is_active ?? (day >= 1 && day <= 5), // Mon-Fri active by default
       };
     });
@@ -166,6 +167,7 @@ export default function CalendarPage() {
       dayOfWeek: h.day,
       startTime: h.start,
       endTime: h.end,
+      slotDurationMin: h.duration,
       isActive: h.active,
     }));
     const res = await fetch("/api/business-hours", {
@@ -319,57 +321,57 @@ export default function CalendarPage() {
                     </span>
                   </div>
 
-                  {/* Appointments — compact rows */}
-                  <div className="overflow-hidden rounded-xl border border-wa-border bg-wa-header">
-                    {dayAppts.map((appt, idx) => {
+                  {/* Appointments — grid of compact cards */}
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {dayAppts.map((appt) => {
                       const meta = STATUS_META[appt.status] || STATUS_META.pending;
                       return (
                         <div
                           key={appt.id}
-                          className={`flex items-center gap-2 px-3 py-2 transition hover:bg-wa-hover/50 ${idx > 0 ? "border-t border-wa-border/50" : ""}`}
+                          className="group flex flex-col rounded-xl border border-wa-border bg-wa-header p-3 transition hover:border-wa-text-secondary/20 hover:shadow-md hover:shadow-black/10"
                         >
-                          {/* Time */}
-                          <span className="w-11 shrink-0 text-[11px] font-bold text-wa-text">
-                            {formatTime(appt.appointment_time)}
-                          </span>
+                          <div className="flex items-center justify-between gap-2">
+                            {/* Time */}
+                            <div className="flex h-8 w-12 shrink-0 items-center justify-center rounded-lg bg-[#00a884]/10 text-[#00a884]">
+                              <span className="text-[11px] font-bold">{formatTime(appt.appointment_time)}</span>
+                            </div>
+                            {/* Status */}
+                            <span
+                              className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold"
+                              style={{ backgroundColor: `${meta.accent}15`, color: meta.accent }}
+                            >
+                              {meta.label}
+                            </span>
+                          </div>
 
                           {/* Name */}
-                          <span className="min-w-0 flex-1 truncate text-xs text-wa-text">
+                          <p className="mt-2 truncate text-xs font-semibold text-wa-text">
                             {appt.customer_name || appt.customer_phone}
-                          </span>
-
-                          {/* Status dot + label */}
-                          <span className="hidden shrink-0 items-center gap-1.5 sm:flex">
-                            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: meta.accent }} />
-                            <span className="text-[10px] text-wa-text-secondary">{meta.label}</span>
-                          </span>
-                          <span
-                            className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold sm:hidden"
-                            style={{ backgroundColor: `${meta.accent}15`, color: meta.accent }}
-                          >
-                            {meta.label}
-                          </span>
+                          </p>
+                          <p className="mt-0.5 truncate text-[10px] text-wa-text-secondary/50">
+                            {appt.customer_phone}
+                            {appt.duration_min && ` · ${appt.duration_min} min`}
+                            {appt.reminder_24h_sent && " · 🔔"}
+                          </p>
 
                           {/* Actions */}
-                          <div className="flex shrink-0 gap-0.5">
+                          <div className="mt-2 flex gap-1 border-t border-wa-border/30 pt-2">
                             {appt.status === "pending" && canEdit && (
                               <button
                                 type="button"
                                 onClick={() => void handleStatusChange(appt.id, "confirmed")}
-                                className="rounded-md p-1 text-[#00a884] transition hover:bg-[#00a884]/10"
-                                title="Confirmar"
+                                className="flex-1 rounded-md bg-[#00a884]/10 px-2 py-1 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/20"
                               >
-                                <CheckIcon className="h-3.5 w-3.5" />
+                                Confirmar
                               </button>
                             )}
                             {appt.status !== "canceled" && appt.status !== "completed" && canEdit && (
                               <button
                                 type="button"
                                 onClick={() => void handleStatusChange(appt.id, "canceled")}
-                                className="rounded-md p-1 text-red-400/50 transition hover:bg-red-500/10 hover:text-red-400"
-                                title="Cancelar"
+                                className="flex-1 rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-semibold text-red-400 transition hover:bg-red-500/20"
                               >
-                                <XIcon className="h-3.5 w-3.5" />
+                                Cancelar
                               </button>
                             )}
                           </div>
@@ -441,6 +443,23 @@ export default function CalendarPage() {
                     disabled={!h.active}
                     className="rounded-lg border border-wa-border bg-wa-panel px-2 py-1.5 text-xs text-wa-text focus:border-[#00a884] focus:outline-none disabled:opacity-40"
                   />
+                  <select
+                    value={h.duration}
+                    onChange={(e) => {
+                      const next = [...hoursSchedule];
+                      next[idx] = { ...next[idx], duration: Number(e.target.value) };
+                      setHoursSchedule(next);
+                    }}
+                    disabled={!h.active}
+                    title="Duración del turno"
+                    className="rounded-lg border border-wa-border bg-wa-panel px-1.5 py-1.5 text-xs text-wa-text focus:border-[#00a884] focus:outline-none disabled:opacity-40"
+                  >
+                    <option value={30}>30 min</option>
+                    <option value={45}>45 min</option>
+                    <option value={60}>1 hora</option>
+                    <option value={90}>1.5 h</option>
+                    <option value={120}>2 h</option>
+                  </select>
                 </div>
               ))}
 
