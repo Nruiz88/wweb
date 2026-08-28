@@ -41,28 +41,23 @@ export async function fetchGroupStatusMap(
     evolution_api_key,
     instance_name,
     ownerJid ?? undefined,
+    false,
   );
   if (!result.ok) return new Map();
 
+  // Sin participants en fetchAllGroups (lento, issue #1883): confirmamos
+  // nombre + admin por grupo con findGroupInfos (un grupo, liviano) en paralelo.
   const map = new Map<string, GroupStatus>();
-  const unnamed: string[] = [];
-
-  for (const g of result.data) {
-    map.set(g.id, { name: g.name, isAdmin: g.isAdmin === true });
-    if (!g.name) unnamed.push(g.id);
-  }
-
-  // Resolve missing names individually (fetchAllGroups sometimes omits subject).
   await Promise.all(
-    unnamed.map(async (jid) => {
-      const info = await findGroupInfos(evolution_api_url, evolution_api_key, instance_name, jid);
-      if (info.ok && info.data.name) {
-        const prev = map.get(jid);
-        map.set(jid, {
-          name: info.data.name,
-          isAdmin: prev?.isAdmin || info.data.isAdmin === true,
-        });
+    result.data.map(async (g) => {
+      let name = g.name;
+      let isAdmin = g.isAdmin === true;
+      const info = await findGroupInfos(evolution_api_url, evolution_api_key, instance_name, g.id, ownerJid ?? undefined);
+      if (info.ok && info.data) {
+        name = info.data.name || name;
+        isAdmin = isAdmin || info.data.isAdmin === true;
       }
+      map.set(g.id, { name, isAdmin });
     }),
   );
 

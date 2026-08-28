@@ -565,11 +565,16 @@ export async function fetchAllGroups(
   apiKey: string,
   instanceName: string,
   ownerJid?: string,
+  getParticipants = true,
 ): Promise<EvolutionResult<EvolutionGroup[]>> {
+  // getParticipants=true puede tardar 25s+ (issue EvolutionAPI#1883): serializar
+  // los participantes de TODOS los grupos es lo lento. Para listar nombres
+  // rápido se llama sin participants y se refuerza admin por grupo con
+  // findGroupInfos (un solo grupo, liviano).
   const result = await evolutionRequest<unknown>(
     baseUrl,
     apiKey,
-    `/group/fetchAllGroups/${instanceName}?getParticipants=true`,
+    `/group/fetchAllGroups/${instanceName}?getParticipants=${getParticipants ? "true" : "false"}`,
     {},
     20000,
   );

@@ -50,20 +50,22 @@ export async function GET(request: Request) {
     instance.evolution_api_key,
     instance.instance_name,
   );
+  // Sin participants: fetchAllGroups con getParticipants=true tarda 25s+
+  // (issue EvolutionAPI#1883) y aborta. El admin se confirma por grupo con
+  // findGroupInfos (un solo grupo, liviano) en paralelo.
   const result = await fetchAllGroups(
     instance.evolution_api_url,
     instance.evolution_api_key,
     instance.instance_name,
     ownerJid ?? undefined,
+    false,
   );
 
   if (result.ok) {
-    // Resolver nombre + admin de forma robusta: si fetchAllGroups omitió el
-    // subject o no se pudo confirmar que el bot es admin, lo verificamos
-    // grupo por grupo con findGroupInfos (incluye participants).
+    // Confirmar admin + reforzar nombre por grupo (findGroupInfos trae
+    // participants con getParticipants=true → sabemos si el bot es admin).
     await Promise.all(
       result.data.map(async (g) => {
-        if (g.isAdmin === true && g.name) return;
         const info = await findGroupInfos(
           instance.evolution_api_url,
           instance.evolution_api_key,
@@ -73,7 +75,7 @@ export async function GET(request: Request) {
         );
         if (info.ok && info.data) {
           g.name = info.data.name || g.name;
-          g.isAdmin = g.isAdmin === true || info.data.isAdmin === true;
+          g.isAdmin = info.data.isAdmin === true;
         }
       }),
     );
