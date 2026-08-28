@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
+import { fetchAllChats, fetchInstanceOwnerJid, findGroupInfos, mapLimit } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -58,6 +59,27 @@ async function rawFetchPost(baseUrl: string, apiKey: string, path: string, body:
   }
 }
 
+type RawResult = { httpStatus: number | null; body?: unknown; error?: string };
+
+// Resumen compacto de un findChats: cuántos chats trae, cuántos son grupos y
+// sus JIDs. Evita tener que pegar el JSON gigante completo.
+function summarizeChats(resp: RawResult) {
+  if (resp.httpStatus === null) {
+    return { httpStatus: null, error: resp.error ?? "network error", chats: 0, groups: 0, groupJids: [] };
+  }
+  let list: unknown[] = [];
+  const body = resp.body;
+  if (Array.isArray(body)) {
+    list = body;
+  } else if (body && typeof body === "object" && Array.isArray((body as { chats?: unknown[] }).chats)) {
+    list = (body as { chats: unknown[] }).chats;
+  }
+  const groupJids = list
+    .map((c) => String((c as { remoteJid?: unknown; jid?: unknown }).remoteJid ?? (c as { jid?: unknown }).jid ?? ""))
+    .filter((j) => j.includes("@g.us"));
+  return { httpStatus: resp.httpStatus, chats: list.length, groups: groupJids.length, groupJids };
+}
+
 // GET /api/diagnose-groups?instanceId=<id>[&groupJid=<jid>]
 // instanceId opcional: si no viene, usa la primera instancia del usuario.
 export async function GET(request: Request) {
@@ -103,16 +125,42 @@ export async function GET(request: Request) {
   const key = instance.evolution_api_key;
   const name = instance.instance_name;
 
-  const [instances, groups, chats, chatsAll, connection, groupInfo] = await Promise.all([
+  const [instances, groups, chatWhere, chatTakeSkip, chatLimitOffset, chatAll, connection, groupInfo] = await Promise.all([
     rawGet(base, key, `/instance/fetchInstances?instanceName=${encodeURIComponent(name)}`),
     rawGet(base, key, `/group/fetchAllGroups/${encodeURIComponent(name)}?getParticipants=false`),
     rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, { where: { isGroup: true } }),
     rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, { take: 500, skip: 0 }),
+    rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, { limit: 500, offset: 0 }),
+    rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, {}),
     rawGet(base, key, `/instance/connectionState/${encodeURIComponent(name)}`),
     groupJid
       ? rawGet(base, key, `/group/findGroupInfos/${encodeURIComponent(name)}?groupJid=${encodeURIComponent(groupJid)}&getParticipants=true`)
       : { httpStatus: null, body: "no groupJid provided" },
   ]);
+
+  // ============ CAPTURE: pipeline real de la app ============
+  // Corre exactamente lo que hace /api/discovered-groups: enumerar grupos con
+  // fetchAllChats (multi-estrategia) y confirmar admin+nombre por grupo con
+  // findGroupInfos. Devuelve el resultado completo para ver qué captura.
+  let ownerJid: string | null = null;
+  let chatGroups: { remoteJid: string; name: string }[] = [];
+  let verified: { group_jid: string; group_name: string | null; is_admin: boolean }[] = [];
+
+  try {
+    ownerJid = await fetchInstanceOwnerJid(base, key, name);
+    const chatsResult = await fetchAllChats(base, key, name);
+    if (chatsResult.ok) chatGroups = chatsResult.data;
+
+    verified = await mapLimit(chatGroups, 6, async ({ remoteJid, name }) => {
+      const info = await findGroupInfos(base, key, name, remoteJid, ownerJid ?? undefined);
+      if (info.ok && info.data) {
+        return { group_jid: remoteJid, group_name: info.data.name || name || null, is_admin: info.data.isAdmin === true };
+      }
+      return { group_jid: remoteJid, group_name: name || null, is_admin: false };
+    });
+  } catch (e) {
+    verified = [];
+  }
 
   return NextResponse.json({
     status: "success",
@@ -121,12 +169,23 @@ export async function GET(request: Request) {
       instanceName: name,
       evolutionApiUrl: base,
       requestedGroupJid: groupJid ?? null,
-      fetchInstances: instances,
+      capture: {
+        ownerJid,
+        groupsFound: chatGroups.length,
+        groupsAdmin: verified.filter((g) => g.is_admin).length,
+        verified,
+        adminGroups: verified.filter((g) => g.is_admin),
+      },
+      findChatsSummary: {
+        where: summarizeChats(chatWhere),
+        takeSkip_500: summarizeChats(chatTakeSkip),
+        limitOffset_500: summarizeChats(chatLimitOffset),
+        all: summarizeChats(chatAll),
+      },
       fetchAllGroups: groups,
-      findChatsWhere: chats,
-      findChatsAll: chatsAll,
       connectionState: connection,
       findGroupInfos: groupInfo,
+      fetchInstances: instances,
     },
   });
 }

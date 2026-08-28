@@ -702,9 +702,8 @@ export async function mapLimit<T, R>(
  * DB local de Evolution, así que es RÁPIDO. fetchAllGroups es lentísimo
  * (25s+/timeout, issue #1883) incluso sin participants, así que discovery y
  * sync usan findChats para listar grupos y luego findGroupInfos por grupo.
- * Se pagina con take/skip y se filtran los grupos client-side (el filtro
- * `where: {isGroup:true}` puede devolver parcial en algunas versiones → no se
- * usa para no perder grupos).
+ * Se prueban varias estrategias (sin params / take-skip / limit-offset) porque
+ * el esquema de paginación varía según la versión, y se fusionan los grupos.
  */
 export async function fetchAllChats(
   baseUrl: string,
@@ -712,36 +711,8 @@ export async function fetchAllChats(
   instanceName: string,
 ): Promise<EvolutionResult<EvolutionChat[]>> {
   const groups = new Map<string, string>();
-  const take = 500;
-  let skip = 0;
 
-  for (let page = 0; page < 24; page++) {
-    const result = await evolutionRequest<unknown>(
-      baseUrl,
-      apiKey,
-      `/chat/findChats/${instanceName}`,
-      {
-        method: "POST",
-        body: JSON.stringify({ take, skip }),
-      },
-      20000,
-    );
-    if (!result.ok) {
-      // Si ya tenemos grupos, devolvemos los que hay en vez de fallar.
-      return groups.size > 0
-        ? { ok: true, status: 200, data: [...groups.entries()].map(([remoteJid, name]) => ({ remoteJid, name })) }
-        : result;
-    }
-
-    const raw = result.data as unknown;
-    let list: unknown[] = [];
-    if (Array.isArray(raw)) {
-      list = raw;
-    } else if (raw && typeof raw === "object" && Array.isArray((raw as { chats?: unknown[] }).chats)) {
-      list = (raw as { chats: unknown[] }).chats;
-    }
-    if (list.length === 0) break;
-
+  const addList = (list: unknown[]) => {
     for (const item of list) {
       if (!item || typeof item !== "object") continue;
       const c = item as Record<string, unknown>;
@@ -751,9 +722,53 @@ export async function fetchAllChats(
       const name = String(c.name ?? c.subject ?? c.groupName ?? "").trim();
       groups.set(remoteJid, name);
     }
+  };
 
-    if (list.length < take) break;
-    skip += take;
+  const parseList = (data: unknown): unknown[] => {
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === "object" && Array.isArray((data as { chats?: unknown[] }).chats)) {
+      return (data as { chats: unknown[] }).chats;
+    }
+    return [];
+  };
+
+  // Estrategia 1: sin params → todo en una llamada (si el server lo permite).
+  const allResult = await evolutionRequest<unknown>(
+    baseUrl,
+    apiKey,
+    `/chat/findChats/${instanceName}`,
+    { method: "POST", body: JSON.stringify({}) },
+    20000,
+  );
+  if (allResult.ok) {
+    addList(parseList(allResult.data));
+    if (groups.size > 0) {
+      return { ok: true, status: 200, data: [...groups.entries()].map(([remoteJid, name]) => ({ remoteJid, name })) };
+    }
+  }
+
+  // Estrategias 2 y 3: paginación (el esquema varía según la versión).
+  for (const makeBody of [
+    (skip: number) => ({ take: 500, skip }),
+    (skip: number) => ({ limit: 500, offset: skip }),
+  ]) {
+    let skip = 0;
+    for (let page = 0; page < 20; page++) {
+      const result = await evolutionRequest<unknown>(
+        baseUrl,
+        apiKey,
+        `/chat/findChats/${instanceName}`,
+        { method: "POST", body: JSON.stringify(makeBody(skip)) },
+        20000,
+      );
+      if (!result.ok) break;
+      const list = parseList(result.data);
+      if (list.length === 0) break;
+      addList(list);
+      if (list.length < 500) break;
+      skip += 500;
+    }
+    if (groups.size > 0) break;
   }
 
   return { ok: true, status: 200, data: [...groups.entries()].map(([remoteJid, name]) => ({ remoteJid, name })) };
