@@ -10,10 +10,16 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+
+  // In dev mode, Next.js injects inline scripts for HMR — need 'unsafe-inline'
+  // In production, use strict script-src without inline
+  const isDev = process.env.NODE_ENV !== "production";
+  const scriptSrc = isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " : "script-src 'self'; ";
+
   response.headers.set(
     "Content-Security-Policy",
     "default-src 'self'; " +
-      "script-src 'self'; " +
+      scriptSrc +
       "style-src 'self' 'unsafe-inline'; " +
       "img-src 'self' data: https: blob:; " +
       "font-src 'self' data:; " +
