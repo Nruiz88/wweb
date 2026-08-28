@@ -228,7 +228,7 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-wa-text-secondary">URL de Evolution API</label>
-                <input type="url" placeholder="https://your-api.railway.app" value={evolutionApiUrl} onChange={(e) => setEvolutionApiUrl(e.target.value)} className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none" />
+                <input type="text" placeholder="https://your-api.railway.app" value={evolutionApiUrl} onChange={(e) => setEvolutionApiUrl(e.target.value)} className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-wa-text-secondary">API Key</label>

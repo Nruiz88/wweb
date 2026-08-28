@@ -18,6 +18,27 @@ const ALLOWED_SCHEMES = ["http:", "https:"];
 export interface UrlValidationResult {
   valid: boolean;
   error?: string;
+  /** Normalized URL (fixed double-scheme, trailing slash stripped). */
+  normalized?: string;
+}
+
+/**
+ * Normalize a user-entered base URL: remove a duplicated scheme
+ * (e.g. "https://https://..." or "https://https//...") and a trailing slash.
+ */
+export function normalizeBaseUrl(raw: string): string {
+  let url = (raw || "").trim();
+  if (!url) return "";
+
+  // Fix doubled schemes: "https://https://x" / "https://http://x" / "https://https//x"
+  url = url.replace(/^(https?:\/\/)\1/, "$1");
+  url = url.replace(/^https?:\/\/https?\/\//, "https://");
+  // Collapse "https://https" into "https://"
+  url = url.replace(/^(https?:\/\/)https?$/, "$1");
+
+  // Remove trailing slash
+  url = url.replace(/\/+$/, "");
+  return url;
 }
 
 /**
@@ -30,12 +51,15 @@ export function validateEvolutionUrl(url: string): UrlValidationResult {
   }
 
   // Trim whitespace
-  const trimmed = url.trim();
+  const normalized = normalizeBaseUrl(url);
+  if (!normalized) {
+    return { valid: false, error: "URL is required" };
+  }
 
   // Check it's a valid URL
   let parsed: URL;
   try {
-    parsed = new URL(trimmed);
+    parsed = new URL(normalized);
   } catch {
     return { valid: false, error: "Invalid URL format" };
   }
@@ -47,7 +71,7 @@ export function validateEvolutionUrl(url: string): UrlValidationResult {
 
   // Check against blocked patterns
   for (const pattern of BLOCKED_PATTERNS) {
-    if (pattern.test(trimmed)) {
+    if (pattern.test(normalized)) {
       return { valid: false, error: "This URL is not allowed (private or internal address)" };
     }
   }
@@ -59,12 +83,13 @@ export function validateEvolutionUrl(url: string): UrlValidationResult {
     hostname === "metadata.google.internal" ||
     hostname === "localhost" ||
     hostname === "0.0.0.0" ||
-    hostname === "[::1]"
+    hostname === "[::1]" ||
+    hostname === "https"
   ) {
-    return { valid: false, error: "This URL is not allowed" };
+    return { valid: false, error: "Invalid URL host" };
   }
 
-  return { valid: true };
+  return { valid: true, normalized };
 }
 
 /**

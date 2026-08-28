@@ -197,7 +197,7 @@ export async function POST(request: Request) {
 
   const { data: instance, error } = await supabase
     .from("instances")
-    .insert({ admin_id: user.id, instance_name: cleanName, evolution_api_url: evolutionApiUrl.trim(), evolution_api_key: evolutionApiKey })
+    .insert({ admin_id: user.id, instance_name: cleanName, evolution_api_url: urlCheck.normalized || evolutionApiUrl.trim(), evolution_api_key: evolutionApiKey })
     .select("id, instance_name, status, created_at")
     .single();
 
