@@ -37,3 +37,9 @@ ALTER TABLE group_settings ADD COLUMN IF NOT EXISTS picture_url TEXT;
 -- instances: JID del dueño/bot (persistido para no consultar Evolution en cada
 -- "Buscar grupos"). Solo cambia si se re-vincula WhatsApp.
 ALTER TABLE instances ADD COLUMN IF NOT EXISTS owner_jid TEXT;
+
+-- Invalida veredictos "no admin" previos (bug: no se distinguía "no es admin"
+-- de "no se pudo determinar" → algunos grupos admin quedaron marcados como
+-- no-admin). Se re-verifican con la lógica corregida.
+UPDATE discovered_groups SET is_admin = false, verified_at = NULL
+  WHERE is_admin = false AND verified_at IS NOT NULL;

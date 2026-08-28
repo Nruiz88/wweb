@@ -116,23 +116,28 @@ export async function runGroupDiscovery(
     }
 
     if (info.ok && info.data) {
-      const isAdmin = info.data.isAdmin === true;
+      const isAdmin = info.data.isAdmin; // boolean | undefined
       const finalName = info.data.name || name;
       const picture = info.data.pictureUrl ?? null;
-      await supabase.from("discovered_groups").upsert(
-        {
-          instance_id: instanceId,
-          group_jid: jid,
-          group_name: finalName || null,
-          group_picture: picture,
-          is_admin: isAdmin,
-          verified_at: new Date().toISOString(),
-          last_seen_at: new Date().toISOString(),
-        },
-        { onConflict: "instance_id,group_jid" },
-      );
-      if (isAdmin && finalName && !savedSet.has(jid)) {
-        adminGroups.push({ group_jid: jid, group_name: finalName, group_picture: picture, saved: false });
+      // Solo se persiste un veredicto DEFINITIVO. Si no se pudo determinar
+      // (participantes sin phoneNumber, etc.) NO se guarda como no-admin →
+      // el grupo se reintenta en la próxima búsqueda (evita bloquearlo 24h).
+      if (isAdmin !== undefined) {
+        await supabase.from("discovered_groups").upsert(
+          {
+            instance_id: instanceId,
+            group_jid: jid,
+            group_name: finalName || null,
+            group_picture: picture,
+            is_admin: isAdmin,
+            verified_at: new Date().toISOString(),
+            last_seen_at: new Date().toISOString(),
+          },
+          { onConflict: "instance_id,group_jid" },
+        );
+        if (isAdmin && finalName && !savedSet.has(jid)) {
+          adminGroups.push({ group_jid: jid, group_name: finalName, group_picture: picture, saved: false });
+        }
       }
     }
   });

@@ -558,7 +558,7 @@ export async function findGroupInfos(
   ).trim();
   const pictureUrl = String(g.pictureUrl ?? g.imageUrl ?? g.picUrl ?? "").trim() || undefined;
 
-  let isAdmin = false;
+  let isAdmin: boolean | undefined;
   const participants = participantsOf(g);
   if (participants.length > 0) {
     const ownerField = String(g.owner ?? "").trim();
@@ -567,7 +567,10 @@ export async function findGroupInfos(
       : ownerField
         ? participants.find((p) => participantMatches(p, ownerField))
         : undefined;
-    isAdmin = !!target && isParticipantAdmin(target);
+    // Si encontramos el participante del bot: admin true/false definitivo.
+    // Si NO se encontró (p.ej. participantes sin phoneNumber), isAdmin queda
+    // undefined → "no se pudo determinar" → NO se debe persistir como falso.
+    if (target) isAdmin = isParticipantAdmin(target);
   }
 
   return {
@@ -576,7 +579,7 @@ export async function findGroupInfos(
     data: {
       id,
       name,
-      isAdmin: isAdmin || undefined,
+      isAdmin,
       communityId: typeof g.communityId === "string" ? g.communityId : undefined,
       isCommunity: g.isCommunity === true || undefined,
       pictureUrl,
