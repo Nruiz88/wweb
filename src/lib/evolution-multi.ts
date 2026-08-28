@@ -367,3 +367,79 @@ export async function sendGroupMessage(
     }
   );
 }
+
+/** A group as returned by Evolution's fetchAllGroups. */
+export interface EvolutionGroup {
+  id: string;
+  name: string;
+  /** True if the bot is admin of the group (when the API exposes it). */
+  isAdmin?: boolean;
+  /** Community id (when the group belongs to a community). */
+  communityId?: string;
+  /** True if this group is a community announcement group. */
+  isCommunity?: boolean;
+}
+
+/**
+ * Fetch all groups the bot is in for an instance.
+ * Response shape varies across Evolution versions, so we normalize:
+ *   - Array of { id, name, subject, ... } or { jid, name, subject, ... }
+ *   - { groups: [...] }
+ *   - Array of strings (JIDs only)
+ */
+export async function fetchAllGroups(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string,
+): Promise<EvolutionResult<EvolutionGroup[]>> {
+  const result = await evolutionRequest<unknown>(
+    baseUrl,
+    apiKey,
+    `/group/fetchAllGroups/${instanceName}`,
+  );
+
+  if (!result.ok) return result;
+
+  const raw = result.data as
+    | EvolutionGroup[]
+    | { groups?: EvolutionGroup[] }
+    | string[]
+    | null;
+
+  let list: unknown[] = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (raw && typeof raw === "object" && Array.isArray((raw as { groups?: unknown[] }).groups)) {
+    list = (raw as { groups: unknown[] }).groups;
+  }
+
+  const groups: EvolutionGroup[] = [];
+  for (const item of list) {
+    if (typeof item === "string") {
+      groups.push({ id: item, name: "" });
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const g = item as Record<string, unknown>;
+    const id = String(g.id ?? g.jid ?? g.remoteJid ?? "").trim();
+    if (!id) continue;
+
+    const name = String(g.name ?? g.subject ?? "").trim();
+    const participantIsAdmin =
+      Array.isArray(g.participants) &&
+      (g.participants as Array<Record<string, unknown>>).some((p) => {
+        const self = String(p.id ?? p.jid ?? "");
+        return self.endsWith("@s.whatsapp.net") && p.isAdmin === true;
+      });
+
+    groups.push({
+      id,
+      name,
+      isAdmin: participantIsAdmin || undefined,
+      communityId: typeof g.communityId === "string" ? g.communityId : undefined,
+      isCommunity: g.isCommunity === true || undefined,
+    });
+  }
+
+  return { ok: true, status: result.status, data: groups };
+}

@@ -500,6 +500,10 @@ CREATE TABLE group_settings (
   spam_filter_enabled BOOLEAN DEFAULT false,
   block_all_links BOOLEAN DEFAULT true,
   allowed_domains TEXT[] DEFAULT '{}',
+  banned_words_enabled BOOLEAN DEFAULT false,
+  banned_words TEXT[] DEFAULT '{}',
+  banned_words_action TEXT DEFAULT 'delete_and_reply' CHECK (banned_words_action IN ('delete', 'delete_and_reply')),
+  banned_words_reply TEXT DEFAULT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(instance_id, group_jid)

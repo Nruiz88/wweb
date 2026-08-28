@@ -189,6 +189,10 @@ export interface GroupSetting {
   spam_filter_enabled: boolean;
   block_all_links: boolean;
   allowed_domains: string[];
+  banned_words_enabled: boolean;
+  banned_words: string[];
+  banned_words_action: "delete" | "delete_and_reply";
+  banned_words_reply: string | null;
   created_at: string;
   updated_at: string;
 }

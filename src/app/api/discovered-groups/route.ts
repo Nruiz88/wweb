@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
+import { fetchAllGroups } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,50 @@ export async function GET(request: Request) {
   // Filter out already configured groups
   const unconfigured = (discovered || []).filter((g) => !configuredSet.has(g.group_jid));
 
+  // Best-effort: sync real group names from Evolution (fixes pushName bug where
+  // the sender's name was stored as group_name). Never blocks on failure.
+  await syncGroupNames(supabase, instanceId, unconfigured);
+
   return NextResponse.json({ status: "success", data: unconfigured });
+}
+
+/** Fetch real group names from Evolution and persist them for rows missing one. */
+async function syncGroupNames(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  instanceId: string,
+  groups: Array<{ id: string; group_jid: string; group_name: string | null }>,
+): Promise<void> {
+  const pending = groups.filter((g) => !g.group_name);
+  if (pending.length === 0) return;
+
+  const { data: instance } = await supabase
+    .from("instances")
+    .select("instance_name, evolution_api_url, evolution_api_key")
+    .eq("id", instanceId)
+    .single();
+  if (!instance) return;
+
+  const result = await fetchAllGroups(
+    instance.evolution_api_url,
+    instance.evolution_api_key,
+    instance.instance_name,
+  );
+  if (!result.ok) return;
+
+  const nameByJid = new Map(
+    result.data.filter((g) => g.name).map((g) => [g.id, g.name]),
+  );
+
+  for (const group of pending) {
+    const name = nameByJid.get(group.group_jid);
+    if (name && name !== group.group_name) {
+      group.group_name = name;
+      await supabase
+        .from("discovered_groups")
+        .update({ group_name: name })
+        .eq("id", group.id);
+    }
+  }
 }
 
 // DELETE: Dismiss a discovered group (user doesn't want to configure it)

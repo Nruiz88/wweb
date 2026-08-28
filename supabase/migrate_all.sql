@@ -105,6 +105,21 @@ CREATE TABLE IF NOT EXISTS discovered_groups (
   UNIQUE(instance_id, group_jid)
 );
 
+-- 7c2. Moderación por palabras prohibidas (por grupo)
+DO $$ BEGIN
+  ALTER TABLE group_settings ADD COLUMN banned_words_enabled BOOLEAN DEFAULT false;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE group_settings ADD COLUMN banned_words TEXT[] DEFAULT '{}';
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE group_settings ADD COLUMN banned_words_action TEXT DEFAULT 'delete_and_reply'
+    CHECK (banned_words_action IN ('delete', 'delete_and_reply'));
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE group_settings ADD COLUMN banned_words_reply TEXT DEFAULT NULL;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
 -- 7d. onboarding_completed en profiles
 DO $$ BEGIN
   ALTER TABLE profiles ADD COLUMN onboarding_completed BOOLEAN DEFAULT false;

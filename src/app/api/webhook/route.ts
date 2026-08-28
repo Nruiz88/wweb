@@ -151,13 +151,12 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (!existingGrp) {
-      // Upsert discovered group with pushName as group_name hint
+      // Track active groups (name is filled later by fetchAllGroups sync)
       await supabase
         .from("discovered_groups")
         .upsert({
           instance_id: grpInstance.id,
           group_jid: remoteJid,
-          group_name: body.data?.pushName || null,
           last_seen_at: new Date().toISOString(),
         }, { onConflict: "instance_id,group_jid" });
     }

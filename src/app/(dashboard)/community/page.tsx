@@ -46,6 +46,10 @@ export default function CommunityPage() {
   const [spamFilterEnabled, setSpamFilterEnabled] = useState(false);
   const [blockAllLinks, setBlockAllLinks] = useState(true);
   const [allowedDomains, setAllowedDomains] = useState("");
+  const [bannedWordsEnabled, setBannedWordsEnabled] = useState(false);
+  const [bannedWordsInput, setBannedWordsInput] = useState("");
+  const [bannedWordsAction, setBannedWordsAction] = useState<"delete" | "delete_and_reply">("delete_and_reply");
+  const [bannedWordsReply, setBannedWordsReply] = useState("");
   const [savingGroup, setSavingGroup] = useState(false);
 
   // Broadcast form
@@ -109,6 +113,10 @@ export default function CommunityPage() {
       setSpamFilterEnabled(g.spam_filter_enabled);
       setBlockAllLinks(g.block_all_links);
       setAllowedDomains(g.allowed_domains?.join(", ") || "");
+      setBannedWordsEnabled(g.banned_words_enabled ?? false);
+      setBannedWordsInput((g.banned_words || []).join(", "));
+      setBannedWordsAction(g.banned_words_action ?? "delete_and_reply");
+      setBannedWordsReply(g.banned_words_reply || "");
     } else {
       setEditingGroup(null);
       setGroupJid("");
@@ -118,6 +126,10 @@ export default function CommunityPage() {
       setSpamFilterEnabled(false);
       setBlockAllLinks(true);
       setAllowedDomains("");
+      setBannedWordsEnabled(false);
+      setBannedWordsInput("");
+      setBannedWordsAction("delete_and_reply");
+      setBannedWordsReply("");
     }
     setShowGroupForm(true);
   }
@@ -129,6 +141,10 @@ export default function CommunityPage() {
       const domains = allowedDomains
         .split(",")
         .map((d) => d.trim())
+        .filter(Boolean);
+      const words = bannedWordsInput
+        .split(",")
+        .map((w) => w.trim().toLowerCase())
         .filter(Boolean);
       const res = await fetch("/api/group-settings", {
         method: "POST",
@@ -142,6 +158,10 @@ export default function CommunityPage() {
           spamFilterEnabled,
           blockAllLinks,
           allowedDomains: domains,
+          bannedWordsEnabled,
+          bannedWords: words,
+          bannedWordsAction,
+          bannedWordsReply,
         }),
       });
       const payload = await res.json();
@@ -180,6 +200,10 @@ export default function CommunityPage() {
     setSpamFilterEnabled(false);
     setBlockAllLinks(true);
     setAllowedDomains("");
+    setBannedWordsEnabled(false);
+    setBannedWordsInput("");
+    setBannedWordsAction("delete_and_reply");
+    setBannedWordsReply("");
     setShowGroupForm(true);
   }
 
@@ -228,6 +252,26 @@ export default function CommunityPage() {
 
   const welcomeGroups = useMemo(() => groupSettings.filter((g) => g.welcome_enabled), [groupSettings]);
   const spamGroups = useMemo(() => groupSettings.filter((g) => g.spam_filter_enabled), [groupSettings]);
+
+  // Group discovered groups into communities when they share a JID prefix.
+  // WhatsApp community groups share the same numeric prefix before @g.us.
+  const discoveredTree = useMemo(() => {
+    const byPrefix = new Map<string, typeof discoveredGroups>();
+    for (const g of discoveredGroups) {
+      const jid = g.group_jid.replace("@g.us", "");
+      const prefix = jid.length >= 8 ? jid.slice(0, 8) : jid;
+      const list = byPrefix.get(prefix) ?? [];
+      list.push(g);
+      byPrefix.set(prefix, list);
+    }
+    return Array.from(byPrefix.entries())
+      .map(([prefix, groups]) => ({
+        prefix,
+        groups,
+        isCommunity: groups.length > 1,
+      }))
+      .sort((a, b) => b.groups.length - a.groups.length);
+  }, [discoveredGroups]);
 
   if (!planLoading && !hasAccess) {
     return (
@@ -309,35 +353,51 @@ export default function CommunityPage() {
                   </p>
                 </div>
                 <p className="text-[10px] text-wa-text-secondary/60 mb-3">
-                  Estos grupos aparecieron en tu instancia. Configuralos para activar bienvenida y anti-spam.
+                  Grupos donde el bot detectó actividad. Configuralos para activar bienvenida, anti-spam y moderación.
                 </p>
                 <div className="space-y-2">
-                  {discoveredGroups.map((dg) => (
-                    <div key={dg.id} className="flex items-center justify-between rounded-xl bg-wa-header border border-wa-border p-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-xs font-bold text-[#e6a44e]">
-                          {dg.group_name?.[0]?.toUpperCase() || "#"}
+                  {discoveredTree.map(({ prefix, groups, isCommunity }) => (
+                    <div key={prefix} className="rounded-xl bg-wa-header border border-wa-border p-3">
+                      {isCommunity && (
+                        <div className="mb-2 flex items-center gap-2">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6a44e]/20 text-[10px]">🌐</div>
+                          <p className="text-[10px] font-semibold text-[#e6a44e]">
+                            Comunidad · {groups.length} grupos vinculados
+                          </p>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-wa-text truncate">{dg.group_name || "Grupo sin nombre"}</p>
-                          <p className="text-[9px] text-wa-text-secondary/50 font-mono truncate">{dg.group_jid}</p>
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openConfigureDiscovered(dg)}
-                          className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25"
-                        >
-                          Configurar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDismissGroup(dg.id)}
-                          className="rounded-lg p-1.5 text-wa-text-secondary/40 transition hover:bg-wa-hover hover:text-wa-text-secondary"
-                        >
-                          <XIcon className="h-3.5 w-3.5" />
-                        </button>
+                      )}
+                      <div className={isCommunity ? "space-y-1.5" : "space-y-2"}>
+                        {groups.map((dg) => (
+                          <div
+                            key={dg.id}
+                            className={`flex items-center justify-between rounded-lg border border-wa-border bg-wa-panel p-2.5 ${isCommunity ? "ml-4" : ""}`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-xs font-bold text-[#e6a44e]">
+                                {dg.group_name?.[0]?.toUpperCase() || "#"}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-wa-text truncate">{dg.group_name || "Grupo sin nombre"}</p>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openConfigureDiscovered(dg)}
+                                className="rounded-lg bg-[#00a884]/15 px-2.5 py-1.5 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/25"
+                              >
+                                Configurar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDismissGroup(dg.id)}
+                                className="rounded-lg p-1.5 text-wa-text-secondary/40 transition hover:bg-wa-hover hover:text-wa-text-secondary"
+                              >
+                                <XIcon className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
@@ -403,6 +463,11 @@ export default function CommunityPage() {
                             {g.spam_filter_enabled && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[9px] font-medium text-red-400">
                                 🛡️ Anti-spam
+                              </span>
+                            )}
+                            {(g.banned_words_enabled && (g.banned_words?.length ?? 0) > 0) && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-[#e6a44e]/15 px-2 py-0.5 text-[9px] font-medium text-[#e6a44e]">
+                                🚫 {(g.banned_words?.length ?? 0)} palabra{(g.banned_words?.length ?? 0) !== 1 ? "s" : ""}
                               </span>
                             )}
                             {g.allowed_domains?.length > 0 && (
@@ -626,6 +691,80 @@ export default function CommunityPage() {
                     <p className="text-[10px] text-wa-text-secondary/50">
                       Los links no autorizados serán eliminados automáticamente. El bot necesita ser admin del grupo.
                     </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Banned words moderation */}
+              <div className="rounded-xl border border-wa-border bg-wa-input p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">🚫</span>
+                    <span className="text-sm font-medium text-wa-text">Palabras prohibidas</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBannedWordsEnabled(!bannedWordsEnabled)}
+                    className={`relative h-6 w-11 rounded-full transition-colors ${bannedWordsEnabled ? "bg-[#00a884]" : "bg-wa-text-secondary/30"}`}
+                  >
+                    <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${bannedWordsEnabled ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+                {bannedWordsEnabled && (
+                  <div className="mt-3 space-y-3 fade-up">
+                    <div className="flex flex-col gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Ej: palabra1, palabra2, otra"
+                        value={bannedWordsInput}
+                        onChange={(e) => setBannedWordsInput(e.target.value)}
+                        className="w-full rounded-xl border border-wa-border bg-wa-panel px-4 py-2.5 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                      />
+                      <p className="text-[10px] text-wa-text-secondary/50">
+                        Palabras separadas por coma. Los mensajes que las contengan serán eliminados.
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs text-wa-text-secondary">Acción al detectar una palabra</span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setBannedWordsAction("delete_and_reply")}
+                          className={`flex-1 rounded-xl border px-3 py-2 text-xs font-medium transition ${
+                            bannedWordsAction === "delete_and_reply"
+                              ? "border-[#00a884] bg-[#00a884]/15 text-[#00a884]"
+                              : "border-wa-border text-wa-text-secondary hover:bg-wa-hover"
+                          }`}
+                        >
+                          Borrar y responder
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBannedWordsAction("delete")}
+                          className={`flex-1 rounded-xl border px-3 py-2 text-xs font-medium transition ${
+                            bannedWordsAction === "delete"
+                              ? "border-[#00a884] bg-[#00a884]/15 text-[#00a884]"
+                              : "border-wa-border text-wa-text-secondary hover:bg-wa-hover"
+                          }`}
+                        >
+                          Solo borrar
+                        </button>
+                      </div>
+                    </div>
+                    {bannedWordsAction === "delete_and_reply" && (
+                      <div className="flex flex-col gap-1.5 fade-up">
+                        <textarea
+                          rows={2}
+                          placeholder="Ej: ⚠️ Ese mensaje contiene una palabra prohibida. Por favor evitá ese lenguaje."
+                          value={bannedWordsReply}
+                          onChange={(e) => setBannedWordsReply(e.target.value)}
+                          className="w-full resize-none rounded-xl border border-wa-border bg-wa-panel px-4 py-2.5 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
+                        />
+                        <p className="text-[10px] text-wa-text-secondary/50">
+                          Mensaje que el bot enviará al grupo después de eliminar el mensaje.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

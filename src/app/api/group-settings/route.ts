@@ -67,6 +67,10 @@ export async function POST(request: Request) {
     spamFilterEnabled,
     blockAllLinks,
     allowedDomains,
+    bannedWordsEnabled,
+    bannedWords,
+    bannedWordsAction,
+    bannedWordsReply,
   } = (body ?? {}) as {
     instanceId?: string;
     groupJid?: string;
@@ -76,11 +80,29 @@ export async function POST(request: Request) {
     spamFilterEnabled?: boolean;
     blockAllLinks?: boolean;
     allowedDomains?: string[];
+    bannedWordsEnabled?: boolean;
+    bannedWords?: string[];
+    bannedWordsAction?: "delete" | "delete_and_reply";
+    bannedWordsReply?: string;
   };
 
   if (!instanceId || !groupJid) {
     return NextResponse.json({ status: "error", error: "instanceId and groupJid are required" }, { status: 400 });
   }
+
+  // Normalize banned words: trim, lowercase, dedupe, filter empties
+  const cleanBannedWords = Array.from(
+    new Set(
+      (bannedWords || [])
+        .map((w) => w.trim().toLowerCase())
+        .filter((w) => w.length > 0),
+    ),
+  );
+
+  const validAction =
+    bannedWordsAction === "delete" || bannedWordsAction === "delete_and_reply"
+      ? bannedWordsAction
+      : "delete_and_reply";
 
   // Verify admin access
   const { data: instance } = await supabase
@@ -106,6 +128,10 @@ export async function POST(request: Request) {
         spam_filter_enabled: spamFilterEnabled ?? false,
         block_all_links: blockAllLinks ?? true,
         allowed_domains: allowedDomains || [],
+        banned_words_enabled: bannedWordsEnabled ?? false,
+        banned_words: cleanBannedWords,
+        banned_words_action: validAction,
+        banned_words_reply: bannedWordsReply?.trim() || null,
       },
       { onConflict: "instance_id,group_jid" },
     )
