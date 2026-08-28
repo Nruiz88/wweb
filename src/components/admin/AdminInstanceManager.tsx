@@ -16,6 +16,8 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
   const [evolutionApiUrl, setEvolutionApiUrl] = useState("");
   const [evolutionApiKey, setEvolutionApiKey] = useState("");
   const [creating, setCreating] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
@@ -34,6 +36,7 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
   async function handleCreate() {
     setCreating(true);
     setFeedback(null);
+    setTestResult(null);
     try {
       const res = await fetch("/api/instances", {
         method: "POST",
@@ -56,6 +59,31 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
       setFeedback({ kind: "error", message: "Error de red" });
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleTest() {
+    if (!evolutionApiUrl || !evolutionApiKey) {
+      setTestResult({ ok: false, message: "Completá URL y API key primero" });
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/admin/test-evolution", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evolutionApiUrl, evolutionApiKey }),
+      });
+      const payload = await res.json();
+      setTestResult({
+        ok: payload.status === "success",
+        message: payload.error || payload.message || "Error desconocido",
+      });
+    } catch {
+      setTestResult({ ok: false, message: "Error de red al probar conexión" });
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -234,6 +262,23 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
                 <label className="text-xs font-semibold text-wa-text-secondary">API Key</label>
                 <input type="password" placeholder="Tu API key de Evolution" value={evolutionApiKey} onChange={(e) => setEvolutionApiKey(e.target.value)} className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none" />
               </div>
+
+              {/* Test connection */}
+              <button
+                type="button"
+                onClick={() => void handleTest()}
+                disabled={testing}
+                className="flex items-center justify-center gap-2 rounded-xl border border-[#53bdeb]/40 bg-[#53bdeb]/10 py-2.5 text-xs font-semibold text-[#53bdeb] transition hover:bg-[#53bdeb]/20 disabled:opacity-50"
+              >
+                {testing ? <LoaderIcon className="h-3.5 w-3.5 animate-spin" /> : <CheckIcon className="h-3.5 w-3.5" />}
+                {testing ? "Probando..." : "Probar conexión"}
+              </button>
+              {testResult && (
+                <div className={`rounded-xl border px-4 py-2.5 text-xs font-medium ${testResult.ok ? "border-[#00a884]/30 bg-[#00a884]/10 text-[#00a884]" : "border-red-500/30 bg-red-500/10 text-red-400"}`}>
+                  {testResult.message}
+                </div>
+              )}
+
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setShowCreateForm(false)} className="flex-1 rounded-xl border border-wa-border py-3 text-sm font-medium text-wa-text-secondary hover:bg-wa-hover">Cancelar</button>
                 <button type="button" onClick={() => void handleCreate()} disabled={creating || !instanceName || !evolutionApiUrl || !evolutionApiKey} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] py-3 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/20 transition-all hover:shadow-xl disabled:opacity-50">

@@ -79,6 +79,18 @@ export interface QrData {
   pairingCode?: string;
 }
 
+/**
+ * Test that a base URL + API key reach an Evolution server.
+ * Calls GET /instance/fetchInstances (no instance name) which returns a
+ * 200 when the server is reachable and the key is valid.
+ */
+export async function testEvolutionConnection(
+  baseUrl: string,
+  apiKey: string,
+): Promise<EvolutionResult<unknown>> {
+  return evolutionRequest<unknown>(baseUrl, apiKey, `/instance/fetchInstances`);
+}
+
 export async function connectInstance(
   baseUrl: string,
   apiKey: string,
