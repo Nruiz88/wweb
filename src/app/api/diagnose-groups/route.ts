@@ -157,34 +157,27 @@ export async function GET(request: Request) {
   }
 
   // ============ BÚSQUEDA POR NOMBRE ============
-  // ?name=... busca en findChats los grupos que contengan ese nombre (case
-  // insensitive) y corre findGroupInfos para cada uno → vemos qué reporta
-  // Evolution (nombre, admin, imagen) para un grupo concreto.
-  let byName: Array<{ group_jid: string; chat_name: string; group_name: string | null; is_admin: boolean | null; picture_url: string | null; participants?: number }> = [];
+  // ?name=... busca el grupo por su NOMBRE REAL: findChats a veces trae los
+  // nombres vacíos, así que se corre findGroupInfos sobre los 49 JIDs y se
+  // matchea por el nombre real (con el LID aprendido).
+  let byName: Array<{ group_jid: string; group_name: string | null; is_admin: boolean | null; picture_url: string | null }> = [];
   if (searchName) {
     const q = searchName.trim().toLowerCase();
-    const matches = chatGroups.filter((c) => c.name.toLowerCase().includes(q));
-    byName = await mapLimit(matches, 4, async ({ remoteJid, name: chatName }) => {
-      const info = await findGroupInfos(base, key, name, remoteJid, instance.owner_jid || undefined, instance.owner_lid || undefined);
+    const results = await mapLimit(chatGroups, 4, async ({ remoteJid, name: chatName }) => {
+      const info = await findGroupInfos(base, key, name, remoteJid, instance.owner_jid || ownerJid || undefined, instance.owner_lid || undefined);
       if (info.ok && info.data) {
+        const realName = (info.data.name || chatName || "").toLowerCase();
+        if (!realName.includes(q)) return null;
         return {
           group_jid: remoteJid,
-          chat_name: chatName,
           group_name: info.data.name || chatName || null,
           is_admin: info.data.isAdmin ?? null,
           picture_url: info.data.pictureUrl ?? null,
-          participants: undefined,
         };
       }
-      return {
-        group_jid: remoteJid,
-        chat_name: chatName,
-        group_name: null,
-        is_admin: null,
-        picture_url: null,
-        participants: undefined,
-      };
+      return null;
     });
+    byName = results.filter((r): r is NonNullable<typeof r> => r !== null);
   }
 
   return NextResponse.json({

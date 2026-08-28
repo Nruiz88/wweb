@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
-import { fetchInstanceOwnerJid, findGroupInfos } from "@/lib/evolution-multi";
+import { fetchInstanceOwnerJid, findGroupInfos, mapLimit } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -63,6 +63,45 @@ export async function GET(request: Request) {
       }
     }
     if (updates.length) await Promise.all(updates);
+  }
+
+  // Rellenar la imagen de los grupos configurados que no la tienen (una vez).
+  // Best-effort y acotado: solo los que faltan; si Evolution no responde, no bloquea.
+  const missingPicJids = rows.filter((r) => !r.picture_url).map((r) => r.group_jid);
+  if (missingPicJids.length > 0) {
+    const { data: inst } = await supabase
+      .from("instances")
+      .select("instance_name, evolution_api_url, evolution_api_key, owner_jid, owner_lid")
+      .eq("id", instanceId)
+      .maybeSingle();
+    if (inst?.evolution_api_url && inst.evolution_api_key) {
+      let ownerJid = inst.owner_jid || null;
+      if (!ownerJid) {
+        ownerJid = await fetchInstanceOwnerJid(inst.evolution_api_url, inst.evolution_api_key, inst.instance_name);
+        if (ownerJid) {
+          await supabase.from("instances").update({ owner_jid: ownerJid }).eq("id", instanceId);
+        }
+      }
+      await mapLimit(missingPicJids, 4, async (jid) => {
+        const info = await findGroupInfos(
+          inst.evolution_api_url,
+          inst.evolution_api_key,
+          inst.instance_name,
+          jid,
+          ownerJid ?? undefined,
+          inst.owner_lid || undefined,
+        );
+        if (info.ok && info.data?.pictureUrl) {
+          await supabase
+            .from("group_settings")
+            .update({ picture_url: info.data.pictureUrl })
+            .eq("instance_id", instanceId)
+            .eq("group_jid", jid);
+          const r = rows.find((x) => x.group_jid === jid);
+          if (r) r.picture_url = info.data.pictureUrl;
+        }
+      });
+    }
   }
 
   return NextResponse.json({ status: "success", data: rows });
