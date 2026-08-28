@@ -8,7 +8,7 @@ import { handleGroupWelcome } from "@/lib/webhook/group-welcome";
 import { handleGroupSpam } from "@/lib/webhook/group-spam";
 import { handleWelcome } from "@/lib/webhook/welcome";
 import { handleOutsideHours } from "@/lib/webhook/outside-hours";
-import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu } from "@/lib/webhook/booking";
+import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect } from "@/lib/webhook/booking";
 import { handleMenuTap } from "@/lib/webhook/menus";
 import { handleAutoReply } from "@/lib/webhook/auto-reply";
 import type { PlanType } from "@/lib/supabase/types";
@@ -237,6 +237,10 @@ export async function POST(request: Request) {
       if (result) return NextResponse.json(result);
     }
 
+    // Numeric reply to a text menu (e.g. "2" for a slot previously shown)
+    const numericResult = await handleNumericSlotSelect(ctx);
+    if (numericResult) return NextResponse.json(numericResult);
+
     // Date selection: date_<YYYY-MM-DD>
     if (checkId.startsWith("date_")) {
       ctx.effectiveText = checkId;
@@ -245,8 +249,17 @@ export async function POST(request: Request) {
     }
 
     // Agenda menu: agenda_hoy / agenda_proximo / agenda_completa
-    if (checkId === "agenda_hoy" || checkId === "agenda_proximo" || checkId === "agenda_completa") {
-      ctx.effectiveText = checkId;
+    // (also matches plain-text replies: "1", "hoy", "próximo", "completa", etc.)
+    const menuTextMatch = checkId.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "").trim();
+    if (
+      checkId === "agenda_hoy" || checkId === "agenda_proximo" || checkId === "agenda_completa" ||
+      ["1", "hoy", "librehoy", "2", "proximo", "masproximo", "3", "completa", "agendacompleta"].includes(menuTextMatch)
+    ) {
+      ctx.effectiveText =
+        checkId === "1" || menuTextMatch === "hoy" || menuTextMatch === "librehoy" ? "agenda_hoy"
+        : checkId === "2" || menuTextMatch === "proximo" || menuTextMatch === "masproximo" ? "agenda_proximo"
+        : checkId === "3" || menuTextMatch === "completa" || menuTextMatch === "agendacompleta" ? "agenda_completa"
+        : checkId;
       const result = await handleAgendaMenu(ctx);
       if (result) return NextResponse.json(result);
     }
