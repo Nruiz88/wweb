@@ -11,22 +11,62 @@ import {
   TrashIcon,
   XIcon,
   ZapIcon,
+  ChevronDownIcon,
 } from "@/components/icons";
+
+interface SubOption {
+  id: string;
+  text: string;
+  target_id: string | null;
+}
+
+interface SubMenu {
+  title: string;
+  description: string;
+  footer: string;
+  buttons: SubOption[];
+  savedId?: string | null; // auto_response id if this submenu was already persisted
+}
+
+interface MenuOption {
+  id: string;
+  text: string;
+  mode: "text" | "submenu";
+  target_id: string | null; // text mode: linked auto-response
+  submenu: SubMenu | null; // submenu mode: inline submenu
+}
 
 interface MenuItem {
   id: string;
   title: string;
   description: string;
   footer: string;
-  buttons: MenuButton[];
+  buttons: MenuOption[];
 }
+
+const newSubOption = (): SubOption => ({ id: crypto.randomUUID().slice(0, 8), text: "", target_id: null });
+
+const newSubMenu = (): SubMenu => ({
+  title: "",
+  description: "",
+  footer: "",
+  buttons: [newSubOption(), newSubOption(), newSubOption()],
+});
+
+const newOption = (): MenuOption => ({
+  id: crypto.randomUUID().slice(0, 8),
+  text: "",
+  mode: "text",
+  target_id: null,
+  submenu: null,
+});
 
 const emptyItem = (): MenuItem => ({
   id: crypto.randomUUID().slice(0, 8),
   title: "",
   description: "",
   footer: "",
-  buttons: [{ id: crypto.randomUUID().slice(0, 8), text: "", target_id: null }],
+  buttons: [newOption(), newOption(), newOption()],
 });
 
 export default function MenusPage() {
@@ -90,6 +130,20 @@ export default function MenusPage() {
     );
   }, [menus, search]);
 
+  // Resolve a submenu inline when editing: find the linked menu by target_id
+  function submenuFromTarget(targetId: string | null): SubMenu | null {
+    if (!targetId) return null;
+    const linked = menus.find((m) => m.id === targetId);
+    if (!linked?.menu_config) return null;
+    return {
+      title: linked.menu_config.title,
+      description: linked.menu_config.description || "",
+      footer: linked.menu_config.footer || "",
+      buttons: linked.menu_config.buttons?.map((b) => ({ id: b.id, text: b.text, target_id: b.target_id })) || [],
+      savedId: linked.id,
+    };
+  }
+
   function openCreate() {
     setItem(emptyItem());
     setIsActive(true);
@@ -104,33 +158,96 @@ export default function MenusPage() {
       title: m.menu_config?.title || "",
       description: m.menu_config?.description || "",
       footer: m.menu_config?.footer || "",
-      buttons:
-        m.menu_config?.buttons?.length
-          ? m.menu_config.buttons.map((b) => ({ ...b }))
-          : [{ id: crypto.randomUUID().slice(0, 8), text: "", target_id: null }],
+      buttons: (m.menu_config?.buttons?.length ? m.menu_config.buttons : [newOption(), newOption(), newOption()]).map((b) => {
+        const submenu = submenuFromTarget(b.target_id);
+        return {
+          id: b.id,
+          text: b.text,
+          mode: submenu ? "submenu" : "text",
+          target_id: submenu ? null : b.target_id,
+          submenu,
+        };
+      }),
     });
     setIsActive(m.is_active);
     setShowForm(true);
   }
 
-  const canSave = item.title.trim() && item.buttons.some((b) => b.text.trim());
+  const hasTitle = item.title.trim();
+  const hasAnyText = item.buttons.some((b) => b.text.trim());
 
-  function updateButton(idx: number, patch: Partial<MenuButton>) {
+  function updateButton(idx: number, patch: Partial<MenuOption>) {
     const next = [...item.buttons];
     next[idx] = { ...next[idx], ...patch };
     setItem({ ...item, buttons: next });
   }
 
+  function updateSubOption(btnIdx: number, subIdx: number, patch: Partial<SubOption>) {
+    const next = [...item.buttons];
+    const sub = next[btnIdx].submenu;
+    if (!sub) return;
+    const subButtons = [...sub.buttons];
+    subButtons[subIdx] = { ...subButtons[subIdx], ...patch };
+    next[btnIdx] = { ...next[btnIdx], submenu: { ...sub, buttons: subButtons } };
+    setItem({ ...item, buttons: next });
+  }
+
+  // Save: persist submenus first (they are auto_responses of type menu), then the parent.
   async function handleSave() {
-    if (!canSave) return;
+    if (!instanceId) return;
     setSaving(true);
     setFeedback(null);
     try {
+      // 1. Persist inline submenus → get their saved ids
+      const buttons = await Promise.all(
+        item.buttons.map(async (btn, btnIdx) => {
+          const base = { id: btn.id, text: btn.text.trim() };
+          if (!base.text) return null;
+
+          if (btn.mode === "submenu" && btn.submenu) {
+            const sub = btn.submenu;
+            const subButtons = sub.buttons.filter((sb) => sb.text.trim());
+            if (subButtons.length === 0) {
+              return { ...base, target_id: null };
+            }
+            const subMenuConfig = {
+              title: sub.title || base.text,
+              description: sub.description,
+              footer: sub.footer || undefined,
+              buttons: subButtons.map((sb, i) => ({
+                id: sb.id || `${base.id}_s${i}`,
+                text: sb.text.trim(),
+                target_id: sb.target_id || null,
+              })),
+            };
+            const method = sub.savedId ? "PUT" : "POST";
+            const body = sub.savedId
+              ? { id: sub.savedId, responseType: "menu", menuConfig: subMenuConfig, isActive: true }
+              : { instanceId, responseType: "menu", menuConfig: subMenuConfig, isActive: true };
+            const res = await fetch("/api/auto-responses", {
+              method,
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const payload = await res.json();
+            if (payload.status !== "success") {
+              throw new Error(payload.error || "Error al guardar submenú");
+            }
+            return { ...base, target_id: payload.data.id };
+          }
+
+          // text mode
+          return { ...base, target_id: btn.target_id || null };
+        }),
+      );
+
+      const finalButtons = buttons.filter((b): b is { id: string; text: string; target_id: string | null } => b !== null);
+
       const menuConfig = {
         title: item.title,
         description: item.description,
         footer: item.footer || undefined,
-        buttons: item.buttons.filter((b) => b.text.trim()),
+        buttons: finalButtons,
       };
 
       const method = editingMenu ? "PUT" : "POST";
@@ -148,18 +265,19 @@ export default function MenusPage() {
         setFeedback({ kind: "error", message: payload.error });
         return;
       }
+
       setFeedback({ kind: "success", message: editingMenu ? "Menú actualizado" : "Menú creado" });
       setShowForm(false);
       await loadData();
-    } catch {
-      setFeedback({ kind: "error", message: "Error de red" });
+    } catch (e) {
+      setFeedback({ kind: "error", message: e instanceof Error ? e.message : "Error de red" });
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Eliminar este menú?")) return;
+    if (!confirm("Eliminar este menú y sus submenús?")) return;
     await fetch(`/api/auto-responses?id=${id}`, { method: "DELETE" });
     await loadData();
   }
@@ -173,7 +291,6 @@ export default function MenusPage() {
     await loadData();
   }
 
-  // Target label lookup: text response keyword or submenu title
   function targetLabel(id: string): string {
     const t = textResponses.find((r) => r.id === id);
     if (t) return `💬 ${t.keyword || t.response_text.slice(0, 20)}`;
@@ -252,7 +369,7 @@ export default function MenusPage() {
                 </div>
                 <p className="text-sm font-semibold text-wa-text">Creá tu primer menú interactivo</p>
                 <p className="mt-1 text-xs text-wa-text-secondary">
-                  Tu bot responde con botones y cada opción puede mostrar una respuesta o abrir un submenú
+                  Cada opción puede responder con texto o abrir un submenú con sus propias opciones
                 </p>
                 <button
                   type="button"
@@ -322,14 +439,17 @@ export default function MenusPage() {
                     {/* Options */}
                     {m.menu_config?.buttons && m.menu_config.buttons.length > 0 && (
                       <div className="grid grid-cols-1 gap-2 px-4 py-3 sm:grid-cols-3">
-                        {m.menu_config.buttons.map((b) => (
-                          <div key={b.id} className="rounded-xl border border-wa-border/50 bg-wa-panel/50 px-3 py-2">
-                            <p className="truncate text-xs font-semibold text-wa-text">{b.text}</p>
-                            <p className="mt-0.5 truncate text-[10px] text-wa-text-secondary/50">
-                              {b.target_id ? targetLabel(b.target_id) : "Sin respuesta"}
-                            </p>
-                          </div>
-                        ))}
+                        {m.menu_config.buttons.map((b) => {
+                          const isSub = b.target_id && menus.some((x) => x.id === b.target_id);
+                          return (
+                            <div key={b.id} className="rounded-xl border border-wa-border/50 bg-wa-panel/50 px-3 py-2">
+                              <p className="truncate text-xs font-semibold text-wa-text">{b.text}</p>
+                              <p className="mt-0.5 truncate text-[10px] text-wa-text-secondary/50">
+                                {isSub ? `🔘 Submenú · ${targetLabel(b.target_id!)}` : b.target_id ? targetLabel(b.target_id) : "Responde con el texto"}
+                              </p>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -343,11 +463,11 @@ export default function MenusPage() {
       {/* Form modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <div className="mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-5 py-4">
               <div>
                 <h3 className="text-base font-semibold text-wa-text">{editingMenu ? "Editar menú" : "Nuevo menú"}</h3>
-                <p className="text-[10px] text-wa-text-secondary/60">Hasta 3 opciones · cada una con respuesta</p>
+                <p className="text-[10px] text-wa-text-secondary/60">Cada opción responde con texto o abre un submenú</p>
               </div>
               <button type="button" onClick={() => setShowForm(false)} className="icon-btn h-8 w-8">
                 <XIcon className="h-4 w-4" />
@@ -381,8 +501,8 @@ export default function MenusPage() {
                 />
               </div>
 
-              {/* Buttons */}
-              <div className="flex flex-col gap-2">
+              {/* Options */}
+              <div className="flex flex-col gap-3">
                 <label className="text-xs font-semibold text-wa-text-secondary">
                   Opciones <span className="text-wa-text-secondary/40">(hasta 3)</span>
                 </label>
@@ -399,65 +519,94 @@ export default function MenusPage() {
                         onChange={(e) => updateButton(idx, { text: e.target.value })}
                         className="flex-1 rounded-lg border border-wa-border bg-wa-panel px-3 py-2 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
                       />
-                      {item.buttons.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => setItem({ ...item, buttons: item.buttons.filter((_, i) => i !== idx) })}
-                          className="shrink-0 rounded-lg p-1 text-red-400/50 hover:bg-red-500/10 hover:text-red-400"
-                        >
-                          <XIcon className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                      {/* Mode toggle */}
+                      <button
+                        type="button"
+                        onClick={() => updateButton(idx, {
+                          mode: btn.mode === "text" ? "submenu" : "text",
+                          target_id: btn.mode === "text" ? null : btn.target_id,
+                          submenu: btn.mode === "text" ? (btn.submenu || newSubMenu()) : null,
+                        })}
+                        className={`shrink-0 rounded-lg px-2 py-1.5 text-[10px] font-semibold transition ${
+                          btn.mode === "submenu"
+                            ? "bg-[#53bdeb]/20 text-[#53bdeb]"
+                            : "bg-wa-panel text-wa-text-secondary hover:bg-wa-hover"
+                        }`}
+                        title="Alternar texto / submenú"
+                      >
+                        {btn.mode === "submenu" ? "🔘 Submenú" : "💬 Texto"}
+                      </button>
                     </div>
 
-                    {/* Respuesta sugerida (target) */}
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-medium text-wa-text-secondary/60">
-                        Respuesta al tocar
-                      </label>
+                    {btn.mode === "text" ? (
+                      /* Text mode: optional suggested response */
                       <select
                         value={btn.target_id || ""}
                         onChange={(e) => updateButton(idx, { target_id: e.target.value || null })}
                         className="w-full rounded-lg border border-wa-border bg-wa-panel px-2 py-2 text-[11px] text-wa-text-secondary focus:border-[#53bdeb] focus:outline-none"
                       >
-                        <option value="">— Responder con texto del botón —</option>
+                        <option value="">— Responder con el texto del botón —</option>
                         <optgroup label="Respuestas de texto (sugeridas)">
-                          {textResponses
-                            .filter((r) => r.id !== editingMenu?.id)
-                            .map((r) => (
-                              <option key={r.id} value={r.id}>
-                                {r.keyword || r.response_text.slice(0, 30)}
-                              </option>
-                            ))}
-                        </optgroup>
-                        <optgroup label="Submenús">
-                          {menus
-                            .filter((r) => r.id !== editingMenu?.id)
-                            .map((r) => (
-                              <option key={r.id} value={r.id}>
-                                {r.menu_config?.title || "submenú"}
-                              </option>
-                            ))}
+                          {textResponses.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.keyword || r.response_text.slice(0, 30)}
+                            </option>
+                          ))}
                         </optgroup>
                       </select>
-                    </div>
+                    ) : (
+                      /* Submenu mode: inline editor */
+                      <div className="space-y-2 rounded-lg border border-[#53bdeb]/30 bg-[#53bdeb]/5 p-3">
+                        <div className="flex items-center gap-2">
+                          <ChevronDownIcon className="h-3.5 w-3.5 text-[#53bdeb]" />
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#53bdeb]">
+                            Submenú de "{btn.text || `Opción ${idx + 1}`}"
+                          </span>
+                        </div>
+                        {btn.submenu && (
+                          <>
+                            <input
+                              type="text"
+                              placeholder="Título del submenú"
+                              value={btn.submenu.title}
+                              onChange={(e) => {
+                                const next = [...item.buttons];
+                                const sub = next[idx].submenu!;
+                                next[idx] = { ...next[idx], submenu: { ...sub, title: e.target.value } };
+                                setItem({ ...item, buttons: next });
+                              }}
+                              className="w-full rounded-lg border border-wa-border bg-wa-panel px-3 py-2 text-xs text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
+                            />
+                            {btn.submenu.buttons.map((sb, subIdx) => (
+                              <div key={sb.id} className="flex items-center gap-1.5">
+                                <span className="w-3 text-[10px] font-bold text-[#53bdeb]">{subIdx + 1}</span>
+                                <input
+                                  type="text"
+                                  placeholder={`Sub-opción ${subIdx + 1}`}
+                                  value={sb.text}
+                                  onChange={(e) => updateSubOption(idx, subIdx, { text: e.target.value })}
+                                  className="flex-1 rounded-lg border border-wa-border bg-wa-panel px-2.5 py-1.5 text-xs text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
+                                />
+                                <select
+                                  value={sb.target_id || ""}
+                                  onChange={(e) => updateSubOption(idx, subIdx, { target_id: e.target.value || null })}
+                                  className="max-w-[110px] rounded-lg border border-wa-border bg-wa-panel px-1.5 py-1.5 text-[10px] text-wa-text-secondary focus:border-[#53bdeb] focus:outline-none"
+                                >
+                                  <option value="">Texto</option>
+                                  {textResponses.map((r) => (
+                                    <option key={r.id} value={r.id}>
+                                      {r.keyword || r.response_text.slice(0, 18)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
-                {item.buttons.length < 3 && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setItem({
-                        ...item,
-                        buttons: [...item.buttons, { id: crypto.randomUUID().slice(0, 8), text: "", target_id: null }],
-                      })
-                    }
-                    className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-wa-border bg-wa-input px-3 py-2.5 text-xs text-wa-text-secondary transition hover:border-[#53bdeb]/40 hover:text-[#53bdeb]"
-                  >
-                    <PlusIcon className="h-3.5 w-3.5" />
-                    Agregar opción
-                  </button>
-                )}
               </div>
 
               {/* Footer */}
@@ -498,7 +647,7 @@ export default function MenusPage() {
                 <button
                   type="button"
                   onClick={() => void handleSave()}
-                  disabled={saving || !canSave}
+                  disabled={saving || !hasTitle || !hasAnyText}
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#53bdeb] py-3 text-sm font-semibold text-white hover:bg-[#53bdeb]/90 disabled:opacity-50"
                 >
                   {saving ? <LoaderIcon className="h-4 w-4 animate-spin" /> : null}
