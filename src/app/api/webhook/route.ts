@@ -283,40 +283,39 @@ async function getPlanForInstance(
   supabase: Awaited<ReturnType<typeof createServerClient>>,
   instanceId: string,
 ): Promise<PlanType> {
-  // Try user_instances → subscriptions
-  const { data: assignment } = await supabase
-    .from("user_instances")
-    .select("user_id")
-    .eq("instance_id", instanceId)
-    .limit(1)
-    .single();
+  const hierarchy: PlanType[] = ["starter", "pro", "community"];
+  let best: PlanType = "starter";
 
-  if (assignment) {
+  const resolveUserPlan = async (userId: string | undefined | null) => {
+    if (!userId) return;
     const { data: sub } = await supabase
       .from("subscriptions")
       .select("plan_type")
-      .eq("user_id", assignment.user_id)
+      .eq("user_id", userId)
       .limit(1)
-      .single();
-    if (sub?.plan_type) return sub.plan_type as PlanType;
+      .maybeSingle();
+    const plan = (sub?.plan_type as PlanType | undefined);
+    if (plan && hierarchy.indexOf(plan) > hierarchy.indexOf(best)) {
+      best = plan;
+    }
+  };
+
+  // All assigned users
+  const { data: assignments } = await supabase
+    .from("user_instances")
+    .select("user_id")
+    .eq("instance_id", instanceId);
+  for (const a of assignments || []) {
+    await resolveUserPlan(a.user_id);
   }
 
-  // Fallback: instance admin's plan
+  // Instance admin (owner) always counts
   const { data: instance } = await supabase
     .from("instances")
     .select("admin_id")
     .eq("id", instanceId)
     .single();
+  await resolveUserPlan(instance?.admin_id);
 
-  if (instance?.admin_id) {
-    const { data: sub } = await supabase
-      .from("subscriptions")
-      .select("plan_type")
-      .eq("user_id", instance.admin_id)
-      .limit(1)
-      .single();
-    if (sub?.plan_type) return sub.plan_type as PlanType;
-  }
-
-  return "starter"; // default
+  return best;
 }
