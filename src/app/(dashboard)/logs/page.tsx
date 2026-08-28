@@ -142,7 +142,7 @@ export default function LogsPage() {
             <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-wa-header ring-4 ring-wa-border/30">
               <ClockIcon className="h-10 w-10 text-wa-text-secondary/20" />
             </div>
-            <p className="text-sm text-wa-text-secondary">Creá un servidor primero</p>
+            <p className="text-sm text-wa-text-secondary">Crea una instancia primero</p>
           </div>
         ) : loading ? (
           <div className="flex items-center justify-center py-16">

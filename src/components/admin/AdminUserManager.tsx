@@ -350,7 +350,7 @@ export default function AdminUserManager({ users, instances, plans, selectedInst
                       {/* Instance assignment */}
                       <div>
                         <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-wa-text-secondary/60">
-                          Servidor
+                          Instancia
                         </label>
                         {isAssigned ? (
                           <button
@@ -373,7 +373,7 @@ export default function AdminUserManager({ users, instances, plans, selectedInst
                             disabled={isCurrentlyAssigning}
                             className="w-full rounded-lg border border-wa-border bg-wa-header px-2.5 py-1.5 text-xs font-medium text-wa-text-secondary transition hover:bg-wa-hover hover:text-wa-text disabled:opacity-40"
                           >
-                            {isCurrentlyAssigning ? "..." : `Asignar a ${selectedInst?.instance_name || "servidor"}`}
+                            {isCurrentlyAssigning ? "..." : `Asignar a ${selectedInst?.instance_name || "instancia"}`}
                           </button>
                         )}
                       </div>

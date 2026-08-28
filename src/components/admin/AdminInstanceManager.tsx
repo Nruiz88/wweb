@@ -42,7 +42,7 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
       });
       const payload = await res.json();
       if (payload.status === "success") {
-        setFeedback({ kind: "success", message: `Servidor "${instanceName}" creado` });
+        setFeedback({ kind: "success", message: `Instancia "${instanceName}" creada` });
         setJustCreated({ id: payload.data.id, name: payload.data.instance_name });
         setShowCreateForm(false);
         setInstanceName("");
@@ -60,13 +60,13 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
   }
 
   async function handleDelete(id: string, name: string) {
-    if (!confirm(`Eliminar Servidor "${name}" y todas sus auto-respuestas?`)) return;
+    if (!confirm(`Eliminar instancia "${name}" y todas sus auto-respuestas?`)) return;
     setDeleting(id);
     try {
       const res = await fetch(`/api/instances?id=${id}`, { method: "DELETE" });
       const payload = await res.json();
       if (payload.status === "success") {
-        setFeedback({ kind: "success", message: `Servidor "${name}" eliminado` });
+        setFeedback({ kind: "success", message: `Instancia "${name}" eliminada` });
         onRefresh();
       } else {
         setFeedback({ kind: "error", message: payload.error });
@@ -116,7 +116,7 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h3 className="text-sm font-semibold text-wa-text">Servidores de WhatsApp</h3>
+          <h3 className="text-sm font-semibold text-wa-text">Instancias de WhatsApp</h3>
           <span className="rounded-full bg-[#00a884]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#00a884]">
             {instances.length} total
           </span>
@@ -127,7 +127,7 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
           className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#00a884] to-[#25d366] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:shadow-md"
         >
           <PlusIcon className="h-3.5 w-3.5" />
-          Nuevo servidor
+          Nueva instancia
         </button>
       </div>
 
@@ -135,10 +135,10 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
       {justCreated && (
         <div className="mt-3 rounded-xl border border-[#00a884]/30 bg-[#00a884]/5 p-4 fade-up">
           <p className="text-xs font-semibold text-[#00a884]">
-            ✅ Servidor "{justCreated.name}" creado
+            ✅ Instancia "{justCreated.name}" creada
           </p>
           <p className="mt-1 text-[10px] text-wa-text-secondary/60">
-            Asignalo a un usuario para que pueda conectar WhatsApp
+            Asignala a un usuario para que pueda conectar WhatsApp
           </p>
           <div className="mt-3 flex items-center gap-2">
             <input
@@ -174,7 +174,7 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
         {instances.length === 0 ? (
           <div className="py-8 text-center">
             <MessageCircleIcon className="mx-auto h-10 w-10 text-wa-text-secondary/20" />
-            <p className="mt-2 text-xs text-wa-text-secondary">No hay servidores creados</p>
+            <p className="mt-2 text-xs text-wa-text-secondary">No hay instancias creadas</p>
           </div>
         ) : (
           instances.map((inst) => {
@@ -216,14 +216,14 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
         <div className="modal-overlay" onClick={() => setShowCreateForm(false)}>
           <div className="mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-5 py-4">
-              <h3 className="text-base font-semibold text-wa-text">Nuevo servidor</h3>
+              <h3 className="text-base font-semibold text-wa-text">Nueva instancia</h3>
               <button type="button" onClick={() => setShowCreateForm(false)} className="rounded-lg p-1 text-wa-text-secondary hover:text-wa-text">
                 <XIcon className="h-5 w-5" />
               </button>
             </div>
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">Nombre de servidor</label>
+                <label className="text-xs font-semibold text-wa-text-secondary">Nombre de instancia</label>
                 <input type="text" placeholder="mi-whatsapp" value={instanceName} onChange={(e) => setInstanceName(e.target.value)} className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none" />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -238,7 +238,7 @@ export default function AdminInstanceManager({ instances, users, onRefresh }: Pr
                 <button type="button" onClick={() => setShowCreateForm(false)} className="flex-1 rounded-xl border border-wa-border py-3 text-sm font-medium text-wa-text-secondary hover:bg-wa-hover">Cancelar</button>
                 <button type="button" onClick={() => void handleCreate()} disabled={creating || !instanceName || !evolutionApiUrl || !evolutionApiKey} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] py-3 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/20 transition-all hover:shadow-xl disabled:opacity-50">
                   {creating ? <LoaderIcon className="h-4 w-4 animate-spin" /> : null}
-                  {creating ? "Creando..." : "Crear servidor"}
+                  {creating ? "Creando..." : "Crear instancia"}
                 </button>
               </div>
             </div>

@@ -184,9 +184,9 @@ export default function WhatsAppPage() {
           <div className="flex flex-col items-center gap-4 py-16 text-center">
             <DisconnectedIllustration />
             <div>
-<p className="text-lg font-semibold text-wa-text">Sin servidor asignado</p>
-              <p className="text-sm text-wa-text-secondary">
-                El administrador debe asignarte un servidor de WhatsApp para poder conectar
+              <p className="text-lg font-semibold text-wa-text">Sin instancia asignada</p>
+              <p className="mt-2 max-w-xs text-sm text-wa-text-secondary">
+                El administrador debe asignarte una instancia de WhatsApp para poder conectar
               </p>
             </div>
           </div>

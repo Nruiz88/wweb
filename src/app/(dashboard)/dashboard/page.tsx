@@ -122,7 +122,7 @@ export default function DashboardPage() {
             <WaitingBadge />
             <p className="mt-6 text-lg font-semibold text-wa-text">Esperando asignacion</p>
             <p className="mt-2 text-sm text-wa-text-secondary">
-              Un administrador debe asignarte un servidor de WhatsApp para comenzar
+              Un administrador debe asignarte una instancia de WhatsApp para comenzar
             </p>
             <div className="mt-6 rounded-xl border border-wa-border bg-wa-header p-4">
               <p className="text-xs text-wa-text-secondary/60">

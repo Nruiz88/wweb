@@ -354,7 +354,7 @@ export default function CommunityPage() {
         {!instanceId ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <UsersIcon className="h-12 w-12 text-wa-text-secondary/20" />
-            <p className="text-sm text-wa-text-secondary">Espera a tener un servidor asignado</p>
+            <p className="text-sm text-wa-text-secondary">Espera a tener una instancia asignada</p>
           </div>
         ) : loading ? (
           <div className="flex items-center justify-center py-16">
@@ -374,7 +374,7 @@ export default function CommunityPage() {
                 <p className="text-[10px] text-wa-text-secondary/60 mb-3">
                   {liveSource
                     ? "Grupos detectados en vivo desde WhatsApp. Guardá uno para configurar bienvenida, anti-spam y moderación."
-                    : "No se pudo consultar Evolution en vivo; mostrando los grupos capturados previamente por el webhook. Guardá uno o refrescá el servidor."}
+                    : "No se pudo consultar Evolution en vivo; mostrando los grupos capturados previamente por el webhook. Guardá uno o refrescá la instancia."}
                 </p>
                 <div className="space-y-2">
                   {discoveredGroups.map((dg) => (

@@ -389,7 +389,7 @@ export default function HomePage() {
                   <PlusIcon className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-white">Bot / Servidor extra (Add-on)</p>
+                  <p className="text-sm font-semibold text-white">Bot / Instancia extra (Add-on)</p>
                   <p className="mt-0.5 text-xs text-gray-400">
                     Conecta un numero adicional cuando necesites separar canales (ej. Ventas y Soporte, o distintas sucursales)
                   </p>

@@ -166,7 +166,8 @@ export async function createInstance(
   apiKey: string,
   instanceName: string
 ): Promise<EvolutionResult<unknown>> {
-  return evolutionRequest<unknown>(
+  // Evolution v2: POST /instance/create con instanceName en el body.
+  const v2 = await evolutionRequest<unknown>(
     baseUrl,
     apiKey,
     `/instance/create`,
@@ -179,6 +180,18 @@ export async function createInstance(
       }),
     }
   );
+
+  // Evolution v1: POST /instance/create/{instanceName}.
+  if (!v2.ok && (v2.status === 404 || v2.status === 405 || v2.status === 400)) {
+    return evolutionRequest<unknown>(
+      baseUrl,
+      apiKey,
+      `/instance/create/${encodeURIComponent(instanceName)}`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+  }
+
+  return v2;
 }
 
 export async function setWebhook(
