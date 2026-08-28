@@ -16,7 +16,8 @@ export async function sendMenuResponse(
 ): Promise<boolean> {
   const buttons: ButtonItem[] = menu.buttons.slice(0, 3).map((b) => ({
     type: "reply",
-    reply: { id: b.id, title: b.text },
+    displayText: b.text,
+    id: b.id,
   }));
 
   const result = await sendButtonMessage(

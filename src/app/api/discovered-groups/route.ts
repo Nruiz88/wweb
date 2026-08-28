@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
-import { fetchAllGroups } from "@/lib/evolution-multi";
+import { syncGroupNamesAndFilterAdmin } from "@/lib/group-names";
 
 export const dynamic = "force-dynamic";
 
 // GET: List discovered groups for an instance (groups not yet configured)
+// Only groups where the bot is admin are returned (moderation needs admin).
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) {
@@ -43,53 +44,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "Failed to fetch discovered groups" }, { status: 500 });
   }
 
-  // Filter out already configured groups
+  // Filter out already configured groups, then sync real names and keep only
+  // groups where the bot is admin (best-effort; never blocks on failure).
   const unconfigured = (discovered || []).filter((g) => !configuredSet.has(g.group_jid));
 
-  // Best-effort: sync real group names from Evolution (fixes pushName bug where
-  // the sender's name was stored as group_name). Never blocks on failure.
-  await syncGroupNames(supabase, instanceId, unconfigured);
+  const visible = await syncGroupNamesAndFilterAdmin(supabase, instanceId, unconfigured);
 
-  return NextResponse.json({ status: "success", data: unconfigured });
-}
-
-/** Fetch real group names from Evolution and persist them for rows missing one. */
-async function syncGroupNames(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
-  instanceId: string,
-  groups: Array<{ id: string; group_jid: string; group_name: string | null }>,
-): Promise<void> {
-  const pending = groups.filter((g) => !g.group_name);
-  if (pending.length === 0) return;
-
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("instance_name, evolution_api_url, evolution_api_key")
-    .eq("id", instanceId)
-    .single();
-  if (!instance) return;
-
-  const result = await fetchAllGroups(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name,
-  );
-  if (!result.ok) return;
-
-  const nameByJid = new Map(
-    result.data.filter((g) => g.name).map((g) => [g.id, g.name]),
-  );
-
-  for (const group of pending) {
-    const name = nameByJid.get(group.group_jid);
-    if (name && name !== group.group_name) {
-      group.group_name = name;
-      await supabase
-        .from("discovered_groups")
-        .update({ group_name: name })
-        .eq("id", group.id);
-    }
-  }
+  return NextResponse.json({ status: "success", data: visible });
 }
 
 // DELETE: Dismiss a discovered group (user doesn't want to configure it)

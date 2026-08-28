@@ -57,7 +57,7 @@ export async function handleGroupSpam(ctx: {
     if (hit) {
       await deleteMessage(
         grpInstance.evolution_api_url, grpInstance.evolution_api_key,
-        grpInstance.instance_name, msgId, remoteJid, false,
+        grpInstance.instance_name, msgId, remoteJid, false, senderJid,
       );
       console.log("[webhook] palabra prohibida eliminada en grupo", {
         group: remoteJid, from: senderJid, text: plainText.slice(0, 80),
@@ -87,7 +87,7 @@ export async function handleGroupSpam(ctx: {
     if (!isAllowed) {
       await deleteMessage(
         grpInstance.evolution_api_url, grpInstance.evolution_api_key,
-        grpInstance.instance_name, msgId, remoteJid, false,
+        grpInstance.instance_name, msgId, remoteJid, false, senderJid,
       );
       console.log("[webhook] spam eliminado en grupo", { group: remoteJid, from: senderJid, text: plainText.slice(0, 80) });
       return { status: "spam_deleted" as const };

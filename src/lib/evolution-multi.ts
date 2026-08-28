@@ -157,7 +157,7 @@ export async function restartInstance(
     baseUrl,
     apiKey,
     `/instance/restart/${instanceName}`,
-    { method: "POST" }
+    { method: "PUT" }
   );
 }
 
@@ -169,8 +169,15 @@ export async function createInstance(
   return evolutionRequest<unknown>(
     baseUrl,
     apiKey,
-    `/instance/create/${instanceName}`,
-    { method: "POST", body: JSON.stringify({}) }
+    `/instance/create`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        instanceName,
+        integration: "WHATSAPP-BAILEYS",
+        qrcode: true,
+      }),
+    }
   );
 }
 
@@ -232,10 +239,11 @@ export async function sendTextMessage(
   );
 }
 
-/** Button definition for interactive messages */
+/** Button definition for interactive messages (Evolution v2 format). */
 export interface ButtonItem {
   type: "reply";
-  reply: { id: string; title: string };
+  displayText: string;
+  id: string;
 }
 
 /** Send an interactive button message (up to 3 reply buttons). */
@@ -254,12 +262,13 @@ export async function sendButtonMessage(
     number,
     title,
     description,
+    footer: footer ?? "",
     buttons: buttons.map((b) => ({
       type: b.type,
-      reply: { id: b.reply.id, title: b.reply.title },
+      displayText: b.displayText,
+      id: b.id,
     })),
   };
-  if (footer) payload.footer = footer;
   if (typeof delay === "number" && delay >= 0) {
     payload.delay = delay;
   }
@@ -293,9 +302,9 @@ export async function sendListMessage(
     title,
     description,
     buttonText,
+    footerText: footer ?? "",
     sections,
   };
-  if (footer) payload.footerText = footer;
   if (typeof delay === "number" && delay >= 0) {
     payload.delay = delay;
   }
@@ -319,18 +328,23 @@ export async function deleteMessage(
   messageId: string,
   remoteJid: string,
   fromMe: boolean = false,
+  participant?: string,
 ): Promise<EvolutionResult<unknown>> {
+  const payload: Record<string, unknown> = {
+    id: messageId,
+    remoteJid,
+    fromMe,
+  };
+  // Required for group messages: the JID of the participant who sent it.
+  if (participant) payload.participant = participant;
+
   return evolutionRequest<unknown>(
     baseUrl,
     apiKey,
     `/chat/deleteMessageForEveryone/${instanceName}`,
     {
       method: "DELETE",
-      body: JSON.stringify({
-        id: messageId,
-        remoteJid,
-        fromMe,
-      }),
+      body: JSON.stringify(payload),
     }
   );
 }
@@ -372,7 +386,7 @@ export async function sendGroupMessage(
 export interface EvolutionGroup {
   id: string;
   name: string;
-  /** True if the bot is admin of the group (when the API exposes it). */
+  /** True if the bot (instance owner) is admin of the group. */
   isAdmin?: boolean;
   /** Community id (when the group belongs to a community). */
   communityId?: string;
@@ -381,9 +395,55 @@ export interface EvolutionGroup {
 }
 
 /**
+ * Get the JID of the WhatsApp user logged into the instance.
+ * Used to determine if the bot is admin of a group.
+ * GET /instance/fetchInstances?instanceName=... → owner / ownerJid.
+ */
+export async function fetchInstanceOwnerJid(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string,
+): Promise<string | null> {
+  const result = await evolutionRequest<unknown>(
+    baseUrl,
+    apiKey,
+    `/instance/fetchInstances?instanceName=${encodeURIComponent(instanceName)}`,
+  );
+  if (!result.ok) return null;
+
+  const data = result.data;
+  if (Array.isArray(data)) {
+    const inst = data[0] as Record<string, unknown> | undefined;
+    if (!inst) return null;
+    const nested = inst.instance as Record<string, unknown> | undefined;
+    const owner = String(nested?.owner ?? inst.owner ?? nested?.ownerJid ?? inst.ownerJid ?? "");
+    return owner || null;
+  }
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    const inst = (obj.instance ?? obj) as Record<string, unknown>;
+    const owner = String(inst.owner ?? inst.ownerJid ?? obj.owner ?? "");
+    return owner || null;
+  }
+  return null;
+}
+
+/** True if a participant entry is an admin of the group. */
+function isParticipantAdmin(p: Record<string, unknown>): boolean {
+  const admin = p.admin;
+  if (typeof admin === "string") {
+    const role = admin.toLowerCase();
+    return role === "admin" || role === "superadmin";
+  }
+  if (typeof admin === "boolean") return admin;
+  return p.isAdmin === true || p.isSuperAdmin === true;
+}
+
+/**
  * Fetch all groups the bot is in for an instance.
+ * Requires getParticipants=true so we can tell if the bot is admin.
  * Response shape varies across Evolution versions, so we normalize:
- *   - Array of { id, name, subject, ... } or { jid, name, subject, ... }
+ *   - Array of { id, name, subject, participants, ... }
  *   - { groups: [...] }
  *   - Array of strings (JIDs only)
  */
@@ -391,11 +451,12 @@ export async function fetchAllGroups(
   baseUrl: string,
   apiKey: string,
   instanceName: string,
+  ownerJid?: string,
 ): Promise<EvolutionResult<EvolutionGroup[]>> {
   const result = await evolutionRequest<unknown>(
     baseUrl,
     apiKey,
-    `/group/fetchAllGroups/${instanceName}`,
+    `/group/fetchAllGroups/${instanceName}?getParticipants=true`,
   );
 
   if (!result.ok) return result;
@@ -425,17 +486,31 @@ export async function fetchAllGroups(
     if (!id) continue;
 
     const name = String(g.name ?? g.subject ?? "").trim();
-    const participantIsAdmin =
-      Array.isArray(g.participants) &&
-      (g.participants as Array<Record<string, unknown>>).some((p) => {
-        const self = String(p.id ?? p.jid ?? "");
-        return self.endsWith("@s.whatsapp.net") && p.isAdmin === true;
-      });
+
+    // The bot is admin when a participant matching the instance owner JID
+    // has an admin role. Without ownerJid we can't confirm — mark as non-admin.
+    let isAdmin = false;
+    if (Array.isArray(g.participants)) {
+      const participants = g.participants as Array<Record<string, unknown>>;
+      if (ownerJid) {
+        const botParticipant = participants.find((p) => {
+          const pid = String(p.id ?? p.jid ?? "");
+          return pid === ownerJid || pid === ownerJid.replace("@s.whatsapp.net", "@lid");
+        });
+        isAdmin = !!botParticipant && isParticipantAdmin(botParticipant);
+      } else if (participants.length === 0) {
+        isAdmin = false;
+      } else if (participants.some((p) => isParticipantAdmin(p))) {
+        // Legacy versions may not expose the owner JID; keep it undefined so the
+        // caller can decide (filtering strict requires ownerJid).
+        isAdmin = false;
+      }
+    }
 
     groups.push({
       id,
       name,
-      isAdmin: participantIsAdmin || undefined,
+      isAdmin: isAdmin || undefined,
       communityId: typeof g.communityId === "string" ? g.communityId : undefined,
       isCommunity: g.isCommunity === true || undefined,
     });

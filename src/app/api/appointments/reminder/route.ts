@@ -77,8 +77,8 @@ async function processReminders() {
     const description = `Tu turno es ${dateDisplay}. ¿Confirmás?`;
 
     const buttons: ButtonItem[] = [
-      { type: "reply", reply: { id: `confirm_${appt.id}`, title: "✅ Confirmar" } },
-      { type: "reply", reply: { id: `cancel_${appt.id}`, title: "❌ Cancelar" } },
+      { type: "reply", displayText: "✅ Confirmar", id: `confirm_${appt.id}` },
+      { type: "reply", displayText: "❌ Cancelar", id: `cancel_${appt.id}` },
     ];
 
     const result = await sendButtonMessage(

@@ -201,7 +201,8 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
   const dateStr = formatDateStr(slotDate);
   const timeButtons: ButtonItem[] = availableSlots.slice(0, 3).map((t) => ({
     type: "reply",
-    reply: { id: `slot_${slotDate}_${t}`, title: t },
+    displayText: t,
+    id: `slot_${slotDate}_${t}`,
   }));
 
   await sendButtonMessage(
@@ -275,7 +276,8 @@ export async function handleBookingIntent(ctx: WebhookContext): Promise<{ status
 
   const dateButtons: ButtonItem[] = dates.map((d) => ({
     type: "reply",
-    reply: { id: d.id, title: d.display },
+    displayText: d.display,
+    id: d.id,
   }));
 
   await sendButtonMessage(
