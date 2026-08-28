@@ -78,8 +78,11 @@ export async function proxy(request: NextRequest) {
     return withSecurityHeaders(response);
   }
 
-  // Pages: authenticated user on public paths -> dashboard
-  if (user && PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+  // Pages: authenticated user on auth public paths -> dashboard
+  // (login/register/reset-password). /agendar stays visible to logged-in
+  // users so the owner can preview their public agenda link.
+  const isAgendar = pathname === "/agendar" || pathname.startsWith("/agendar");
+  if (user && !isAgendar && PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return withSecurityHeaders(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
