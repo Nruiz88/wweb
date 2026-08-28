@@ -298,7 +298,7 @@ export default function CalendarPage() {
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {dateKeys.map((date) => {
               const dayAppts = groupedByDate[date];
               const isToday = date === new Date().toISOString().slice(0, 10);
@@ -319,64 +319,59 @@ export default function CalendarPage() {
                     </span>
                   </div>
 
-                  {/* Appointments */}
-                  <div className="space-y-2">
-                    {dayAppts.map((appt) => {
+                  {/* Appointments — compact rows */}
+                  <div className="overflow-hidden rounded-xl border border-wa-border bg-wa-header">
+                    {dayAppts.map((appt, idx) => {
                       const meta = STATUS_META[appt.status] || STATUS_META.pending;
                       return (
                         <div
                           key={appt.id}
-                          className="group overflow-hidden rounded-xl border border-wa-border bg-wa-header p-3 transition hover:border-wa-text-secondary/20 hover:shadow-md hover:shadow-black/10"
+                          className={`flex items-center gap-2 px-3 py-2 transition hover:bg-wa-hover/50 ${idx > 0 ? "border-t border-wa-border/50" : ""}`}
                         >
-                          <div className="flex items-center gap-3">
-                            {/* Time */}
-                            <div className="flex h-10 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-[#00a884]/10 text-[#00a884]">
-                              <span className="text-[10px] font-bold leading-tight">{formatTime(appt.appointment_time)}</span>
-                            </div>
+                          {/* Time */}
+                          <span className="w-11 shrink-0 text-[11px] font-bold text-wa-text">
+                            {formatTime(appt.appointment_time)}
+                          </span>
 
-                            {/* Info */}
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <p className="truncate text-sm font-semibold text-wa-text">
-                                  {appt.customer_name || appt.customer_phone}
-                                </p>
-                                <span
-                                  className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold"
-                                  style={{ backgroundColor: `${meta.accent}15`, color: meta.accent }}
-                                >
-                                  {meta.label}
-                                </span>
-                              </div>
-                              <p className="mt-0.5 text-[10px] text-wa-text-secondary/50">
-                                {appt.customer_phone}
-                                {appt.duration_min && ` · ${appt.duration_min} min`}
-                                {appt.reminder_24h_sent && " · 🔔"}
-                              </p>
-                            </div>
+                          {/* Name */}
+                          <span className="min-w-0 flex-1 truncate text-xs text-wa-text">
+                            {appt.customer_name || appt.customer_phone}
+                          </span>
 
-                            {/* Actions */}
-                            <div className="flex shrink-0 gap-1">
-                              {appt.status === "pending" && canEdit && (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleStatusChange(appt.id, "confirmed")}
-                                  className="rounded-lg p-1.5 text-[#00a884] transition hover:bg-[#00a884]/10"
-                                  title="Confirmar"
-                                >
-                                  <CheckIcon className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                              {appt.status !== "canceled" && appt.status !== "completed" && canEdit && (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleStatusChange(appt.id, "canceled")}
-                                  className="rounded-lg p-1.5 text-red-400/50 transition hover:bg-red-500/10 hover:text-red-400"
-                                  title="Cancelar"
-                                >
-                                  <XIcon className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </div>
+                          {/* Status dot + label */}
+                          <span className="hidden shrink-0 items-center gap-1.5 sm:flex">
+                            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: meta.accent }} />
+                            <span className="text-[10px] text-wa-text-secondary">{meta.label}</span>
+                          </span>
+                          <span
+                            className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold sm:hidden"
+                            style={{ backgroundColor: `${meta.accent}15`, color: meta.accent }}
+                          >
+                            {meta.label}
+                          </span>
+
+                          {/* Actions */}
+                          <div className="flex shrink-0 gap-0.5">
+                            {appt.status === "pending" && canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => void handleStatusChange(appt.id, "confirmed")}
+                                className="rounded-md p-1 text-[#00a884] transition hover:bg-[#00a884]/10"
+                                title="Confirmar"
+                              >
+                                <CheckIcon className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {appt.status !== "canceled" && appt.status !== "completed" && canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => void handleStatusChange(appt.id, "canceled")}
+                                className="rounded-md p-1 text-red-400/50 transition hover:bg-red-500/10 hover:text-red-400"
+                                title="Cancelar"
+                              >
+                                <XIcon className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
