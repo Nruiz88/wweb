@@ -484,12 +484,15 @@ function jidsMatch(a: string, b: string): boolean {
  * Fetch details for a single group (reliable `subject` name).
  * GET /group/findGroupInfos/{instance}?groupJid=... → subject, participants.
  * Used when fetchAllGroups omits the subject for some groups.
+ * botOwnerJid = JID del bot (owner de la instancia): se usa para detectar si
+ * el bot es admin del grupo (participante con rol admin/superadmin que lo matchea).
  */
 export async function findGroupInfos(
   baseUrl: string,
   apiKey: string,
   instanceName: string,
   groupJid: string,
+  botOwnerJid?: string,
 ): Promise<EvolutionResult<EvolutionGroup>> {
   const result = await evolutionRequest<Record<string, unknown>>(
     baseUrl,
@@ -500,16 +503,21 @@ export async function findGroupInfos(
 
   const g = result.data;
   const id = String(g.id ?? groupJid).trim();
-  const name = String(g.name ?? g.subject ?? "").trim();
+  // El nombre real puede llegar en varios campos según la versión/estado.
+  const name = String(
+    g.name ?? g.subject ?? g.groupName ?? g.title ?? g.pushName ?? "",
+  ).trim();
 
   let isAdmin = false;
   if (Array.isArray(g.participants)) {
     const participants = g.participants as Array<Record<string, unknown>>;
     const ownerField = String(g.owner ?? "").trim();
-    const candidate = ownerField
-      ? participants.find((p) => jidsMatch(String(p.id ?? ""), ownerField))
-      : undefined;
-    isAdmin = !!candidate && isParticipantAdmin(candidate);
+    const target = botOwnerJid
+      ? participants.find((p) => jidsMatch(String(p.id ?? p.jid ?? ""), botOwnerJid))
+      : ownerField
+        ? participants.find((p) => jidsMatch(String(p.id ?? p.jid ?? ""), ownerField))
+        : undefined;
+    isAdmin = !!target && isParticipantAdmin(target);
   }
 
   return {
@@ -571,7 +579,11 @@ export async function fetchAllGroups(
     const id = String(g.id ?? g.jid ?? g.remoteJid ?? "").trim();
     if (!id) continue;
 
-    const name = String(g.name ?? g.subject ?? "").trim();
+    // El nombre real puede llegar en varios campos según la versión/estado
+    // (bug EvolutionAPI#2124: a veces omiten `subject`).
+    const name = String(
+      g.name ?? g.subject ?? g.groupName ?? g.title ?? g.pushName ?? "",
+    ).trim();
 
     // The bot is admin when a participant matching the instance owner JID
     // has an admin role. Without ownerJid we fall back to "any admin" only

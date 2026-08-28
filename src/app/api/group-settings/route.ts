@@ -3,6 +3,7 @@ import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 import { syncConfiguredGroupNames } from "@/lib/group-names";
+import { fetchInstanceOwnerJid, findGroupInfos } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,6 @@ export async function POST(request: Request) {
   const {
     instanceId,
     groupJid,
-    groupName,
     welcomeEnabled,
     welcomeMessage,
     spamFilterEnabled,
@@ -109,10 +109,10 @@ export async function POST(request: Request) {
       ? bannedWordsAction
       : "delete_and_reply";
 
-  // Verify admin access
+  // Verify admin access + fetch Evolution credentials
   const { data: instance } = await supabase
     .from("instances")
-    .select("id, admin_id")
+    .select("id, admin_id, instance_name, evolution_api_url, evolution_api_key")
     .eq("id", instanceId)
     .single();
 
@@ -120,26 +120,53 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Only instance admin can manage group settings" }, { status: 403 });
   }
 
+  // El nombre del grupo SIEMPRE sale de WhatsApp (nunca del cliente).
+  let resolvedName: string | null = null;
+  if (instance.evolution_api_url && instance.evolution_api_key) {
+    const ownerJid = await fetchInstanceOwnerJid(
+      instance.evolution_api_url,
+      instance.evolution_api_key,
+      instance.instance_name,
+    );
+    const info = await findGroupInfos(
+      instance.evolution_api_url,
+      instance.evolution_api_key,
+      instance.instance_name,
+      groupJid,
+      ownerJid ?? undefined,
+    );
+    if (info.ok && info.data) {
+      resolvedName = info.data.name || null;
+      if (info.data.isAdmin === false) {
+        return NextResponse.json(
+          { status: "error", error: "El bot debe ser administrador del grupo para configurarlo" },
+          { status: 403 },
+        );
+      }
+    }
+  }
+
+  const settingsPayload: Record<string, unknown> = {
+    instance_id: instanceId,
+    user_id: user.id,
+    group_jid: groupJid,
+    welcome_enabled: welcomeEnabled ?? false,
+    welcome_message: welcomeMessage || null,
+    spam_filter_enabled: spamFilterEnabled ?? false,
+    block_all_links: blockAllLinks ?? true,
+    allowed_domains: allowedDomains || [],
+    banned_words_enabled: bannedWordsEnabled ?? false,
+    banned_words: cleanBannedWords,
+    banned_words_action: validAction,
+    banned_words_reply: bannedWordsReply?.trim() || null,
+  };
+  // Si resolvimos el nombre en vivo lo guardamos. Si Evolution no respondió,
+  // el upsert conserva el nombre existente para grupos ya configurados.
+  if (resolvedName) settingsPayload.group_name = resolvedName;
+
   const { data: settings, error } = await supabase
     .from("group_settings")
-    .upsert(
-      {
-        instance_id: instanceId,
-        user_id: user.id,
-        group_jid: groupJid,
-        group_name: groupName || null,
-        welcome_enabled: welcomeEnabled ?? false,
-        welcome_message: welcomeMessage || null,
-        spam_filter_enabled: spamFilterEnabled ?? false,
-        block_all_links: blockAllLinks ?? true,
-        allowed_domains: allowedDomains || [],
-        banned_words_enabled: bannedWordsEnabled ?? false,
-        banned_words: cleanBannedWords,
-        banned_words_action: validAction,
-        banned_words_reply: bannedWordsReply?.trim() || null,
-      },
-      { onConflict: "instance_id,group_jid" },
-    )
+    .upsert(settingsPayload, { onConflict: "instance_id,group_jid" })
     .select()
     .single();
 

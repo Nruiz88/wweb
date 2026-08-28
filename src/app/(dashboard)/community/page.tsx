@@ -7,7 +7,6 @@ import {
   ClockIcon,
   LoaderIcon,
   PenIcon,
-  PlusIcon,
   SearchIcon,
   TrashIcon,
   XIcon,
@@ -157,7 +156,6 @@ export default function CommunityPage() {
         body: JSON.stringify({
           instanceId,
           groupJid,
-          groupName,
           welcomeEnabled,
           welcomeMessage,
           spamFilterEnabled,
@@ -384,7 +382,7 @@ export default function CommunityPage() {
                           {dg.group_name?.[0]?.toUpperCase() || "#"}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-wa-text truncate">{dg.group_name || "Grupo sin nombre"}</p>
+                          <p className="text-sm font-medium text-wa-text truncate">{dg.group_name || "Grupo de WhatsApp"}</p>
                         </div>
                       </div>
                       <div className="flex shrink-0 gap-1">
@@ -417,14 +415,6 @@ export default function CommunityPage() {
               <p className="text-xs font-medium uppercase tracking-wide text-wa-text-secondary/60">
                 Grupos configurados
               </p>
-              <button
-                type="button"
-                onClick={() => openGroupForm()}
-                className="flex items-center gap-1.5 rounded-lg bg-[#e6a44e] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#e6a44e]/90"
-              >
-                <PlusIcon className="h-3.5 w-3.5" />
-                Nuevo grupo
-              </button>
             </div>
 
             {groupSettings.length === 0 && discoveredGroups.length === 0 ? (
@@ -443,7 +433,7 @@ export default function CommunityPage() {
                 </div>
                 <div className="rounded-xl border border-wa-border bg-wa-header p-4 max-w-sm text-center">
                   <p className="text-xs text-wa-text-secondary/60">
-                    Los grupos se detectan automáticamente cuando el bot recibe mensajes. También podes agregar uno manualmente con el botón de arriba.
+                    Los grupos y comunidades se detectan automáticamente desde WhatsApp. Guardá uno de la lista superior para configurar bienvenida y anti-spam.
                   </p>
                 </div>
               </div>
@@ -460,8 +450,7 @@ export default function CommunityPage() {
                           {g.group_name?.[0]?.toUpperCase() || "#"}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-wa-text">{g.group_name || g.group_jid}</p>
-                          <p className="mt-0.5 text-[10px] text-wa-text-secondary/50 font-mono">{g.group_jid}</p>
+                          <p className="text-sm font-semibold text-wa-text">{g.group_name || "Grupo de WhatsApp"}</p>
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {g.welcome_enabled && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-[#00a884]/15 px-2 py-0.5 text-[9px] font-medium text-[#00a884]">
@@ -599,29 +588,16 @@ export default function CommunityPage() {
             </div>
 
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">JID del grupo</label>
-                <input
-                  type="text"
-                  placeholder="1203630000000@g.us"
-                  value={groupJid}
-                  onChange={(e) => setGroupJid(e.target.value)}
-                  disabled={!!editingGroup}
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text font-mono placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none disabled:opacity-50"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">
-                  Nombre del grupo <span className="text-wa-text-secondary/40">(opcional)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Mi grupo"
-                  value={groupName}
-                  onChange={(e) => setGroupName(e.target.value)}
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
-                />
+              <div className="flex items-center gap-3 rounded-xl border border-wa-border bg-wa-input px-4 py-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-xs font-bold text-[#e6a44e]">
+                  {groupName?.[0]?.toUpperCase() || "#"}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-wa-text truncate">{groupName || "Grupo de WhatsApp"}</p>
+                  <p className="text-[10px] text-wa-text-secondary/50">
+                    El nombre se toma automáticamente de WhatsApp
+                  </p>
+                </div>
               </div>
 
               {/* Welcome */}

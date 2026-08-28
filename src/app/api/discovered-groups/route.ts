@@ -57,24 +57,30 @@ export async function GET(request: Request) {
   );
 
   if (result.ok) {
-    const adminGroups = result.data.filter((g) => g.isAdmin === true);
-
-    // Resolve missing names individually (fetchAllGroups may omit subject).
+    // Resolver nombre + admin de forma robusta: si fetchAllGroups omitió el
+    // subject o no se pudo confirmar que el bot es admin, lo verificamos
+    // grupo por grupo con findGroupInfos (incluye participants).
     await Promise.all(
-      adminGroups
-        .filter((g) => !g.name)
-        .map(async (g) => {
-          const info = await findGroupInfos(
-            instance.evolution_api_url,
-            instance.evolution_api_key,
-            instance.instance_name,
-            g.id,
-          );
-          if (info.ok && info.data.name) g.name = info.data.name;
-        }),
+      result.data.map(async (g) => {
+        if (g.isAdmin === true && g.name) return;
+        const info = await findGroupInfos(
+          instance.evolution_api_url,
+          instance.evolution_api_key,
+          instance.instance_name,
+          g.id,
+          ownerJid ?? undefined,
+        );
+        if (info.ok && info.data) {
+          g.name = info.data.name || g.name;
+          g.isAdmin = g.isAdmin === true || info.data.isAdmin === true;
+        }
+      }),
     );
 
-    const listed = adminGroups
+    // Solo se listan grupos donde el bot es admin Y tienen nombre real.
+    // Nunca exponemos el JID al usuario.
+    const listed = result.data
+      .filter((g) => g.isAdmin === true && g.name)
       .map((g) => ({
         group_jid: g.id,
         group_name: g.name || savedMap.get(g.id) || null,
@@ -82,28 +88,11 @@ export async function GET(request: Request) {
       }))
       .sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));
 
-    if (listed.length > 0) {
-      return NextResponse.json({ status: "success", data: listed, source: "live" });
-    }
+    return NextResponse.json({ status: "success", data: listed, source: "live" });
   }
 
-  // Fallback: webhook-captured groups (discovered_groups table) so the list is
-  // never empty even when Evolution is unreachable or the bot is not admin.
-  const { data: discovered } = await supabase
-    .from("discovered_groups")
-    .select("group_jid, group_name")
-    .eq("instance_id", instanceId)
-    .order("last_seen_at", { ascending: false });
-
-  const fallback = (discovered || [])
-    .map((g) => ({
-      group_jid: g.group_jid,
-      group_name: g.group_name || savedMap.get(g.group_jid) || null,
-      saved: savedMap.has(g.group_jid),
-    }))
-    .sort((a, b) => (a.group_name || "").localeCompare(b.group_name || ""));
-
-  return NextResponse.json({ status: "success", data: fallback, source: "fallback" });
+  // Evolution no respondió: lista vacía (no mostramos JIDs ni nombres inventados).
+  return NextResponse.json({ status: "success", data: [], source: "live" });
 }
 
 // DELETE: Remove a saved group config (kept for backward compat / dismissal)

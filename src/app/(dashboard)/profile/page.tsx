@@ -66,7 +66,8 @@ export default function ProfilePage() {
   // romper el prerender de Vercel (window no existe en el servidor).
   const [origin, setOrigin] = useState("");
   useEffect(() => {
-    setOrigin(window.location.origin);
+    const t = setTimeout(() => setOrigin(window.location.origin), 0);
+    return () => clearTimeout(t);
   }, []);
 
   const publicAgendaLink = useMemo(() => {
