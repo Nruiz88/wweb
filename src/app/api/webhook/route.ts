@@ -8,7 +8,7 @@ import { handleGroupWelcome } from "@/lib/webhook/group-welcome";
 import { handleGroupSpam } from "@/lib/webhook/group-spam";
 import { handleWelcome } from "@/lib/webhook/welcome";
 import { handleOutsideHours } from "@/lib/webhook/outside-hours";
-import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm } from "@/lib/webhook/booking";
+import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu } from "@/lib/webhook/booking";
 import { handleMenuTap } from "@/lib/webhook/menus";
 import { handleAutoReply } from "@/lib/webhook/auto-reply";
 import type { PlanType } from "@/lib/supabase/types";
@@ -236,6 +236,13 @@ export async function POST(request: Request) {
     if (checkId.startsWith("date_")) {
       ctx.effectiveText = checkId;
       const result = await handleDateSelect(ctx);
+      if (result) return NextResponse.json(result);
+    }
+
+    // Agenda menu: agenda_hoy / agenda_proximo / agenda_completa
+    if (checkId === "agenda_hoy" || checkId === "agenda_proximo" || checkId === "agenda_completa") {
+      ctx.effectiveText = checkId;
+      const result = await handleAgendaMenu(ctx);
       if (result) return NextResponse.json(result);
     }
 

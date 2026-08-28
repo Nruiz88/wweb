@@ -2,8 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Rutas publicas (no requieren sesion)
-const PUBLIC_PATHS = ["/login", "/register", "/reset-password"];
-const PUBLIC_API = ["/api/webhook", "/api/health"];
+const PUBLIC_PATHS = ["/login", "/register", "/reset-password", "/agendar"];
+const PUBLIC_API = ["/api/webhook", "/api/health", "/api/public", "/api/appointments/slots"];
 
 function withSecurityHeaders(response: NextResponse): NextResponse {
   response.headers.set("X-Frame-Options", "DENY");
