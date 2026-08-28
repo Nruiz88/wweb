@@ -9,10 +9,10 @@ export default function LandingNav() {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    supabase.auth.getUser().then(({ data }: { data: { user: import("@supabase/supabase-js").User | null } }) => setUser(data.user));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (_event: string, session: { user: import("@supabase/supabase-js").User } | null) => {
         setUser(session?.user ?? null);
       }
     );

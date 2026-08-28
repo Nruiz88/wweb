@@ -17,7 +17,7 @@ export default function ResetPasswordConfirmPage() {
 
   // Verify that the user has a valid recovery session
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: import("@supabase/supabase-js").Session | null } }) => {
       if (!session) {
         // No valid recovery token — redirect to reset page
         router.replace("/reset-password");

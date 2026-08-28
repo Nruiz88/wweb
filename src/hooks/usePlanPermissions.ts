@@ -44,7 +44,7 @@ export function usePlanPermissions(): PlanPermissions {
 
       setSubscription((subRes.data as Subscription | null) ?? null);
 
-      const assignedIds = (assignRes.data ?? []).map((a) => a.instance_id);
+      const assignedIds = (assignRes.data ?? []).map((a: { instance_id: string }) => a.instance_id);
       if (assignedIds.length === 0) {
         setInstances([]);
         return;
