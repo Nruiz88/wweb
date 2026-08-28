@@ -62,11 +62,17 @@ export default function ProfilePage() {
   const [copied, setCopied] = useState(false);
   const [upcoming, setUpcoming] = useState<{ date: string; time: string; name: string | null }[] | null>(null);
 
+  // El origin solo existe en el cliente; se setea tras hidratar para no
+  // romper el prerender de Vercel (window no existe en el servidor).
+  const [origin, setOrigin] = useState("");
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
   const publicAgendaLink = useMemo(() => {
-    const base = window.location.origin;
     const identifier = businessName.trim() ? slugify(businessName) : slugify(email);
-    return identifier ? `${base}/agendar?business=${encodeURIComponent(identifier)}` : null;
-  }, [businessName, email]);
+    return origin && identifier ? `${origin}/agendar?business=${encodeURIComponent(identifier)}` : null;
+  }, [origin, businessName, email]);
 
   async function copyLink() {
     if (!publicAgendaLink) return;
