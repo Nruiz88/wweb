@@ -1,0 +1,12 @@
+{
+  "name": "pg-purge-service",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "node-cron": "^3.0.3",
+    "pg": "^8.13.1"
+  }
+}
