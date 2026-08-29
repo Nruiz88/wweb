@@ -330,10 +330,12 @@ export default function CommunityPage() {
       });
       const payload = await res.json();
       if (payload.status === "success") {
+        const failed = payload.data?.failed_count ?? 0;
+        const firstError = payload.data?.failures?.[0]?.error;
         setFeedback({
-          kind: "success",
+          kind: failed > 0 ? "error" : "success",
           message: sendNow
-            ? `Broadcast enviado: ${payload.data.sent_count} éxitos, ${payload.data.failed_count} fallos`
+            ? `Broadcast enviado: ${payload.data.sent_count} éxitos, ${failed} fallos${firstError ? ` — ${firstError}` : ""}`
             : "Broadcast guardado como borrador",
         });
         setShowBroadcastForm(false);
