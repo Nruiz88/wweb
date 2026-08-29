@@ -406,8 +406,12 @@ export async function sendGroupMessage(
   if (mentions && mentions.length > 0) {
     // OJO bug EvolutionAPI#2431: en algunas versiones `mentionsEveryOne:false`
     // igual menciona a todos → solo se envía el campo cuando es true.
-    if (mentions.includes("everyone")) payload.mentionsEveryOne = true;
-    payload.mentioned = mentions.filter((m) => m !== "everyone");
+    // También: NO enviar `mentioned: []` vacío (en 2.3.7 rompe el envío del
+    // broadcast con @everyone). Solo se incluye `mentioned` si hay números.
+    const everyone = mentions.includes("everyone");
+    const numbers = mentions.filter((m) => m !== "everyone");
+    if (everyone) payload.mentionsEveryOne = true;
+    if (numbers.length > 0) payload.mentioned = numbers;
   }
   if (typeof delay === "number" && delay >= 0) {
     payload.delay = delay;
