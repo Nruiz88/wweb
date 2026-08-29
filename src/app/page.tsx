@@ -1,450 +1,444 @@
 import type { Metadata } from "next";
 import {
-  ZapIcon,
   ShieldIcon,
-  CheckIcon,
-  ClockIcon,
   UsersIcon,
   ArrowRightIcon,
-  MessageCircleIcon,
-  PlusIcon,
+  PlayCircleIcon,
+  QuickReplyIcon,
+  AnalyticsIcon,
 } from "@/components/icons";
-import { Logo } from "@/components/logo";
+import { LogoMark } from "@/components/logo";
 import LandingNav from "@/components/LandingNav";
+import { ChatAutoResponses, ChatAppointments } from "@/components/LandingChats";
+import { StepQRCode, StepConfig, StepActive } from "@/components/illustrations";
 
 export const metadata: Metadata = {
   title: "Boti - Tu asistente de WhatsApp",
   description:
-    "Boti es tu asistente virtual de WhatsApp. Responde automaticamente tus clientes, 24 horas, los 7 dias. Sin contratar a nadie, sin saber de codigo. Activalo gratis.",
+    "Boti es tu asistente virtual de WhatsApp. Responde automáticamente tus clientes, 24 horas, los 7 días. Sin contratar a nadie, sin saber de código. Actívalo gratis.",
   alternates: {
     canonical: "/",
   },
 };
-import {
-  HeroIllustration,
-  StepQRCode,
-  StepConfig,
-  StepActive,
-  FeatureAutoResponses,
-  FeatureMultiUser,
-  FeatureAnalytics,
-  FeatureSecurity,
-} from "@/components/illustrations";
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="mb-4 font-label text-sm font-bold uppercase tracking-widest text-text-secondary">
+      {children}
+    </h2>
+  );
+}
+
+function CheckCircle({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+    </svg>
+  );
+}
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-[#111b21] text-white">
+    <div className="min-h-screen bg-surface-dim text-white">
+      {/* Background pattern */}
+      <div className="ld-bg-pattern pointer-events-none fixed inset-0 z-[-1]" />
+
       {/* ===== NAVBAR ===== */}
       <LandingNav />
 
-      {/* ===== HERO ===== */}
-      <section className="relative overflow-hidden">
-        {/* Decorative elements */}
-        <div className="absolute inset-0 bg-gradient-to-b from-[#00a884]/5 via-transparent to-transparent" />
-        <div className="absolute left-1/2 top-0 h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-[#00a884]/8 blur-[120px]" />
-        <div className="absolute -right-20 top-20 h-40 w-40 rounded-full border border-[#00a884]/10" />
-        <div className="absolute -left-10 bottom-20 h-24 w-24 rounded-full border border-[#00a884]/5" />
-        <div className="absolute right-1/4 top-1/3 h-2 w-2 rounded-full bg-[#00a884]/30" />
-        <div className="absolute left-1/4 top-2/3 h-1.5 w-1.5 rounded-full bg-[#00a884]/20" />
+      <main className="pt-[100px]">
+        {/* ===== HERO ===== */}
+        <section className="relative mx-auto flex min-h-[921px] max-w-[1280px] flex-col items-center justify-center px-6 pb-24 pt-16 text-center md:px-0">
+          {/* Abstract background shader */}
+          <div className="pointer-events-none absolute inset-0 z-0 opacity-20">
+            <div className="h-full w-full bg-[radial-gradient(circle_at_center,rgba(0,168,132,0.15)_0%,transparent_50%)]" />
+          </div>
 
-        <div className="relative mx-auto max-w-6xl px-6 pb-16 pt-16 sm:pb-24 sm:pt-24">
-          <div className="grid items-center gap-12 lg:grid-cols-2">
-            {/* Text */}
-            <div>
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#00a884]/20 bg-[#00a884]/10 px-4 py-1.5 text-xs font-medium text-[#00a884] backdrop-blur-sm">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00a884] opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#00a884]" />
-                </span>
+          <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center">
+            <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-whatsapp-green/30 bg-whatsapp-green/10 px-4 py-1.5">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-[#00a884]" />
+              <span className="font-label text-sm font-bold uppercase tracking-wider text-[#00a884]">
                 Hecho para emprendedores argentinos
-              </div>
+              </span>
+            </div>
 
-              <h1 className="text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
-                Tu negocio
-                <br />
-                <span className="bg-gradient-to-r from-[#00a884] to-[#25d366] bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(0,168,132,0.3)]">
-                  nunca duerme
-                </span>
-              </h1>
+            <h1 className="mb-6 font-bold leading-tight text-[64px] tracking-tight">
+              Tu negocio <br />
+              <span className="bg-gradient-to-r from-[#00a884] to-teal-dark bg-clip-text text-transparent">
+                nunca duerme
+              </span>
+            </h1>
 
-              <p className="mt-6 max-w-lg text-base text-gray-400 sm:text-lg">
-                <strong className="text-white">Boti</strong> es tu asistente virtual de WhatsApp. Responde automaticamente tus clientes, 24 horas, los 7 dias. Sin contratar a nadie, sin saber de codigo.
-              </p>
+            <p className="mb-10 max-w-2xl text-balance text-lg leading-[1.6] text-text-secondary">
+              <strong className="text-white">Boti</strong> es tu asistente virtual de WhatsApp. Responde automáticamente tus clientes, 24 horas, los 7 días. Sin contratar a nadie, sin saber de código.
+            </p>
 
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <a
-                  href="/register"
-                  className="group flex items-center justify-center gap-2 rounded-xl bg-[#00a884] px-8 py-4 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition-all hover:bg-[#00a884]/90 hover:shadow-xl hover:shadow-[#00a884]/30 hover:scale-[1.02]"
-                >
-                  Activar Boti gratis
-                  <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-                </a>
-                <a
-                  href="#como-funciona"
-                  className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-8 py-4 text-sm font-medium text-gray-300 transition-all hover:border-white/20 hover:bg-white/5 hover:shadow-lg hover:shadow-white/5"
-                >
-                  Ver como funciona
-                </a>
-              </div>
+            <div className="flex w-full flex-col gap-4 sm:w-auto sm:flex-row">
+              <a
+                href="/register"
+                className="ld-glow-accent group flex w-full items-center justify-center gap-2 rounded-full bg-[#00a884] px-8 py-4 font-label text-sm font-bold text-white transition-all hover:bg-[#008f6f] sm:w-auto"
+              >
+                Activar Boti gratis
+                <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+              </a>
+              <a
+                href="#demo"
+                className="flex w-full items-center justify-center gap-2 rounded-full border border-[#00a884] px-8 py-4 font-label text-sm font-bold text-[#00a884] transition-colors hover:bg-[#00a884]/10 sm:w-auto"
+              >
+                Ver cómo funciona
+                <PlayCircleIcon className="h-4 w-4" />
+              </a>
+            </div>
 
-              {/* Social proof */}
-              <div className="mt-10 flex items-center gap-4">
-                <div className="flex -space-x-2">
-                  {["J", "M", "A", "L", "K"].map((letter, i) => (
-                    <div
-                      key={letter}
-                      className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[#111b21] bg-gradient-to-br from-[#202c33] to-[#2a3942] text-xs font-bold text-gray-300 shadow-lg"
-                      style={{ zIndex: 5 - i }}
-                    >
-                      {letter}
-                    </div>
-                  ))}
+            {/* Social proof */}
+            <div className="mt-12 flex items-center gap-4 text-xs font-medium text-text-secondary">
+              <div className="flex -space-x-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface-dim bg-surface-container-high text-[10px] text-white">
+                  J
                 </div>
-                <p className="text-xs text-gray-500">
-                  <span className="font-semibold text-gray-300">150+</span> emprendimientos en Argentina
-                </p>
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface-dim bg-surface-container-highest text-[10px] text-white">
+                  M
+                </div>
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface-dim bg-teal-dark text-[10px] text-white">
+                  A
+                </div>
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface-dim bg-surface-bright text-[10px] text-white">
+                  +150
+                </div>
               </div>
-            </div>
-
-            {/* Hero illustration */}
-            <div className="flex justify-center lg:justify-end">
-              <HeroIllustration />
+              <span>150+ emprendimientos en Argentina ya lo usan</span>
             </div>
           </div>
-        </div>
-      </section>
 
-      {/* ===== PAIN POINTS ===== */}
-      <section className="relative border-t border-white/5 bg-[#202c33]">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(0,168,132,0.03),_transparent_50%)]" />
-        <div className="relative mx-auto max-w-6xl px-6 py-16 sm:py-20">
-          <div className="text-center">
-            <span className="inline-block rounded-full bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-400">Problema</span>
-            <h2 className="mt-4 text-2xl font-bold sm:text-3xl">Te suena esto?</h2>
+          {/* Hero phone mockups */}
+          <div id="demo" className="relative z-10 mx-auto mt-16 flex w-full max-w-[850px] scroll-mt-24 flex-col items-center justify-center gap-6 md:flex-row md:gap-8">
+            <ChatAutoResponses />
+            <ChatAppointments />
           </div>
-          <div className="mt-10 grid gap-4 sm:grid-cols-3">
+        </section>
+
+        {/* ===== PROBLEM ===== */}
+        <section id="problema" className="mx-auto max-w-[1280px] px-6 py-24">
+          <div className="mb-16 text-center">
+            <SectionLabel>Problema</SectionLabel>
+            <h3 className="mb-6 text-4xl font-bold md:text-5xl">¿Te suena esto?</h3>
+          </div>
+
+          <div className="grid gap-8 md:grid-cols-3">
             {[
-              { emoji: "😴", text: "Te escriben de noche y no contestas hasta la manana", color: "#ef4444" },
-              { emoji: "🤯", text: "Te preguntan lo mismo 50 veces por dia: horarios, precios, direcciones", color: "#f59e0b" },
-              { emoji: "📱", text: "Perdes clientes porque no podes estar pegado al telefono todo el dia", color: "#3b82f6" },
+              { emoji: "😴", text: "Te escriben de noche y no contestás hasta la mañana" },
+              { emoji: "🤯", text: "Te preguntan lo mismo 50 veces por día: horarios, precios, direcciones" },
+              { emoji: "📱", text: "Perdés clientes porque no podés estar pegado al teléfono todo el día" },
             ].map((item) => (
-              <div key={item.text} className="group relative overflow-hidden rounded-xl border border-white/5 bg-[#111b21] p-5 text-center transition-all hover:border-white/10 hover:shadow-lg hover:shadow-black/20">
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-transparent transition-colors group-hover:from-white/[0.02]" />
-                <span className="relative text-3xl">{item.emoji}</span>
-                <p className="relative mt-3 text-sm text-gray-300">{item.text}</p>
-                <div className="absolute bottom-0 left-0 h-0.5 w-full bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+              <div
+                key={item.text}
+                className="ld-card-panel rounded-2xl p-8 text-center transition-transform duration-300 hover:-translate-y-2"
+              >
+                <div className="mb-6 text-5xl">{item.emoji}</div>
+                <p className="text-lg text-text-secondary">{item.text}</p>
               </div>
             ))}
           </div>
-          <div className="mt-10 text-center">
-            <div className="inline-flex items-center gap-2 rounded-full bg-[#00a884]/10 px-5 py-2">
-              <CheckIcon className="h-4 w-4 text-[#00a884]" />
-              <p className="text-sm font-semibold text-white">
-                <span className="text-[#00a884]">Boti</span> resuelve todo eso por vos.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      {/* ===== HOW IT WORKS ===== */}
-      <section id="como-funciona" className="relative border-t border-white/5">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(0,168,132,0.03),_transparent_70%)]" />
-        <div className="relative mx-auto max-w-6xl px-6 py-20 sm:py-28">
-          <div className="text-center">
-            <span className="inline-block rounded-full bg-[#00a884]/10 px-3 py-1 text-xs font-semibold text-[#00a884]">Proceso</span>
-            <h2 className="mt-4 text-2xl font-bold sm:text-3xl">De cero a bot en 2 minutos</h2>
-            <p className="mt-3 text-sm text-gray-400">No necesitas saber programar. Posta.</p>
+          <div className="mt-12 text-center">
+            <p className="text-2xl font-bold text-whatsapp-green">Boti resuelve todo eso por vos.</p>
+          </div>
+        </section>
+
+        {/* ===== PROCESS ===== */}
+        <section id="proceso" className="mx-auto max-w-[1280px] px-6 py-24">
+          <div className="mb-16 text-center">
+            <SectionLabel>Proceso</SectionLabel>
+            <h3 className="mb-6 text-4xl font-bold md:text-5xl">De cero a bot en 2 minutos</h3>
+            <p className="text-lg text-text-secondary">No necesitás saber programar. Posta.</p>
           </div>
 
-          <div className="relative mt-16">
-            {/* Connection lines between steps */}
-            <div className="absolute left-[20%] top-24 hidden h-px w-[60%] bg-gradient-to-r from-[#00a884]/30 via-[#e6a44e]/30 to-[#53bdeb]/30 sm:block" />
-
-            <div className="grid gap-12 sm:grid-cols-3 sm:gap-8">
-              <div className="group relative flex flex-col items-center text-center">
-                <div className="relative">
-                  <div className="absolute -inset-4 rounded-2xl bg-[#00a884]/5 opacity-0 blur-xl transition-opacity group-hover:opacity-100" />
+          <div className="grid gap-8 md:grid-cols-3">
+            <div className="ld-card-panel group flex flex-col overflow-hidden rounded-2xl transition-colors hover:border-whatsapp-green/30">
+              <div className="relative flex aspect-square items-center justify-center overflow-hidden border-b border-white/5 bg-[#0b141a]">
+                <div className="transition-transform duration-500 group-hover:scale-105">
                   <StepQRCode />
                 </div>
-                <div className="mt-6">
-                  <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#00a884]/15 text-lg font-bold text-[#00a884] ring-4 ring-[#111b21]">1</div>
-                  <h3 className="text-lg font-semibold">Escanea el QR</h3>
-                  <p className="mt-2 max-w-xs text-sm text-gray-400">
-                    Abri WhatsApp en tu celular, escanea el codigo y listo. Boti ya esta conectado.
-                  </p>
-                  <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#00a884]">
-                    <ClockIcon className="h-3.5 w-3.5" />
-                    30 segundos
-                  </div>
+              </div>
+              <div className="relative flex flex-grow flex-col p-8">
+                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-full bg-whatsapp-green/10 text-xl font-bold text-whatsapp-green">
+                  1
+                </div>
+                <h4 className="mb-4 text-2xl font-bold">Escaneá el QR</h4>
+                <p className="mb-6 text-text-secondary">
+                  Abrí WhatsApp en tu celular, escaneá el código y listo. Boti ya está conectado.
+                </p>
+                <div className="mt-auto font-label text-sm font-bold uppercase tracking-wider text-whatsapp-green">
+                  30 segundos
                 </div>
               </div>
+            </div>
 
-              <div className="group relative flex flex-col items-center text-center">
-                <div className="relative">
-                  <div className="absolute -inset-4 rounded-2xl bg-[#e6a44e]/5 opacity-0 blur-xl transition-opacity group-hover:opacity-100" />
+            <div className="ld-card-panel group flex flex-col overflow-hidden rounded-2xl transition-colors hover:border-whatsapp-green/30">
+              <div className="relative flex aspect-square items-center justify-center overflow-hidden border-b border-white/5 bg-[#0b141a]">
+                <div className="transition-transform duration-500 group-hover:scale-105">
                   <StepConfig />
                 </div>
-                <div className="mt-6">
-                  <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#e6a44e]/15 text-lg font-bold text-[#e6a44e] ring-4 ring-[#111b21]">2</div>
-                  <h3 className="text-lg font-semibold">Escribi las respuestas</h3>
-                  <p className="mt-2 max-w-xs text-sm text-gray-400">
-                    &quot;Cuando te escriban precio, contesta esto...&quot; Asi de simple. O usa las plantillas que te dejamos.
-                  </p>
-                  <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#e6a44e]">
-                    <ClockIcon className="h-3.5 w-3.5" />
-                    1 minuto
-                  </div>
+              </div>
+              <div className="relative flex flex-grow flex-col p-8">
+                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-full bg-whatsapp-green/10 text-xl font-bold text-whatsapp-green">
+                  2
+                </div>
+                <h4 className="mb-4 text-2xl font-bold">Escribí las respuestas</h4>
+                <p className="mb-6 text-text-secondary">
+                  &quot;Cuando te escriban precio, contestá esto...&quot; Así de simple. O usá las plantillas que te dejamos.
+                </p>
+                <div className="mt-auto font-label text-sm font-bold uppercase tracking-wider text-whatsapp-green">
+                  1 minuto
                 </div>
               </div>
+            </div>
 
-              <div className="group relative flex flex-col items-center text-center">
-                <div className="relative">
-                  <div className="absolute -inset-4 rounded-2xl bg-[#53bdeb]/5 opacity-0 blur-xl transition-opacity group-hover:opacity-100" />
+            <div className="ld-card-panel group flex flex-col overflow-hidden rounded-2xl transition-colors hover:border-whatsapp-green/30">
+              <div className="relative flex aspect-square items-center justify-center overflow-hidden border-b border-white/5 bg-[#0b141a]">
+                <div className="transition-transform duration-500 group-hover:scale-105">
                   <StepActive />
                 </div>
-                <div className="mt-6">
-                  <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#53bdeb]/15 text-lg font-bold text-[#53bdeb] ring-4 ring-[#111b21]">3</div>
-                  <h3 className="text-lg font-semibold">Boti responde solo</h3>
-                  <p className="mt-2 max-w-xs text-sm text-gray-400">
-                    Tu bot esta activo 24/7. Vos seguis con tu negocio y Boti atiende los mensajes.
-                  </p>
-                  <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#53bdeb]">
-                    <ZapIcon className="h-3.5 w-3.5" />
-                    Siempre activo
-                  </div>
+              </div>
+              <div className="relative flex flex-grow flex-col p-8">
+                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-full bg-whatsapp-green/10 text-xl font-bold text-whatsapp-green">
+                  3
+                </div>
+                <h4 className="mb-4 text-2xl font-bold">Boti responde solo</h4>
+                <p className="mb-6 text-text-secondary">
+                  Tu bot está activo 24/7. Vos seguís con tu negocio y Boti atiende los mensajes.
+                </p>
+                <div className="mt-auto font-label text-sm font-bold uppercase tracking-wider text-whatsapp-green">
+                  Siempre activo
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ===== FEATURES ===== */}
-      <section id="features" className="relative border-t border-white/5 bg-[#202c33]">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_rgba(0,168,132,0.04),_transparent_60%)]" />
-        <div className="relative mx-auto max-w-6xl px-6 py-20 sm:py-28">
-          <div className="text-center">
-            <span className="inline-block rounded-full bg-[#00a884]/10 px-3 py-1 text-xs font-semibold text-[#00a884]">Funcionalidades</span>
-            <h2 className="mt-4 text-2xl font-bold sm:text-3xl">Todo lo que tu negocio necesita</h2>
+        {/* ===== FEATURES ===== */}
+        <section id="funcionalidades" className="mx-auto max-w-[1280px] px-6 py-24">
+          <div className="mb-16 text-center">
+            <SectionLabel>Funcionalidades</SectionLabel>
+            <h3 className="mb-6 text-4xl font-bold md:text-5xl">Todo lo que tu negocio necesita</h3>
           </div>
 
-          <div className="mt-14 grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-8 md:grid-cols-2">
             {[
-              { icon: <ZapIcon className="h-5 w-5" />, title: "Respuestas automaticas", desc: "Cuando alguien escribe \"horario\", \"precio\" o \"direccion\", Boti contesta solo. Automatico, sin que hagas nada.", color: "#00a884", illustration: <FeatureAutoResponses /> },
-              { icon: <UsersIcon className="h-5 w-5" />, title: "Para tu equipo", desc: "Si sos admin, podes crear cuentas para cada empleado. Cada uno tiene su propio Boti.", color: "#53bdeb", illustration: <FeatureMultiUser /> },
-              { icon: <MessageCircleIcon className="h-5 w-5" />, title: "Sabis quien te escribe", desc: "Ves en tiempo real cuantos mensajes contesto Boti, cuales funcionaron y cuales no.", color: "#e6a44e", illustration: <FeatureAnalytics /> },
-              { icon: <ShieldIcon className="h-5 w-5" />, title: "Seguro y confiable", desc: "Tus datos y los de tus clientes estan protegidos. Cada cuenta es independiente y segura.", color: "#00a884", illustration: <FeatureSecurity /> },
+              {
+                icon: <QuickReplyIcon className="h-9 w-9" />,
+                title: "Respuestas automáticas",
+                desc: "Cuando alguien escribe \"horario\", \"precio\" o \"dirección\", Boti contesta solo. Automático, sin que hagas nada.",
+              },
+              {
+                icon: <UsersIcon className="h-9 w-9" />,
+                title: "Para tu equipo",
+                desc: "Si sos admin, podés crear cuentas para cada empleado. Cada uno tiene su propio Boti.",
+              },
+              {
+                icon: <AnalyticsIcon className="h-9 w-9" />,
+                title: "Sabés quién te escribe",
+                desc: "Ves en tiempo real cuántos mensajes contestó Boti, cuáles funcionaron y cuáles no.",
+              },
+              {
+                icon: <ShieldIcon className="h-9 w-9" />,
+                title: "Seguro y confiable",
+                desc: "Tus datos y los de tus clientes están protegidos. Cada cuenta es independiente y segura.",
+              },
             ].map((feature) => (
-              <div key={feature.title} className="group relative overflow-hidden rounded-2xl border border-white/5 bg-[#111b21] transition-all duration-300 hover:border-white/10 hover:shadow-2xl hover:shadow-black/30">
-                {/* Glow effect on hover */}
-                <div className="absolute -inset-px rounded-2xl bg-gradient-to-r from-transparent via-white/[0.03] to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-                
-                <div className="relative p-6">
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl transition-transform group-hover:scale-110" style={{ backgroundColor: `${feature.color}15`, color: feature.color }}>
-                    {feature.icon}
-                  </div>
-                  <h3 className="text-base font-semibold">{feature.title}</h3>
-                  <p className="mt-1.5 text-sm text-gray-400">{feature.desc}</p>
-                </div>
-                <div className="relative border-t border-white/5 bg-[#0b141a] p-4 transition-colors group-hover:bg-[#0d181e]">
-                  {feature.illustration}
-                </div>
+              <div key={feature.title} className="ld-card-panel rounded-2xl p-8 transition-colors hover:bg-surface-elevated">
+                <div className="mb-4 text-whatsapp-green">{feature.icon}</div>
+                <h4 className="mb-4 text-2xl font-bold">{feature.title}</h4>
+                <p className="text-text-secondary">{feature.desc}</p>
               </div>
             ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ===== PRICING ===== */}
-      <section id="precios" className="relative border-t border-white/5">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(0,168,132,0.03),_transparent_50%)]" />
-        <div className="relative mx-auto max-w-6xl px-6 py-20 sm:py-28">
-          <div className="text-center">
-            <span className="inline-block rounded-full bg-[#00a884]/10 px-3 py-1 text-xs font-semibold text-[#00a884]">Precios</span>
-            <h2 className="mt-4 text-2xl font-bold sm:text-3xl">Simple, como todo deberia ser</h2>
-            <p className="mt-3 text-sm text-gray-400">
-              Todos los planes incluyen <strong className="text-white">1 bot / numero de WhatsApp</strong> por defecto
+        {/* ===== PRICING ===== */}
+        <section id="precios" className="mx-auto max-w-[1280px] px-6 py-24">
+          <div className="mb-16 text-center">
+            <SectionLabel>Precios</SectionLabel>
+            <h3 className="mb-6 text-4xl font-bold md:text-5xl">Simple, como todo debería ser</h3>
+            <p className="text-lg text-text-secondary">
+              Todos los planes incluyen <strong className="text-white">1 bot / número de WhatsApp</strong> por defecto
             </p>
           </div>
 
-          <div className="mx-auto mt-14 grid max-w-4xl gap-6 lg:grid-cols-3">
+          <div className="grid items-stretch gap-8 lg:grid-cols-3">
             {/* Starter */}
-            <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] p-6 transition-all duration-300 hover:border-[#53bdeb]/30 hover:shadow-xl hover:shadow-black/20">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-[#53bdeb]">Starter</p>
-                <span className="rounded-full bg-[#53bdeb]/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#53bdeb]">
-                  Atencion Basica
-                </span>
-              </div>
-              <div className="mt-4 flex items-baseline gap-1">
+            <div className="ld-card-panel flex flex-col rounded-3xl border border-white/10 p-8 transition-colors hover:border-white/20">
+              <h4 className="mb-2 text-2xl font-bold">Starter</h4>
+              <p className="mb-6 text-text-secondary">Atención Básica</p>
+              <div className="mb-8">
                 <span className="text-4xl font-bold">$12.000</span>
-                <span className="text-sm text-gray-500">ARS/mes</span>
+                <span className="text-text-secondary"> ARS/mes</span>
               </div>
-              <p className="mt-2 text-xs text-gray-500">1 bot / numero de WhatsApp</p>
-              <ul className="mt-6 flex-1 space-y-3">
+              <ul className="mb-8 flex-grow space-y-4 text-sm text-text-secondary">
                 {[
-                  "Respuestas automaticas por palabras clave (Keywords)",
-                  "Menu de botones interactivos (hasta 3 opciones y submenus)",
+                  "Respuestas automáticas por palabras clave (Keywords)",
+                  "Menú de botones interactivos (hasta 3 opciones y submenús)",
                   "Mensaje de bienvenida y respuesta fuera de horario comercial",
                 ].map((item) => (
-                  <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
-                    <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#53bdeb]" />
+                  <li key={item} className="flex items-start gap-3">
+                    <CheckCircle className="h-5 w-5 shrink-0 text-whatsapp-green" />
                     {item}
                   </li>
                 ))}
               </ul>
-              <p className="mt-4 rounded-lg bg-white/[0.03] px-3 py-2 text-[10px] leading-relaxed text-gray-500">
-                <span className="font-semibold text-gray-400">Ideal para:</span> Showrooms, comercios minoristas, locales gastronomicos, repartidores
-              </p>
-              <a
-                href="/register"
-                className="mt-5 flex w-full items-center justify-center rounded-xl border border-white/10 py-3 text-sm font-semibold text-white transition-all hover:border-[#53bdeb]/30 hover:bg-white/5 hover:shadow-lg hover:shadow-white/5"
-              >
-                Empezar con Starter
-              </a>
+              <div className="mt-auto">
+                <p className="mb-6 text-xs italic text-text-secondary opacity-80">
+                  Ideal para: Showrooms, comercios minoristas, locales gastronómicos, repartidores
+                </p>
+                <a
+                  href="/register"
+                  className="block w-full rounded-full border border-whatsapp-green py-3 px-4 text-center font-label text-sm font-bold text-whatsapp-green transition-colors hover:bg-whatsapp-green/10"
+                >
+                  Empezar con Starter
+                </a>
+              </div>
             </div>
 
             {/* Pro */}
-            <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-[#00a884]/30 bg-[#202c33] p-6 transition-all duration-300 hover:border-[#00a884]/50 hover:shadow-xl hover:shadow-[#00a884]/10">
-              <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-[#00a884]/10 via-transparent to-transparent opacity-50" />
-              <div className="relative flex items-center justify-between">
-                <p className="text-sm font-semibold text-[#00a884]">Pro</p>
-                <span className="rounded-full bg-gradient-to-r from-[#00a884] to-[#25d366] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg shadow-[#00a884]/30">
-                  Recomendado
-                </span>
+            <div className="ld-card-panel relative flex flex-col rounded-3xl border-2 border-whatsapp-green bg-surface-elevated p-8 shadow-[0_0_30px_rgba(37,211,102,0.15)] transition-transform lg:-translate-y-4">
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-whatsapp-green px-4 py-1 font-label text-sm font-bold tracking-wide text-surface-dim">
+                Recomendado
               </div>
-              <div className="relative mt-4 flex items-baseline gap-1">
+              <h4 className="mb-2 text-2xl font-bold">Pro</h4>
+              <p className="mb-6 text-text-secondary">Gestión Avanzada</p>
+              <div className="mb-8">
                 <span className="text-4xl font-bold">$22.000</span>
-                <span className="text-sm text-gray-500">ARS/mes</span>
+                <span className="text-text-secondary"> ARS/mes</span>
               </div>
-              <p className="relative mt-2 text-xs text-gray-500">1 bot / numero de WhatsApp</p>
-              <ul className="relative mt-6 flex-1 space-y-3">
+              <ul className="mb-8 flex-grow space-y-4 text-sm text-text-secondary">
                 {[
                   "Todas las funciones del plan Starter",
-                  "Modulo de calendario y agenda con asignacion de turnos",
-                  "Confirmacion de citas en tiempo real en la base de datos (Supabase)",
-                  "Recordatorio automatico 24 hs antes por WhatsApp con botones (Confirmar / Cancelar)",
+                  "Módulo de calendario y agenda con asignación de turnos",
+                  "Confirmación de citas en tiempo real en la base de datos (Supabase)",
+                  "Recordatorio automático 24 hs antes por WhatsApp con botones (Confirmar / Cancelar)",
                 ].map((item) => (
-                  <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
-                    <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#00a884]" />
+                  <li key={item} className="flex items-start gap-3">
+                    <CheckCircle className="h-5 w-5 shrink-0 text-whatsapp-green" />
                     {item}
                   </li>
                 ))}
               </ul>
-              <p className="relative mt-4 rounded-lg bg-white/[0.03] px-3 py-2 text-[10px] leading-relaxed text-gray-500">
-                <span className="font-semibold text-gray-400">Ideal para:</span> Barberias, centros de estetica, consultorios medicos/odontologicos, canchas de padel o futbol, entrenadores personales
-              </p>
-              <a
-                href="/register"
-                className="relative mt-5 flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] py-3 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition-all hover:shadow-xl hover:shadow-[#00a884]/35 hover:scale-[1.02]"
-              >
-                Elegir Pro
-              </a>
+              <div className="mt-auto">
+                <p className="mb-6 text-xs italic text-text-secondary opacity-80">
+                  Ideal para: Barberías, centros de estética, consultorios médicos/odontológicos, canchas de pádel o fútbol, entrenadores personales
+                </p>
+                <a
+                  href="/register"
+                  className="block w-full rounded-full bg-whatsapp-green py-3 px-4 text-center font-label text-sm font-bold text-surface-dim transition-colors hover:bg-[#00a884]"
+                >
+                  Elegir Pro
+                </a>
+              </div>
             </div>
 
             {/* Community */}
-            <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#202c33] p-6 transition-all duration-300 hover:border-[#e6a44e]/30 hover:shadow-xl hover:shadow-black/20">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-[#e6a44e]">Community</p>
-                <span className="rounded-full bg-[#e6a44e]/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#e6a44e]">
-                  Grupos &amp; Difusion
-                </span>
-              </div>
-              <div className="mt-4 flex items-baseline gap-1">
+            <div className="ld-card-panel flex flex-col rounded-3xl border border-white/10 p-8 transition-colors hover:border-white/20">
+              <h4 className="mb-2 text-2xl font-bold">Community</h4>
+              <p className="mb-6 text-text-secondary">Grupos &amp; Difusión</p>
+              <div className="mb-8">
                 <span className="text-4xl font-bold">$35.000</span>
-                <span className="text-sm text-gray-500">ARS/mes</span>
+                <span className="text-text-secondary"> ARS/mes</span>
               </div>
-              <p className="mt-2 text-xs text-gray-500">1 bot / numero de WhatsApp</p>
-              <ul className="mt-6 flex-1 space-y-3">
+              <ul className="mb-8 flex-grow space-y-4 text-sm text-text-secondary">
                 {[
                   "Todas las funciones del plan Starter",
-                  "Bienvenida automatica en grupos etiquetando al usuario (@usuario)",
-                  "Moderacion y filtro anti-spam (eliminacion de links no autorizados)",
+                  "Bienvenida automática en grupos etiquetando al usuario (@usuario)",
+                  "Moderación y filtro anti-spam (eliminación de links no autorizados)",
                   "Programador de comunicados / notificaciones masivas a varios grupos",
                 ].map((item) => (
-                  <li key={item} className="flex items-start gap-2 text-sm text-gray-300">
-                    <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#e6a44e]" />
+                  <li key={item} className="flex items-start gap-3">
+                    <CheckCircle className="h-5 w-5 shrink-0 text-whatsapp-green" />
                     {item}
                   </li>
                 ))}
               </ul>
-              <p className="mt-4 rounded-lg bg-white/[0.03] px-3 py-2 text-[10px] leading-relaxed text-gray-500">
-                <span className="font-semibold text-gray-400">Ideal para:</span> Profesores, academias, gimnasios, clubes, administradores de comunidades o senales
-              </p>
-              <a
-                href="/register"
-                className="mt-5 flex w-full items-center justify-center rounded-xl border border-white/10 py-3 text-sm font-semibold text-white transition-all hover:border-[#e6a44e]/30 hover:bg-white/5 hover:shadow-lg hover:shadow-white/5"
-              >
-                Elegir Community
-              </a>
+              <div className="mt-auto">
+                <p className="mb-6 text-xs italic text-text-secondary opacity-80">
+                  Ideal para: Profesores, academias, gimnasios, clubes, administradores de comunidades o señales
+                </p>
+                <a
+                  href="/register"
+                  className="block w-full rounded-full border border-whatsapp-green py-3 px-4 text-center font-label text-sm font-bold text-whatsapp-green transition-colors hover:bg-whatsapp-green/10"
+                >
+                  Elegir Community
+                </a>
+              </div>
             </div>
           </div>
 
           {/* Add-on */}
-          <div className="mx-auto mt-6 max-w-4xl">
-            <div className="flex flex-col items-center justify-between gap-4 rounded-2xl border border-dashed border-[#e6a44e]/30 bg-[#202c33]/50 p-6 sm:flex-row">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#e6a44e]/15 text-[#e6a44e]">
-                  <PlusIcon className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">Bot / Instancia extra (Add-on)</p>
-                  <p className="mt-0.5 text-xs text-gray-400">
-                    Conecta un numero adicional cuando necesites separar canales (ej. Ventas y Soporte, o distintas sucursales)
-                  </p>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-baseline gap-1">
-                <span className="text-2xl font-bold text-[#e6a44e]">+$6.000</span>
-                <span className="text-sm text-gray-500">ARS/mes por bot</span>
-              </div>
+          <div className="mx-auto mt-16 flex max-w-3xl flex-col items-center gap-8 rounded-3xl border-2 border-teal-dark/30 bg-surface-bright p-8 text-center shadow-[0_0_30px_rgba(0,168,132,0.15)] transition-all duration-300 hover:border-teal-dark sm:flex-row sm:text-left">
+            <div className="absolute" />
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-teal-dark/20 text-teal-dark shadow-inner">
+              <svg className="h-10 w-10" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" />
+              </svg>
+            </div>
+            <div className="flex-grow">
+              <h4 className="mb-2 text-2xl font-bold">Bot / Instancia extra (Add-on)</h4>
+              <p className="text-base text-text-secondary">
+                Conectá un número adicional cuando necesites separar canales (ej. Ventas y Soporte, o distintas sucursales)
+              </p>
+            </div>
+            <div className="flex flex-col items-center whitespace-nowrap font-bold text-teal-dark sm:ml-auto sm:items-end">
+              <span className="text-3xl">+$6.000</span>
+              <span className="font-label text-sm uppercase tracking-tighter text-text-secondary">ARS/mes</span>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ===== CTA ===== */}
-      <section className="relative border-t border-white/5 bg-[#202c33] overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(0,168,132,0.06),_transparent_60%)]" />
-        <div className="absolute -left-20 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full border border-[#00a884]/10" />
-        <div className="absolute -right-20 top-1/2 h-60 w-60 -translate-y-1/2 rounded-full border border-[#00a884]/5" />
-        
-        <div className="relative mx-auto max-w-6xl px-6 py-20 sm:py-28 text-center">
-          <Logo size="lg" className="mx-auto mb-6 justify-center" />
-          <h2 className="text-3xl font-bold sm:text-4xl">
-            Deja de perder clientes
-          </h2>
-          <p className="mt-4 text-base text-gray-400">
-            Activá Boti en 2 minutos y empeza a contestar solo
-          </p>
-          <a
-            href="/register"
-            className="group mt-8 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] px-10 py-4 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/25 transition-all hover:shadow-xl hover:shadow-[#00a884]/40 hover:scale-[1.02]"
-          >
-            Crear cuenta gratis
-            <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-          </a>
-          <p className="mt-4 text-xs text-gray-500">Sin tarjeta de credito. Sin compromiso.</p>
-        </div>
-      </section>
+        {/* ===== CTA ===== */}
+        <section id="cta" className="mx-auto max-w-[1280px] px-6 py-24 text-center">
+          <div className="relative overflow-hidden rounded-3xl border border-whatsapp-green/20 bg-gradient-to-b from-[#1a252a] to-[#0a151a] p-12 shadow-2xl md:p-20">
+            <div className="pointer-events-none absolute inset-0 z-0 opacity-20 bg-[radial-gradient(circle_at_center,rgba(37,211,102,0.25)_0%,transparent_70%)]" />
+            <div className="relative z-10">
+              <h2 className="mb-6 text-4xl font-bold md:text-5xl">Dejá de perder clientes</h2>
+              <p className="mx-auto mb-10 max-w-2xl text-xl text-text-secondary">
+                Activá Boti en 2 minutos y empezá a contestar solo
+              </p>
+              <a
+                href="/register"
+                className="ld-glow-accent group inline-flex items-center justify-center gap-3 rounded-full bg-whatsapp-green px-10 py-4 font-label text-lg font-bold text-surface-dim transition-all hover:bg-[#00a884]"
+              >
+                Crear cuenta gratis
+                <ArrowRightIcon className="h-5 w-5 transition-transform group-hover:translate-x-1" />
+              </a>
+              <p className="mt-6 text-sm text-text-secondary">Sin tarjeta de crédito. Sin compromiso.</p>
+            </div>
+          </div>
+        </section>
+      </main>
 
       {/* ===== FOOTER ===== */}
-      <footer className="border-t border-white/5 bg-[#111b21]">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 sm:flex-row">
-          <Logo size="sm" />
-          <p className="text-xs text-gray-500">
+      <footer className="mx-auto mt-12 flex max-w-[1280px] w-full flex-col items-center justify-between border-t border-white/5 px-6 py-24 md:flex-row">
+        <div className="mb-6 flex flex-col items-center md:mb-0 md:items-start">
+          <div className="mb-2 flex items-center gap-2 font-bold text-[#00a884]">
+            <LogoMark />
+            Boti
+          </div>
+          <p className="text-text-secondary">
             &copy; {new Date().getFullYear()} Boti. Hecho con verde en Argentina 🇦🇷
           </p>
-          <div className="flex items-center gap-4">
-            <a href="/login" className="text-xs text-gray-500 transition hover:text-gray-300">
-              Login
-            </a>
-            <a href="/register" className="text-xs text-gray-500 transition hover:text-gray-300">
-              Registro
-            </a>
-          </div>
         </div>
+        <nav className="flex flex-wrap justify-center gap-6">
+          <a href="#funcionalidades" className="font-label text-xs font-bold uppercase text-text-secondary opacity-80 transition-colors hover:text-white hover:opacity-100">
+            Funcionalidades
+          </a>
+          <a href="#precios" className="font-label text-xs font-bold uppercase text-text-secondary opacity-80 transition-colors hover:text-white hover:opacity-100">
+            Precios
+          </a>
+          <a href="/login" className="font-label text-xs font-bold uppercase text-text-secondary opacity-80 transition-colors hover:text-white hover:opacity-100">
+            Login
+          </a>
+          <a href="/register" className="font-label text-xs font-bold uppercase text-text-secondary opacity-80 transition-colors hover:text-white hover:opacity-100">
+            Registro
+          </a>
+        </nav>
       </footer>
     </div>
   );

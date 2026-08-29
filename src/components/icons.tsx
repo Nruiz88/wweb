@@ -354,3 +354,62 @@ export function ChevronDownIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function PhoneIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
+export function PlayCircleIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m10 8 6 4-6 4V8Z" />
+    </svg>
+  );
+}
+
+export function AnalyticsIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <path d="M3 3v18h18" />
+      <path d="M18 17V9" />
+      <path d="M13 17V5" />
+      <path d="M8 17v-3" />
+    </svg>
+  );
+}
+
+export function DoubleCheckIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <path d="m2 13 5 5L18.5 7" />
+      <path d="m9 18 2 2L22.5 9" />
+    </svg>
+  );
+}
+
+export function QuickReplyIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+    </svg>
+  );
+}
+
+export function RobotIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <rect width="18" height="12" x="3" y="6" rx="3" />
+      <path d="M12 6V2" />
+      <circle cx="12" cy="1.5" r="1" />
+      <circle cx="8" cy="11" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="16" cy="11" r="1.2" fill="currentColor" stroke="none" />
+      <path d="M9 15c1 .8 5 .8 6 0" />
+    </svg>
+  );
+}

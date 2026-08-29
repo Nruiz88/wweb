@@ -32,6 +32,26 @@
   --color-wa-active: var(--wa-active);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-label: var(--font-label);
+
+  /* Landing design system (Stitch "Velocity WhatsApp Business System") */
+  --color-surface-dim: #0a151a;
+  --color-surface-deep: #0a151a;
+  --color-surface: #0a151a;
+  --color-surface-variant: #2c363d;
+  --color-surface-bright: #303b41;
+  --color-surface-elevated: #202c33;
+  --color-surface-container-lowest: #060f15;
+  --color-surface-container-low: #131d23;
+  --color-surface-container: #172127;
+  --color-surface-container-high: #212b32;
+  --color-surface-container-highest: #2c363d;
+  --color-on-surface: #d9e4ec;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #8696a0;
+  --color-whatsapp-green: #25d366;
+  --color-teal-dark: #00a884;
+  --color-outline-landing: #86948d;
 }
 
 html, body {
@@ -117,3 +137,90 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 .fade-up { animation: fade-up 200ms ease-out both; }
+
+/* ===== Landing page helpers (Stitch design) ===== */
+@keyframes ld-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes ld-message-pop {
+  0% { opacity: 0; transform: scale(0.8) translateY(10px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes ld-typing {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
+@keyframes ld-fade-in-up {
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes ld-fade-out {
+  to { opacity: 0; display: none; height: 0; margin: 0; overflow: hidden; }
+}
+
+.ld-bg-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg width='48' height='48' viewBox='0 0 48 48' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 20c0-2.2 1.8-4 4-4h16c2.2 0 4 1.8 4 4v10c0 2.2-1.8 4-4 4h-9l-5 4v-4h-2c-2.2 0-4-1.8-4-4V20z' stroke='%233d4a44' stroke-width='1' fill='none'/%3E%3Ccircle cx='20' cy='25' r='1.5' fill='%233d4a44'/%3E%3Ccircle cx='27' cy='25' r='1.5' fill='%233d4a44'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 48px;
+  opacity: 0.5;
+}
+
+.ld-chat-bg {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M14 22c0-2.2 1.8-4 4-4h24c2.2 0 4 1.8 4 4v14c0 2.2-1.8 4-4 4h-13l-7 6v-6h-4c-2.2 0-4-1.8-4-4V22z' stroke='%233d4a44' stroke-width='1.2' fill='none' opacity='0.7'/%3E%3Ccircle cx='24' cy='29' r='2' fill='%233d4a44' opacity='0.6'/%3E%3Ccircle cx='33' cy='29' r='2' fill='%233d4a44' opacity='0.6'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 60px;
+  background-color: #0b141a;
+}
+
+.ld-glass-panel {
+  background: rgba(32, 44, 51, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ld-card-panel {
+  background-color: #202c33;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ld-glow-accent {
+  box-shadow: 0 0 40px rgba(37, 211, 102, 0.15);
+}
+
+.ld-no-scrollbar::-webkit-scrollbar { display: none; }
+.ld-no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+.ld-msg-1 { animation-delay: 0.5s; opacity: 0; }
+.ld-msg-2 { animation-delay: 1.5s; opacity: 0; }
+.ld-msg-3 { animation-delay: 3.5s; opacity: 0; }
+.ld-msg-4 { animation-delay: 4.5s; opacity: 0; }
+.ld-msg-b-1 { animation-delay: 1s; opacity: 0; }
+.ld-msg-b-2 { animation-delay: 2s; opacity: 0; }
+.ld-msg-b-3 { animation-delay: 3s; opacity: 0; }
+.ld-msg-b-4 { animation-delay: 5s; opacity: 0; }
+
+.ld-typing-indicator {
+  animation-delay: 1s;
+  opacity: 0;
+  animation-duration: 0.4s;
+  animation-fill-mode: forwards;
+  animation-name: ld-message-pop;
+}
+.ld-typing-hide { animation: ld-fade-out 0.1s 1.4s forwards; }
+
+.ld-animate-message-pop { animation: ld-message-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+.ld-animate-float { animation: ld-float 6s ease-in-out infinite; }
+.ld-animate-fade-in-up { animation: ld-fade-in-up 0.6s ease-out forwards; }
+
+.ld-dot {
+  width: 6px;
+  height: 6px;
+  background-color: #8696a0;
+  border-radius: 50%;
+  display: inline-block;
+}
+.ld-dot:nth-child(1) { animation-delay: -0.32s; }
+.ld-dot:nth-child(2) { animation-delay: -0.16s; }
+.ld-dot.ld-animate-typing { animation: ld-typing 1.4s infinite ease-in-out both; }
