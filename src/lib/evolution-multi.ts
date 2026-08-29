@@ -273,7 +273,7 @@ export async function sendTextMessage(
       method: "POST",
       body: JSON.stringify(payload),
     },
-    15000,
+    40000,
   );
 }
 
@@ -319,7 +319,7 @@ export async function sendButtonMessage(
       method: "POST",
       body: JSON.stringify(payload),
     },
-    15000,
+    40000,
   );
 }
 
@@ -356,7 +356,7 @@ export async function sendListMessage(
       method: "POST",
       body: JSON.stringify(payload),
     },
-    15000,
+    40000,
   );
 }
 
@@ -421,7 +421,7 @@ export async function sendGroupMessage(
       method: "POST",
       body: JSON.stringify(payload),
     },
-    15000,
+    40000,
   );
 }
 
@@ -718,10 +718,12 @@ export async function mapLimit<T, R>(
 }
 
 /**
- * Enumera los GRUPOS del bot vía POST /chat/findChats/{instance} — lee de la
- * DB local de Evolution, así que es RÁPIDO. fetchAllGroups es lentísimo
- * (25s+/timeout, issue #1883) incluso sin participants, así que discovery y
- * sync usan findChats para listar grupos y luego findGroupInfos por grupo.
+ * Enumera los GRUPOS del bot vía POST /chat/findChats/{instance} — trae solo
+ * los JIDs de los chats (metadatos: remoteJid, nombre, imagen), NO el contenido
+ * de los mensajes. Lee de la DB local de Evolution, así que es RÁPIDO.
+ * fetchAllGroups es lentísimo (25s+/timeout, issue #1883) incluso sin
+ * participants, así que discovery usa findChats para listar grupos y luego
+ * findGroupInfos por grupo (para nombre real + admin).
  * Se prueban varias estrategias (sin params / take-skip / limit-offset) porque
  * el esquema de paginación varía según la versión, y se fusionan los grupos.
  */

@@ -76,6 +76,9 @@ export async function runGroupDiscovery(
   // matchear grupos cuyos participantes solo traen id LID (sin phoneNumber).
   let ownerLid = instance.owner_lid || null;
 
+  // Enumerar los JIDs de los grupos del bot vía findChats (solo metadatos, NO
+  // contenido de mensajes) + fusionar con los ya capturados (discovered_groups
+  // + group_settings, que llena el webhook).
   const chatsResult = await fetchAllChats(
     instance.evolution_api_url,
     instance.evolution_api_key,
@@ -88,8 +91,12 @@ export async function runGroupDiscovery(
       jidMap.set(c.remoteJid, { name: c.name, pictureUrl: c.pictureUrl ?? null });
     }
   }
-  for (const g of [...(discRes.data || []), ...(savedRes.data || [])] as Array<{ group_jid: string; group_name: string | null }>) {
-    if (!jidMap.has(g.group_jid)) jidMap.set(g.group_jid, { name: g.group_name || "", pictureUrl: null });
+  for (const g of [...(discRes.data || []), ...(savedRes.data || [])] as Array<{
+    group_jid: string;
+    group_name: string | null;
+    group_picture?: string | null;
+  }>) {
+    if (!jidMap.has(g.group_jid)) jidMap.set(g.group_jid, { name: g.group_name || "", pictureUrl: g.group_picture ?? null });
   }
 
   // Solo el lote de grupos nuevos (ni guardados, ni verificados en 24h).

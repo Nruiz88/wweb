@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
 import { verifyUserAccess } from "@/lib/api-helpers";
-import { fetchAllChats, fetchInstanceOwnerJid, findGroupInfos, mapLimit } from "@/lib/evolution-multi";
+import { fetchInstanceOwnerJid, findGroupInfos, mapLimit } from "@/lib/evolution-multi";
 import { runGroupDiscovery } from "@/lib/group-discovery";
 
 export const dynamic = "force-dynamic";
@@ -32,53 +32,6 @@ async function rawGet(baseUrl: string, apiKey: string, path: string) {
   } finally {
     clearTimeout(t);
   }
-}
-
-async function rawFetchPost(baseUrl: string, apiKey: string, path: string, body: unknown) {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 20000);
-  try {
-    const res = await fetch(`${baseUrl}${path}`, {
-      method: "POST",
-      headers: { apikey: apiKey, "Content-Type": "application/json" },
-      cache: "no-store",
-      signal: controller.signal,
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    let parsed: unknown = text;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // keep raw text
-    }
-    return { httpStatus: res.status, body: parsed };
-  } catch (e) {
-    return { httpStatus: null, error: e instanceof Error ? e.message : "network error" };
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-type RawResult = { httpStatus: number | null; body?: unknown; error?: string };
-
-// Resumen compacto de un findChats: cuántos chats trae, cuántos son grupos y
-// sus JIDs. Evita tener que pegar el JSON gigante completo.
-function summarizeChats(resp: RawResult) {
-  if (resp.httpStatus === null) {
-    return { httpStatus: null, error: resp.error ?? "network error", chats: 0, groups: 0, groupJids: [] };
-  }
-  let list: unknown[] = [];
-  const body = resp.body;
-  if (Array.isArray(body)) {
-    list = body;
-  } else if (body && typeof body === "object" && Array.isArray((body as { chats?: unknown[] }).chats)) {
-    list = (body as { chats: unknown[] }).chats;
-  }
-  const groupJids = list
-    .map((c) => String((c as { remoteJid?: unknown; jid?: unknown }).remoteJid ?? (c as { jid?: unknown }).jid ?? ""))
-    .filter((j) => j.includes("@g.us"));
-  return { httpStatus: resp.httpStatus, chats: list.length, groups: groupJids.length, groupJids };
 }
 
 // GET /api/diagnose-groups?instanceId=<id>[&groupJid=<jid>]
@@ -127,13 +80,9 @@ export async function GET(request: Request) {
   const key = instance.evolution_api_key;
   const name = instance.instance_name;
 
-  const [instances, groups, chatWhere, chatTakeSkip, chatLimitOffset, chatAll, connection, groupInfo] = await Promise.all([
+  const [instances, groups, connection, groupInfo] = await Promise.all([
     rawGet(base, key, `/instance/fetchInstances?instanceName=${encodeURIComponent(name)}`),
     rawGet(base, key, `/group/fetchAllGroups/${encodeURIComponent(name)}?getParticipants=false`),
-    rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, { where: { isGroup: true } }),
-    rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, { take: 500, skip: 0 }),
-    rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, { limit: 500, offset: 0 }),
-    rawFetchPost(base, key, `/chat/findChats/${encodeURIComponent(name)}`, {}),
     rawGet(base, key, `/instance/connectionState/${encodeURIComponent(name)}`),
     groupJid
       ? rawGet(base, key, `/group/findGroupInfos/${encodeURIComponent(name)}?groupJid=${encodeURIComponent(groupJid)}&getParticipants=true`)
@@ -144,40 +93,47 @@ export async function GET(request: Request) {
   // Corre exactamente lo que hace el POST de /api/discovered-groups (persistido
   // en discovered_groups) y devuelve el resultado completo.
   let ownerJid: string | null = null;
-  let chatGroups: { remoteJid: string; name: string }[] = [];
   let adminGroups: { group_jid: string; group_name: string | null; group_picture: string | null; saved: boolean }[] = [];
+  let capturedCount = 0;
 
   try {
     ownerJid = await fetchInstanceOwnerJid(base, key, name);
-    const chatsResult = await fetchAllChats(base, key, name);
-    if (chatsResult.ok) chatGroups = chatsResult.data;
+    const { count } = await supabase
+      .from("discovered_groups")
+      .select("id", { count: "exact", head: true })
+      .eq("instance_id", instance.id);
+    capturedCount = count ?? 0;
     adminGroups = await runGroupDiscovery(supabase, instance.id);
   } catch (e) {
     adminGroups = [];
   }
 
   // ============ BÚSQUEDA POR NOMBRE ============
-  // ?name=... busca el grupo por su NOMBRE REAL: findChats a veces trae los
-  // nombres vacíos, así que se corre findGroupInfos sobre los 49 JIDs y se
-  // matchea por el nombre real (con el LID aprendido).
+  // ?name=... busca en discovered_groups (DB, sin Evolution) y verifica cada
+  // match con findGroupInfos (nombre, admin, imagen).
   let byName: Array<{ group_jid: string; group_name: string | null; is_admin: boolean | null; picture_url: string | null }> = [];
   if (searchName) {
-    const q = searchName.trim().toLowerCase();
-    const results = await mapLimit(chatGroups, 4, async ({ remoteJid, name: chatName }) => {
-      const info = await findGroupInfos(base, key, name, remoteJid, instance.owner_jid || ownerJid || undefined, instance.owner_lid || undefined);
-      if (info.ok && info.data) {
-        const realName = (info.data.name || chatName || "").toLowerCase();
-        if (!realName.includes(q)) return null;
-        return {
-          group_jid: remoteJid,
-          group_name: info.data.name || chatName || null,
-          is_admin: info.data.isAdmin ?? null,
-          picture_url: info.data.pictureUrl ?? null,
-        };
-      }
-      return null;
-    });
-    byName = results.filter((r): r is NonNullable<typeof r> => r !== null);
+    const { data: discRows } = await supabase
+      .from("discovered_groups")
+      .select("group_jid, group_name")
+      .eq("instance_id", instance.id)
+      .or(`group_name.ilike.%${searchName.trim()}%`);
+    const jids = (discRows || []).map((r) => r.group_jid);
+    if (jids.length > 0) {
+      const results = await mapLimit(jids, 4, async (jid) => {
+        const info = await findGroupInfos(base, key, name, jid, instance.owner_jid || ownerJid || undefined, instance.owner_lid || undefined);
+        if (info.ok && info.data) {
+          return {
+            group_jid: jid,
+            group_name: info.data.name || null,
+            is_admin: info.data.isAdmin ?? null,
+            picture_url: info.data.pictureUrl ?? null,
+          };
+        }
+        return null;
+      });
+      byName = results.filter((r): r is NonNullable<typeof r> => r !== null);
+    }
   }
 
   return NextResponse.json({
@@ -190,15 +146,9 @@ export async function GET(request: Request) {
       nameSearch: searchName ? { query: searchName, matches: byName } : null,
       capture: {
         ownerJid,
-        groupsFound: chatGroups.length,
+        groupsFound: capturedCount,
         groupsAdmin: adminGroups.length,
         adminGroups,
-      },
-      findChatsSummary: {
-        where: summarizeChats(chatWhere),
-        takeSkip_500: summarizeChats(chatTakeSkip),
-        limitOffset_500: summarizeChats(chatLimitOffset),
-        all: summarizeChats(chatAll),
       },
       fetchAllGroups: groups,
       connectionState: connection,
