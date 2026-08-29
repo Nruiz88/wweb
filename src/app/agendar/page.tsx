@@ -41,6 +41,7 @@ function PublicAgendaContent() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [booking, setBooking] = useState(false);
   const [done, setDone] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -99,6 +100,7 @@ function PublicAgendaContent() {
           userEmail: user || undefined,
           instanceId: selectedInstance,
           customerName: name || null,
+          customerPhone: phone || null,
           appointmentDate: selectedDate,
           appointmentTime: selectedSlot,
         }),
@@ -197,6 +199,13 @@ function PublicAgendaContent() {
                   placeholder="Tu nombre (opcional)"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-[#00a884] focus:outline-none"
+                />
+                <input
+                  type="tel"
+                  placeholder="Tu WhatsApp (opcional)"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-[#00a884] focus:outline-none"
                 />
                 {feedback && (

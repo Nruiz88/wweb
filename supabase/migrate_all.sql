@@ -134,6 +134,11 @@ DO $$ BEGIN
   ALTER TABLE group_settings ADD COLUMN banned_words_reply TEXT DEFAULT NULL;
 EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
+-- appointments.customer_phone nullable (booking por link sin teléfono)
+DO $$ BEGIN
+  ALTER TABLE appointments ALTER COLUMN customer_phone DROP NOT NULL;
+EXCEPTION WHEN others THEN NULL; END $$;
+
 -- 7d. onboarding_completed en profiles
 DO $$ BEGIN
   ALTER TABLE profiles ADD COLUMN onboarding_completed BOOLEAN DEFAULT false;

@@ -213,3 +213,44 @@ export async function PATCH(request: Request) {
 
   return NextResponse.json({ status: "success", data: appointment });
 }
+
+// DELETE: Remove an appointment (e.g. cleanup of canceled/completed).
+export async function DELETE(request: Request) {
+  const rateLimitErr = await rateLimitResponse(request, "appointments", { maxRequests: 30, windowMs: 60_000 });
+  if (rateLimitErr) return rateLimitErr;
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  }
+
+  const supabase = await createServerClient();
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
+  }
+
+  const { data: existing } = await supabase
+    .from("appointments")
+    .select("id, instance_id")
+    .eq("id", id)
+    .single();
+
+  if (!existing) {
+    return NextResponse.json({ status: "error", error: "Appointment not found" }, { status: 404 });
+  }
+
+  const hasAccess = await verifyUserAccess(supabase, user.id, existing.instance_id);
+  if (!hasAccess) {
+    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
+  }
+
+  const { error } = await supabase.from("appointments").delete().eq("id", id);
+  if (error) {
+    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+  }
+
+  return NextResponse.json({ status: "success" });
+}

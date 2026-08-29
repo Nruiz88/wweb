@@ -302,7 +302,7 @@ CREATE TABLE appointments (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   instance_id UUID REFERENCES instances(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
-  customer_phone TEXT NOT NULL,
+  customer_phone TEXT,
   customer_name TEXT,
   appointment_date DATE NOT NULL,
   appointment_time TIME NOT NULL,

@@ -147,7 +147,7 @@ export interface Appointment {
   id: string;
   instance_id: string;
   user_id: string | null;
-  customer_phone: string;
+  customer_phone: string | null;
   customer_name: string | null;
   appointment_date: string;
   appointment_time: string;

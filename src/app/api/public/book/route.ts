@@ -21,11 +21,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { business, userEmail, instanceId, customerName, appointmentDate, appointmentTime } = (body ?? {}) as {
+  const { business, userEmail, instanceId, customerName, customerPhone, appointmentDate, appointmentTime } = (body ?? {}) as {
     business?: string;
     userEmail?: string;
     instanceId?: string;
     customerName?: string;
+    customerPhone?: string;
     appointmentDate?: string;
     appointmentTime?: string;
   };
@@ -131,6 +132,7 @@ export async function POST(request: Request) {
     .insert({
       instance_id: instanceId,
       customer_name: customerName || null,
+      customer_phone: customerPhone ? String(customerPhone).trim().replace(/\D/g, "") || null : null,
       appointment_date: appointmentDate,
       appointment_time: appointmentTime,
       status: "pending",

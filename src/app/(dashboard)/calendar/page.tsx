@@ -153,6 +153,25 @@ export default function CalendarPage() {
     }
   }
 
+  // Borrar un turno (limpia canceladas/completadas u otros).
+  async function handleDeleteAppt(apptId: string) {
+    if (!confirm("Eliminar este turno?")) return;
+    const res = await fetch(`/api/appointments?id=${apptId}`, { method: "DELETE" });
+    const payload = await res.json();
+    if (payload.status === "success") {
+      setFeedback({ kind: "success", message: "Turno eliminado" });
+      await loadData();
+    } else {
+      setFeedback({ kind: "error", message: payload.error });
+    }
+  }
+
+  // Link de WhatsApp para escribirle al cliente (si tiene teléfono).
+  function waLink(phone: string | null): string | null {
+    const digits = (phone || "").replace(/\D/g, "");
+    return digits.length >= 8 ? `https://wa.me/${digits}` : null;
+  }
+
   function openHoursForm() {
     const schedule = [0, 1, 2, 3, 4, 5, 6].map((day) => {
       const existing = businessHours.find((h) => h.day_of_week === day);
@@ -354,10 +373,21 @@ export default function CalendarPage() {
 
                           {/* Name */}
                           <p className="mt-2 truncate text-xs font-semibold text-wa-text">
-                            {appt.customer_name || appt.customer_phone}
+                            {appt.customer_name || (appt.customer_phone ? `+${appt.customer_phone}` : "Turno sin datos")}
                           </p>
                           <p className="mt-0.5 truncate text-[10px] text-wa-text-secondary/50">
-                            {appt.customer_phone}
+                            {appt.customer_phone ? (
+                              <a
+                                href={waLink(appt.customer_phone) || "#"}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-semibold text-[#00a884] hover:underline"
+                              >
+                                💬 {appt.customer_phone}
+                              </a>
+                            ) : (
+                              "sin teléfono"
+                            )}
                             {appt.duration_min && ` · ${appt.duration_min} min`}
                             {appt.reminder_24h_sent && " · 🔔"}
                           </p>
@@ -380,6 +410,15 @@ export default function CalendarPage() {
                                 className="flex-1 rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-semibold text-red-400 transition hover:bg-red-500/20"
                               >
                                 Cancelar
+                              </button>
+                            )}
+                            {(appt.status === "canceled" || appt.status === "completed") && canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteAppt(appt.id)}
+                                className="flex-1 rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-semibold text-red-400 transition hover:bg-red-500/20"
+                              >
+                                Borrar
                               </button>
                             )}
                           </div>
