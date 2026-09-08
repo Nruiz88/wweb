@@ -1,61 +1,45 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Check, Loader2, Plus, Settings, Shield, Trash2, X, MessageCircle, Zap } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 import type { Instance, Profile } from "@/lib/supabase/types";
-import {
-  CheckIcon,
-  LoaderIcon,
-  PlusIcon,
-  SettingsIcon,
-  ShieldIcon,
-  TrashIcon,
-  XIcon,
-  MessageCircleIcon,
-  ZapIcon,
-} from "@/components/icons";
 
-// Instance card
 function InstanceCard({ instance, onDelete }: { instance: Instance; onDelete: (id: string) => void }) {
   const isConnected = instance.status === "open";
-
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-wa-border bg-wa-header p-4 transition-all hover:border-white/10 hover:shadow-lg hover:shadow-black/20">
-      <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full opacity-10 blur-xl transition-opacity group-hover:opacity-20" style={{ backgroundColor: isConnected ? "#00a884" : "#ef4444" }} />
-      <div className="relative flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-transform group-hover:scale-110 ${
-            isConnected ? "bg-[#00a884]/15 text-[#00a884]" : "bg-red-500/15 text-red-400"
-          }`}>
-            <MessageCircleIcon className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-wa-text">{instance.instance_name}</h3>
-              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                isConnected
-                  ? "bg-[#00a884]/15 text-[#00a884]"
-                  : "bg-red-500/15 text-red-400"
-              }`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-[#00a884]" : "bg-red-400"}`} />
-                {isConnected ? "Conectada" : "Desconectada"}
-              </span>
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+      <Card className="overflow-hidden transition-shadow hover:shadow-md">
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${isConnected ? "bg-emerald-500/10 text-emerald-600" : "bg-destructive/10 text-destructive"}`}>
+                <MessageCircle className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold">{instance.instance_name}</h3>
+                  <Badge variant="secondary" className={`gap-1 text-[10px] ${isConnected ? "bg-emerald-500/10 text-emerald-600" : "bg-destructive/10 text-destructive"}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-emerald-500" : "bg-destructive"}`} />
+                    {isConnected ? "Conectada" : "Desconectada"}
+                  </Badge>
+                </div>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">Creada: {new Date(instance.created_at).toLocaleDateString("es-AR")}</p>
+              </div>
             </div>
-            <p className="mt-0.5 text-[10px] text-wa-text-secondary/50">
-              Creada: {new Date(instance.created_at).toLocaleDateString("es-AR")}
-            </p>
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/60 hover:text-destructive hover:bg-destructive/10" onClick={() => onDelete(instance.id)} title="Eliminar">
+              <Trash2 className="h-4 w-4" />
+            </Button>
           </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => onDelete(instance.id)}
-          className="shrink-0 rounded-lg p-2 text-red-400/50 transition-all hover:bg-red-500/10 hover:text-red-400"
-          title="Eliminar"
-        >
-          <TrashIcon className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
+        </CardContent>
+      </Card>
+    </motion.div>
   );
 }
 
@@ -65,13 +49,11 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
   const [instanceName, setInstanceName] = useState("");
   const [evolutionApiUrl, setEvolutionApiUrl] = useState("");
   const [evolutionApiKey, setEvolutionApiKey] = useState("");
 
-  // Welcome / outside-hours settings
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [outsideHoursMessage, setOutsideHoursMessage] = useState("");
@@ -88,7 +70,6 @@ export default function SettingsPage() {
       if (payload.role) {
         setProfile({ id: "", email: null, full_name: null, role: payload.role, business_name: null, phone: null, address: null, created_at: "" });
       }
-      // Load settings for first instance
       if (payload.data?.length > 0) {
         const id = payload.data[0].id;
         setSelectedInstanceId(id);
@@ -99,7 +80,9 @@ export default function SettingsPage() {
             setWelcomeMessage(settingsPayload.data.welcomeMessage || "");
             setOutsideHoursMessage(settingsPayload.data.outsideHoursMessage || "");
           }
-        } catch { /* non-critical */ }
+        } catch {
+          /* non-critical */
+        }
       }
     }
     setLoading(false);
@@ -109,16 +92,9 @@ export default function SettingsPage() {
     const t = setTimeout(() => void loadData(), 0);
     return () => clearTimeout(t);
   }, [loadData]);
-  useEffect(() => {
-    if (feedback) {
-      const t = setTimeout(() => setFeedback(null), 3000);
-      return () => clearTimeout(t);
-    }
-  }, [feedback]);
 
   async function handleCreate() {
     setSaving(true);
-    setFeedback(null);
     try {
       const res = await fetch("/api/instances", {
         method: "POST",
@@ -127,27 +103,32 @@ export default function SettingsPage() {
       });
       const payload = await res.json();
       if (payload.status !== "success") {
-        setFeedback({ kind: "error", message: payload.error });
+        toast.error(payload.error ?? "Error al crear instancia");
         return;
       }
-      setFeedback({ kind: "success", message: "Instancia creada correctamente" });
+      toast.success("Instancia creada correctamente");
       setShowForm(false);
       setInstanceName("");
       setEvolutionApiUrl("");
       setEvolutionApiKey("");
       await loadData();
     } catch {
-      setFeedback({ kind: "error", message: "Error de red" });
+      toast.error("Error de red");
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Eliminar esta instancia y todas sus auto-respuestas?")) return;
+    if (!confirm("¿Eliminar esta instancia y todas sus auto-respuestas?")) return;
     const res = await fetch(`/api/instances?id=${id}`, { method: "DELETE" });
     const payload = await res.json();
-    if (payload.status === "success") await loadData();
+    if (payload.status === "success") {
+      toast.success("Instancia eliminada");
+      await loadData();
+    } else {
+      toast.error(payload.error ?? "Error al eliminar");
+    }
   }
 
   async function handleSaveMessages() {
@@ -165,174 +146,169 @@ export default function SettingsPage() {
       });
       const payload = await res.json();
       if (payload.status === "success") {
-        setFeedback({ kind: "success", message: "Mensajes guardados" });
+        toast.success("Mensajes guardados");
       } else {
-        setFeedback({ kind: "error", message: payload.error });
+        toast.error(payload.error ?? "Error al guardar");
       }
     } catch {
-      setFeedback({ kind: "error", message: "Error de red" });
+      toast.error("Error de red");
     } finally {
       setSavingMessages(false);
     }
   }
 
   return (
-    <div className="flex h-full flex-col bg-wa-panel">
+    <div className="flex h-full flex-col bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-4 py-2.5">
+      <div className="flex items-center justify-between border-b bg-card px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-[0.9375rem] font-normal text-wa-text">Configuracion</span>
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Settings className="h-3.5 w-3.5" />
+          </div>
+          <span className="text-sm font-semibold">Configuración</span>
           {isAdmin && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-[#00a884]/10 px-2 py-0.5 text-[10px] font-semibold text-[#00a884]">
-              <ShieldIcon className="h-2.5 w-2.5" /> Admin
-            </span>
+            <Badge variant="secondary" className="gap-1 bg-emerald-500/10 text-emerald-600 text-[10px]">
+              <Shield className="h-2.5 w-2.5" /> Admin
+            </Badge>
           )}
         </div>
         {isAdmin && (
-          <button
-            type="button"
-            onClick={() => setShowForm(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#00a884] to-[#25d366] px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-[#00a884]/20 transition-all hover:shadow-md hover:shadow-[#00a884]/30"
-          >
-            <PlusIcon className="h-3.5 w-3.5" />
+          <Button onClick={() => setShowForm(true)} size="sm" className="gap-1.5">
+            <Plus className="h-3.5 w-3.5" />
             Nueva instancia
-          </button>
+          </Button>
         )}
       </div>
-
-      {/* Feedback */}
-      {feedback && (
-        <div className={`mx-4 mt-2 flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium ${
-          feedback.kind === "success" ? "bg-[#00a884]/10 text-[#00a884] border border-[#00a884]/20" : "bg-red-500/10 text-red-400 border border-red-500/20"
-        }`}>
-          {feedback.kind === "success" ? <CheckIcon className="h-3.5 w-3.5" /> : <XIcon className="h-3.5 w-3.5" />}
-          {feedback.message}
-        </div>
-      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <LoaderIcon className="h-8 w-8 animate-spin text-wa-text-secondary/40" />
+          <div className="space-y-3">
+            <Skeleton className="h-20 rounded-2xl" />
+            <Skeleton className="h-20 rounded-2xl" />
+            <Skeleton className="h-64 rounded-2xl" />
           </div>
         ) : instances.length === 0 ? (
-          <div className="flex flex-col items-center gap-4 py-16 text-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-wa-header ring-4 ring-wa-border/30">
-              <SettingsIcon className="h-10 w-10 text-wa-text-secondary/20" />
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-4 py-16 text-center">
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-muted">
+              <Settings className="h-10 w-10 text-muted-foreground/30" />
             </div>
             <div>
-              <p className="text-base font-semibold text-wa-text">
-                {isAdmin ? "Sin instancias" : "Sin instancia asignada"}
-              </p>
-              <p className="mt-1 text-sm text-wa-text-secondary">
-                {isAdmin ? "Crea una para que los usuarios conecten WhatsApp" : "Pide al administrador que te asigne una"}
-              </p>
+              <p className="text-base font-semibold">{isAdmin ? "Sin instancias" : "Sin instancia asignada"}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{isAdmin ? "Crea una para que los usuarios conecten WhatsApp" : "Pide al administrador que te asigne una"}</p>
             </div>
-          </div>
+          </motion.div>
         ) : (
-          <div className="space-y-3">
-            {instances.map((instance) => (
-              <InstanceCard key={instance.id} instance={instance} onDelete={handleDelete} />
-            ))}
-          </div>
-        )}
-
-        {/* Welcome + Outside-hours messages */}
-        {selectedInstanceId && instances.length > 0 && (
-          <div className="mt-6 rounded-2xl border border-wa-border bg-wa-header p-4">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-[#e6a44e]">
-                <ZapIcon className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-wa-text">Mensajes automáticos</p>
-                <p className="text-[10px] text-wa-text-secondary/60">Bienvenida y fuera de horario</p>
-              </div>
-            </div>
-
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-6">
             <div className="space-y-3">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">
-                  Mensaje de bienvenida
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="Ej: ¡Hola! 👋 Bienvenido a [tu negocio]. ¿En qué te puedo ayudar?"
-                  value={welcomeMessage}
-                  onChange={(e) => setWelcomeMessage(e.target.value)}
-                  className="resize-none rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
-                />
-                <p className="text-[10px] text-wa-text-secondary/50">
-                  Se envía solo la primera vez que cada persona te escribe
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">
-                  Mensaje fuera de horario
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="Ej: ¡Hola! Nuestro horario es de lunes a viernes de 9:00 a 18:00. Te responderemos al día siguiente."
-                  value={outsideHoursMessage}
-                  onChange={(e) => setOutsideHoursMessage(e.target.value)}
-                  className="resize-none rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
-                />
-                <p className="text-[10px] text-wa-text-secondary/50">
-                  Se envía cuando escriben fuera del horario configurado en{' '}
-                  <a href="/calendar" className="text-[#00a884] hover:underline">Calendario</a>
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => void handleSaveMessages()}
-                disabled={savingMessages}
-                className="flex items-center justify-center gap-2 rounded-xl bg-[#00a884] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#00a884]/90 disabled:opacity-50"
-              >
-                {savingMessages ? <LoaderIcon className="h-3.5 w-3.5 animate-spin" /> : null}
-                {savingMessages ? "Guardando..." : "Guardar mensajes"}
-              </button>
+              {instances.map((instance) => (
+                <InstanceCard key={instance.id} instance={instance} onDelete={handleDelete} />
+              ))}
             </div>
-          </div>
+
+            {/* Messages card */}
+            {selectedInstanceId && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600">
+                      <Zap className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-sm">Mensajes automáticos</CardTitle>
+                      <CardDescription className="text-xs">Bienvenida y fuera de horario</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium">Mensaje de bienvenida</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Ej: ¡Hola! 👋 Bienvenido a [tu negocio]. ¿En qué te puedo ayudar?"
+                      value={welcomeMessage}
+                      onChange={(e) => setWelcomeMessage(e.target.value)}
+                      className="flex min-h-[80px] w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Se envía solo la primera vez que cada persona te escribe</p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium">Mensaje fuera de horario</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Ej: ¡Hola! Nuestro horario es de lunes a viernes de 9:00 a 18:00."
+                      value={outsideHoursMessage}
+                      onChange={(e) => setOutsideHoursMessage(e.target.value)}
+                      className="flex min-h-[80px] w-full resize-none rounded-xl border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Se envía cuando escriben fuera del horario configurado en <a href="/calendar" className="text-primary hover:underline">Calendario</a>
+                    </p>
+                  </div>
+
+                  <Button onClick={() => void handleSaveMessages()} disabled={savingMessages} className="gap-2">
+                    {savingMessages ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {savingMessages ? "Guardando..." : "Guardar mensajes"}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </motion.div>
         )}
       </div>
 
       {/* Modal */}
-      {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <div className="mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-5 py-4">
-              <h3 className="text-base font-semibold text-wa-text">Nueva instancia</h3>
-              <button type="button" onClick={() => setShowForm(false)} className="rounded-lg p-1 text-wa-text-secondary hover:text-wa-text">
-                <XIcon className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">Nombre de instancia</label>
-                <input type="text" placeholder="mi-whatsapp" value={instanceName} onChange={(e) => setInstanceName(e.target.value)} className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none transition" />
+      <AnimatePresence>
+        {showForm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+            onClick={() => setShowForm(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              transition={{ duration: 0.2 }}
+              className="w-full max-w-md overflow-hidden rounded-2xl border bg-card shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b px-5 py-4">
+                <h3 className="text-base font-semibold">Nueva instancia</h3>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowForm(false)}>
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">URL de Evolution API</label>
-                <input type="url" placeholder="https://your-api.railway.app" value={evolutionApiUrl} onChange={(e) => setEvolutionApiUrl(e.target.value)} className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none transition" />
+              <div className="flex flex-col gap-4 p-5">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">Nombre de instancia</label>
+                  <Input placeholder="mi-whatsapp" value={instanceName} onChange={(e) => setInstanceName(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">URL de Evolution API</label>
+                  <Input type="url" placeholder="https://your-api.railway.app" value={evolutionApiUrl} onChange={(e) => setEvolutionApiUrl(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">API Key</label>
+                  <Input type="password" placeholder="Tu API key de Evolution" value={evolutionApiKey} onChange={(e) => setEvolutionApiKey(e.target.value)} />
+                </div>
+                <div className="flex gap-3 pt-1">
+                  <Button variant="outline" className="flex-1" onClick={() => setShowForm(false)}>
+                    Cancelar
+                  </Button>
+                  <Button className="flex-1 gap-2" onClick={() => void handleCreate()} disabled={saving || !instanceName || !evolutionApiUrl || !evolutionApiKey}>
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {saving ? "Creando..." : "Crear instancia"}
+                  </Button>
+                </div>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">API Key</label>
-                <input type="password" placeholder="Tu API key de Evolution" value={evolutionApiKey} onChange={(e) => setEvolutionApiKey(e.target.value)} className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none transition" />
-              </div>
-              <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowForm(false)} className="flex-1 rounded-xl border border-wa-border py-3 text-sm font-medium text-wa-text-secondary hover:bg-wa-hover transition">Cancelar</button>
-                <button type="button" onClick={() => void handleCreate()} disabled={saving || !instanceName || !evolutionApiUrl || !evolutionApiKey} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] py-3 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/20 transition-all hover:shadow-xl disabled:opacity-50">
-                  {saving ? <LoaderIcon className="h-4 w-4 animate-spin" /> : null}
-                  {saving ? "Creando..." : "Crear instancia"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

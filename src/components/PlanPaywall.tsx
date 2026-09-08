@@ -6,10 +6,9 @@ import { ShieldIcon, ArrowRightIcon } from "@/components/icons";
 const PLAN_META: Record<string, { label: string; color: string; price: string }> = {
   starter: { label: "Starter", color: "#53bdeb", price: "$12.000" },
   pro: { label: "Pro", color: "#00a884", price: "$22.000" },
-  community: { label: "Community", color: "#e6a44e", price: "$35.000" },
 };
 
-const PLAN_HIERARCHY: PlanType[] = ["starter", "pro", "community"];
+const PLAN_HIERARCHY: PlanType[] = ["starter", "pro"];
 
 interface PlanPaywallProps {
   /** The minimum plan required to access this feature */

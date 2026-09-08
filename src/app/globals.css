@@ -14,6 +14,31 @@
   --wa-text-secondary: #8696a0;
   --wa-hover: #202c33;
   --wa-active: #2a3942;
+
+  /* shadcn modern tokens — mapped to wa palette */
+  --card: #111b21;
+  --card-foreground: #e9edef;
+  --popover: #1a262f;
+  --popover-foreground: #e9edef;
+  --primary: #00a884;
+  --primary-foreground: #ffffff;
+  --secondary: #202c33;
+  --secondary-foreground: #e9edef;
+  --muted: #202c33;
+  --muted-foreground: #8696a0;
+  --accent: #1a2e26;
+  --accent-foreground: #00a884;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #222d34;
+  --input: #2a3942;
+  --ring: #00a884;
+  --radius: 0.75rem;
+  --chart-1: #00a884;
+  --chart-2: #53bdeb;
+  --chart-3: #e6a44e;
+  --chart-4: #8b5cf6;
+  --chart-5: #f43f5e;
 }
 
 @theme inline {
@@ -30,6 +55,27 @@
   --color-wa-text-secondary: var(--wa-text-secondary);
   --color-wa-hover: var(--wa-hover);
   --color-wa-active: var(--wa-active);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-label: var(--font-label);

@@ -1,50 +1,76 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
 import type { Profile } from "@/lib/supabase/types";
 import { slugify } from "@/lib/slug";
+import { Card, CardHeader, CardContent, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { toast } from "sonner";
 import {
-  CheckIcon,
-  LoaderIcon,
-  UserIcon,
-  XIcon,
-  ShieldIcon,
-  MessageCircleIcon,
-  ClockIcon,
-} from "@/components/icons";
+  Check,
+  Loader2,
+  User,
+  Shield,
+  MessageCircle,
+  Link2,
+  CalendarDays,
+  Mail,
+  Store,
+  Phone,
+  MapPin,
+  Sparkles,
+} from "lucide-react";
 
-// Avatar with gradient
+const profileSchema = z.object({
+  full_name: z.string().min(2, "Mínimo 2 caracteres"),
+  business_name: z.string().min(2, "Mínimo 2"),
+  phone: z.string().optional(),
+  address: z.string().optional(),
+});
+
+type FormData = z.infer<typeof profileSchema>;
+
+// Avatar with gradient ring
 function ProfileAvatar({ name, role }: { name: string; role?: string }) {
   const initial = name?.[0]?.toUpperCase() || "?";
   const isAdmin = role === "admin";
 
   return (
     <div className="relative">
-      <div className="absolute inset-0 rounded-full bg-[#00a884]/10 blur-xl" />
-      <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-[#00a884]/20 to-[#00a884]/5 ring-4 ring-[#00a884]/10 text-2xl font-bold text-[#00a884]">
+      <div className="absolute inset-0 rounded-full bg-primary/10 blur-xl" />
+      <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5 ring-4 ring-primary/10 text-2xl font-bold text-primary">
         {initial}
       </div>
       {isAdmin && (
-        <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-[#00a884] shadow-lg shadow-[#00a884]/30">
-          <ShieldIcon className="h-3.5 w-3.5 text-white" />
+        <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary shadow-lg shadow-primary/30">
+          <Shield className="h-3.5 w-3.5 text-primary-foreground" />
         </div>
       )}
     </div>
   );
 }
 
-// Info card
+// Info card using Card
 function InfoCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-wa-border/50 bg-wa-panel/50 px-4 py-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#00a884]/10 text-[#00a884]">
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] text-wa-text-secondary/50">{label}</p>
-        <p className="truncate text-sm text-wa-text">{value || "—"}</p>
-      </div>
-    </div>
+    <Card className="rounded-2xl transition hover:shadow-sm">
+      <CardContent className="flex items-center gap-3 p-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">{icon}</div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className="truncate text-sm font-medium">{value || "—"}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -52,15 +78,23 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile & { subscription?: { plan_type: string; status: string; max_instances: number; used_instances: number; addons: number; updated_at: string | null } } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
-
-  const [fullName, setFullName] = useState("");
-  const [businessName, setBusinessName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
   const [email, setEmail] = useState("");
   const [copied, setCopied] = useState(false);
   const [upcoming, setUpcoming] = useState<{ date: string; time: string; name: string | null }[] | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    watch,
+    formState: { errors, isDirty },
+  } = useForm<FormData>({
+    resolver: zodResolver(profileSchema),
+    defaultValues: { full_name: "", business_name: "", phone: "", address: "" },
+  });
+
+  const watchedBusinessName = watch("business_name") || "";
+  const watchedPhone = watch("phone") || "";
 
   // El origin solo existe en el cliente; se setea tras hidratar para no
   // romper el prerender de Vercel (window no existe en el servidor).
@@ -71,355 +105,345 @@ export default function ProfilePage() {
   }, []);
 
   const publicAgendaLink = useMemo(() => {
-    const identifier = businessName.trim() ? slugify(businessName) : slugify(email);
+    const identifier = watchedBusinessName.trim() ? slugify(watchedBusinessName) : slugify(email);
     return origin && identifier ? `${origin}/agendar?business=${encodeURIComponent(identifier)}` : null;
-  }, [origin, businessName, email]);
+  }, [origin, watchedBusinessName, email]);
 
   async function copyLink() {
     if (!publicAgendaLink) return;
     try {
       await navigator.clipboard.writeText(publicAgendaLink);
       setCopied(true);
+      toast.success("Link copiado al portapapeles");
       setTimeout(() => setCopied(false), 2000);
-    } catch { /* clipboard unavailable */ }
+    } catch {
+      toast.error("No se pudo copiar el link");
+    }
   }
 
-  // Load upcoming appointments across the user's instances
-  useEffect(() => {
-    let cancelled = false;
-    async function loadUpcoming() {
-      try {
-        const instRes = await fetch("/api/instances?lite=1");
-        const instPayload = await instRes.json();
-        if (instPayload.status !== "success" || !instPayload.data?.length) return;
-        const now = new Date();
-        const from = now.toISOString().slice(0, 10);
-        const to = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const apptResults = await Promise.all(
-          instPayload.data.map(async (inst: { id: string }) => {
-            const res = await fetch(`/api/appointments?instanceId=${inst.id}&from=${from}&to=${to}`);
-            const payload = await res.json();
-            return payload.status === "success" ? (payload.data as { status: string; appointment_date: string; appointment_time: string; customer_name: string | null; customer_phone: string | null }[]) : [];
-          })
-        );
-        const appts = apptResults.flat().filter(
-          (a) => a.status === "pending" || a.status === "confirmed"
-        ).map((a) => ({ date: a.appointment_date, time: a.appointment_time, name: a.customer_name || a.customer_phone }));
-        if (!cancelled) setUpcoming(appts.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).slice(0, 5));
-      } catch { /* non-critical */ }
-    }
-    void loadUpcoming();
-    return () => { cancelled = true; };
-  }, []);
-
+  // Próximos turnos: agregados en el servidor (?include=upcoming, 1 roundtrip).
+  // Antes era N+1 en el cliente (1x instances + Nx appointments).
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/profile");
+      const res = await fetch("/api/profile?include=upcoming");
       const payload = await res.json();
       if (payload.status === "success") {
         const p = payload.data;
         setProfile(p);
-        setFullName(p.full_name || "");
-        setBusinessName(p.business_name || "");
-        setPhone(p.phone || "");
-        setAddress(p.address || "");
+        reset({ full_name: p.full_name || "", business_name: p.business_name || "", phone: p.phone || "", address: p.address || "" });
         setEmail(p.email || "");
+        setUpcoming(Array.isArray(p.upcoming) ? p.upcoming : []);
       }
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
     setLoading(false);
-  }, []);
+  }, [reset]);
 
   useEffect(() => {
     const t = setTimeout(() => void loadProfile(), 0);
     return () => clearTimeout(t);
   }, [loadProfile]);
-  useEffect(() => {
-    if (feedback) {
-      const t = setTimeout(() => setFeedback(null), 3000);
-      return () => clearTimeout(t);
-    }
-  }, [feedback]);
 
-  async function handleSave() {
+  const onSubmit = handleSubmit(async (data) => {
     setSaving(true);
-    setFeedback(null);
     try {
       const res = await fetch("/api/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ full_name: fullName, business_name: businessName, phone, address }),
+        body: JSON.stringify({ full_name: data.full_name, business_name: data.business_name, phone: data.phone, address: data.address }),
       });
       const payload = await res.json();
       if (payload.status === "success") {
-        setFeedback({ kind: "success", message: "Perfil actualizado" });
+        toast.success("Perfil actualizado");
         setProfile(payload.data);
+        reset({ full_name: payload.data.full_name || "", business_name: payload.data.business_name || "", phone: payload.data.phone || "", address: payload.data.address || "" });
       } else {
-        setFeedback({ kind: "error", message: payload.error });
+        toast.error(payload.error);
       }
     } catch {
-      setFeedback({ kind: "error", message: "Error de red" });
+      toast.error("Error de red");
     } finally {
       setSaving(false);
     }
-  }
-
-  const hasChanges = profile && (
-    fullName !== (profile.full_name || "") ||
-    businessName !== (profile.business_name || "") ||
-    phone !== (profile.phone || "") ||
-    address !== (profile.address || "")
-  );
+  });
 
   return (
-    <div className="flex h-full flex-col bg-wa-panel">
-      {/* Header */}
-      <div className="border-b border-wa-border bg-wa-header px-4 py-2.5">
-        <span className="text-[0.9375rem] font-normal text-wa-text">Mi Perfil</span>
-      </div>
-
-      {/* Feedback */}
-      {feedback && (
-        <div
-          className={`mx-4 mt-2 flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium ${
-            feedback.kind === "success"
-              ? "bg-[#00a884]/10 text-[#00a884] border border-[#00a884]/20"
-              : "bg-red-500/10 text-red-400 border border-red-500/20"
-          }`}
-        >
-          {feedback.kind === "success" ? <CheckIcon className="h-3.5 w-3.5" /> : <XIcon className="h-3.5 w-3.5" />}
-          {feedback.message}
-        </div>
-      )}
+    <div className="flex h-full flex-col">
+      {/* Header Card */}
+      <Card className="rounded-2xl">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Mi Perfil</CardTitle>
+          <CardDescription className="text-xs">Gestioná tu información personal y configuración</CardDescription>
+        </CardHeader>
+      </Card>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+      <div className="mt-4 flex-1 overflow-y-auto p-4 sm:p-6">
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <LoaderIcon className="h-8 w-8 animate-spin text-wa-text-secondary/40" />
+          <div className="mx-auto max-w-lg space-y-4">
+            <Card className="rounded-2xl">
+              <CardContent className="flex items-center gap-4 p-6">
+                <Skeleton className="h-20 w-20 rounded-full" />
+                <div className="space-y-2">
+                  <Skeleton className="h-5 w-32" />
+                  <Skeleton className="h-3 w-40" />
+                  <Skeleton className="h-5 w-24 rounded-full" />
+                </div>
+              </CardContent>
+            </Card>
+            <div className="grid grid-cols-2 gap-3">
+              <Skeleton className="h-20 rounded-2xl" />
+              <Skeleton className="h-20 rounded-2xl" />
+            </div>
+            <Skeleton className="h-40 rounded-2xl" />
+            <Skeleton className="h-64 rounded-2xl" />
           </div>
         ) : (
-          <div className="mx-auto max-w-lg space-y-5">
-
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.07 } } }}
+            className="mx-auto max-w-lg space-y-4"
+          >
             {/* Profile card */}
-            <div className="relative overflow-hidden rounded-2xl border border-wa-border bg-wa-header p-6">
-              <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-[#00a884]/5 blur-2xl" />
-              <div className="relative flex items-center gap-4">
-                <ProfileAvatar name={profile?.full_name || profile?.email || ""} role={profile?.role} />
-                <div className="min-w-0">
-                  <p className="text-lg font-bold text-wa-text truncate">
-                    {profile?.full_name || "Sin nombre"}
-                  </p>
-                  <p className="text-sm text-wa-text-secondary">{profile?.email}</p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
-                      profile?.role === "admin"
-                        ? "bg-[#00a884]/15 text-[#00a884]"
-                        : "bg-[#53bdeb]/15 text-[#53bdeb]"
-                    }`}>
-                      {profile?.role === "admin" ? <ShieldIcon className="h-2.5 w-2.5" /> : <UserIcon className="h-2.5 w-2.5" />}
-                      {profile?.role === "admin" ? "Administrador" : "Usuario"}
-                    </span>
-                    <span className="text-[10px] text-wa-text-secondary/40">
-                      Miembro desde {profile?.created_at ? new Date(profile.created_at).toLocaleDateString("es-AR") : ""}
-                    </span>
+            <motion.div variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }}>
+              <Card className="relative overflow-hidden rounded-2xl">
+                <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-primary/5 blur-2xl" />
+                <CardContent className="relative flex items-center gap-4 p-6">
+                  <ProfileAvatar name={profile?.full_name || profile?.email || ""} role={profile?.role} />
+                  <div className="min-w-0">
+                    <p className="truncate text-lg font-bold">{profile?.full_name || "Sin nombre"}</p>
+                    <p className="text-sm text-muted-foreground">{profile?.email}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Badge variant={profile?.role === "admin" ? "default" : "secondary"} className="gap-1 rounded-full text-[11px]">
+                        {profile?.role === "admin" ? <Shield className="h-3 w-3" /> : <User className="h-3 w-3" />}
+                        {profile?.role === "admin" ? "Administrador" : "Usuario"}
+                      </Badge>
+                      <span className="text-[11px] text-muted-foreground/60">
+                        Miembro desde {profile?.created_at ? new Date(profile.created_at).toLocaleDateString("es-AR") : ""}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              </div>
-            </div>              {/* Quick info cards */}
-              <div className="grid grid-cols-2 gap-3">
-                <InfoCard icon={<MessageCircleIcon className="h-4 w-4" />} label="Negocio" value={businessName} />
-                <InfoCard icon={<ClockIcon className="h-4 w-4" />} label="Telefono" value={phone} />
-              </div>
+                </CardContent>
+              </Card>
+            </motion.div>
 
-              {/* Plan card */}
-              {profile?.subscription && (
-                <div className="rounded-2xl border border-wa-border bg-wa-header p-5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-wa-text">Mi Plan</h3>
-                    <span
-                      className="rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wide"
-                      style={{
-                        backgroundColor: profile.subscription.plan_type === "pro" ? "#00a88415" : profile.subscription.plan_type === "community" ? "#e6a44e15" : "#53bdeb15",
-                        color: profile.subscription.plan_type === "pro" ? "#00a884" : profile.subscription.plan_type === "community" ? "#e6a44e" : "#53bdeb",
-                      }}
+            {/* Quick info cards */}
+            <motion.div
+              variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }}
+              className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+            >
+              <InfoCard icon={<Store className="h-4 w-4" />} label="Negocio" value={watchedBusinessName} />
+              <InfoCard icon={<Phone className="h-4 w-4" />} label="Teléfono" value={watchedPhone} />
+            </motion.div>
+
+            {/* Plan card */}
+            {profile?.subscription && (
+              <motion.div variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }}>
+                <Card className="rounded-2xl">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="flex items-center gap-2 text-sm">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      Mi Plan
+                    </CardTitle>
+                    <Badge
+                      variant={profile.subscription.plan_type === "pro" ? "default" : "secondary"}
+                      className="rounded-full text-[10px] font-bold uppercase tracking-wide"
                     >
-                      {profile.subscription.plan_type === "starter" ? "Starter" : profile.subscription.plan_type === "pro" ? "Pro" : "Community"}
-                    </span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-3 gap-3">
-                    <div className="rounded-xl bg-wa-panel/50 p-3 text-center">
-                      <p className="text-lg font-bold text-wa-text">{profile.subscription.used_instances}/{profile.subscription.max_instances}</p>
-                      <p className="text-[10px] text-wa-text-secondary/60">Bots</p>
+                      {profile.subscription.plan_type === "starter" ? "Starter" : "Pro"}
+                    </Badge>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                      <div className="rounded-xl bg-muted/50 p-3 text-center">
+                        <p className="text-lg font-bold">
+                          {profile.subscription.used_instances}/{profile.subscription.max_instances}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Bots</p>
+                      </div>
+                      <div className="rounded-xl bg-muted/50 p-3 text-center">
+                        <p className="text-lg font-bold">{profile.subscription.addons}</p>
+                        <p className="text-[10px] text-muted-foreground">Add-ons</p>
+                      </div>
+                      <div className="rounded-xl bg-muted/50 p-3 text-center">
+                        <p className={cn("text-lg font-bold", profile.subscription.status === "active" ? "text-emerald-600" : "text-red-500")}>
+                          {profile.subscription.status === "active" ? "Activo" : "Inactivo"}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Estado</p>
+                      </div>
                     </div>
-                    <div className="rounded-xl bg-wa-panel/50 p-3 text-center">
-                      <p className="text-lg font-bold text-wa-text">{profile.subscription.addons}</p>
-                      <p className="text-[10px] text-wa-text-secondary/60">Add-ons</p>
-                    </div>
-                    <div className="rounded-xl bg-wa-panel/50 p-3 text-center">
-                      <p className={`text-lg font-bold ${profile.subscription.status === "active" ? "text-[#00a884]" : "text-red-400"}`}>{profile.subscription.status === "active" ? "Activo" : "Inactivo"}</p>
-                      <p className="text-[10px] text-wa-text-secondary/60">Estado</p>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-[10px] text-wa-text-secondary/40">
-                    {profile.subscription.plan_type === "starter" && "Auto-respuestas por keywords y menú de botones"}
-                    {profile.subscription.plan_type === "pro" && "Calendario, agenda de turnos y recordatorios"}
-                    {profile.subscription.plan_type === "community" && "Grupos, moderación anti-spam y broadcasts"}
-                  </p>
-                </div>
-              )}
+                    <p className="mt-3 text-[11px] text-muted-foreground/60">
+                      {profile.subscription.plan_type === "starter" && "Auto-respuestas por keywords y menú de botones"}
+                      {profile.subscription.plan_type === "pro" && "Calendario, agenda de turnos y recordatorios"}
+                    </p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
 
             {/* Public agenda card */}
-            <div className="rounded-2xl border border-wa-border bg-wa-header p-5">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#e6a44e]/15 text-[#e6a44e]">
-                  <ClockIcon className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-wa-text">Agenda pública</h3>
-                  <p className="text-[10px] text-wa-text-secondary/60">
-                    Compartí este link para que tus clientes agenden solos
-                  </p>
-                </div>
-              </div>
-
-              {publicAgendaLink ? (
-                <>
-                  <p className="mt-3 truncate rounded-xl border border-wa-border bg-wa-input px-4 py-2.5 font-mono text-[10px] text-wa-text-secondary">
-                    {publicAgendaLink}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void copyLink()}
-                    className="mt-2 flex items-center gap-1.5 rounded-lg border border-[#e6a44e]/40 bg-[#e6a44e]/10 px-3 py-2 text-xs font-semibold text-[#e6a44e] transition hover:bg-[#e6a44e]/20"
-                  >
-                    {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <MessageCircleIcon className="h-3.5 w-3.5" />}
-                    {copied ? "¡Copiado!" : "Copiar link"}
-                  </button>
-                </>
-              ) : (
-                <p className="mt-3 text-xs text-wa-text-secondary/60">
-                  Cargá el nombre de tu negocio arriba para generar el link de agenda.
-                </p>
-              )}
-            </div>
+            <motion.div variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }}>
+              <Card className="rounded-2xl">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                      <Link2 className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-sm">Agenda pública</CardTitle>
+                      <CardDescription className="text-xs">Compartí este link para que tus clientes agenden solos</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {publicAgendaLink ? (
+                    <>
+                      <div className="flex gap-2">
+                        <Input value={publicAgendaLink} readOnly className="font-mono text-xs" />
+                        <Button onClick={() => void copyLink()} variant="outline" className="shrink-0 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-300">
+                          {copied ? <Check className="h-3.5 w-3.5" /> : <MessageCircle className="h-3.5 w-3.5" />}
+                          {copied ? "¡Copiado!" : "Copiar"}
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Cargá el nombre de tu negocio arriba para generar el link de agenda.</p>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
 
             {/* Upcoming appointments */}
-            <div className="rounded-2xl border border-wa-border bg-wa-header p-5">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#00a884]/15 text-[#00a884]">
-                  <ClockIcon className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-wa-text">Próximos turnos</h3>
-                  <p className="text-[10px] text-wa-text-secondary/60">Próximos 14 días</p>
-                </div>
-              </div>
-
-              {upcoming === null ? (
-                <p className="mt-3 text-xs text-wa-text-secondary/40">Cargando...</p>
-              ) : upcoming.length === 0 ? (
-                <p className="mt-3 text-xs text-wa-text-secondary/60">No hay turnos próximos.</p>
-              ) : (
-                <div className="mt-3 space-y-2">
-                  {upcoming.map((a, i) => {
-                    const d = new Date(a.date + "T12:00:00");
-                    const day = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][d.getDay()];
-                    const time = a.time.slice(0, 5);
-                    return (
-                      <div key={i} className="flex items-center justify-between rounded-xl border border-wa-border/50 bg-wa-panel/50 px-4 py-2.5">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-[#00a884]/10 text-[#00a884]">
-                            <span className="text-[10px] font-bold">{time}</span>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-wa-text">{a.name || "Sin nombre"}</p>
-                            <p className="text-[10px] text-wa-text-secondary/50">{day} {d.getDate()}</p>
+            <motion.div variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }}>
+              <Card className="rounded-2xl">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <CalendarDays className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-sm">Próximos turnos</CardTitle>
+                      <CardDescription className="text-xs">Próximos 14 días</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {upcoming === null ? (
+                    <div className="space-y-2">
+                      {[0, 1, 2].map((i) => (
+                        <div key={i} className="flex items-center gap-3 rounded-xl border p-3">
+                          <Skeleton className="h-9 w-14 shrink-0 rounded-lg" />
+                          <div className="space-y-1.5">
+                            <Skeleton className="h-4 w-24" />
+                            <Skeleton className="h-3 w-16" />
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                      ))}
+                    </div>
+                  ) : upcoming.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No hay turnos próximos.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {upcoming.map((a, i) => {
+                        const d = new Date(a.date + "T12:00:00");
+                        const day = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][d.getDay()];
+                        const time = a.time.slice(0, 5);
+                        return (
+                          <Card key={i} className="rounded-xl border-muted">
+                            <CardContent className="flex items-center justify-between p-3">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-9 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-primary/10 text-primary">
+                                  <span className="text-[11px] font-bold">{time}</span>
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium">{a.name || "Sin nombre"}</p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {day} {d.getDate()}
+                                  </p>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
 
             {/* Form */}
-            <div className="rounded-2xl border border-wa-border bg-wa-header p-5 space-y-4">
-              <h3 className="text-sm font-semibold text-wa-text">Editar datos</h3>
+            <motion.div variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }}>
+              <Card className="rounded-2xl">
+                <CardHeader>
+                  <CardTitle className="text-sm">Editar datos</CardTitle>
+                  <CardDescription className="text-xs">Actualizá tu información de perfil</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={onSubmit} className="space-y-4">
+                    {/* Email (read-only) */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <Mail className="h-3 w-3" /> Email
+                      </label>
+                      <Input type="email" value={email} disabled className="opacity-60" />
+                      <p className="text-[10px] text-muted-foreground/60">No se puede cambiar</p>
+                    </div>
 
-              {/* Email (read-only) */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-wa-text-secondary">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  disabled
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text-secondary/60 cursor-not-allowed opacity-60"
-                />
-                <p className="text-[10px] text-wa-text-secondary/40">No se puede cambiar</p>
-              </div>
+                    {/* Full Name */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <User className="h-3 w-3" /> Nombre y Apellido
+                      </label>
+                      <Input type="text" placeholder="Juan Perez" {...register("full_name")} />
+                      {errors.full_name && <p className="text-xs text-destructive">{errors.full_name.message}</p>}
+                    </div>
 
-              {/* Full Name */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-wa-text-secondary">Nombre y Apellido</label>
-                <input
-                  type="text"
-                  placeholder="Juan Perez"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none transition"
-                />
-              </div>
+                    {/* Business Name */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <Store className="h-3 w-3" /> Local / Emprendimiento
+                      </label>
+                      <Input type="text" placeholder="Mi negocio" {...register("business_name")} />
+                      {errors.business_name && <p className="text-xs text-destructive">{errors.business_name.message}</p>}
+                    </div>
 
-              {/* Business Name */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-wa-text-secondary">Local / Emprendimiento</label>
-                <input
-                  type="text"
-                  placeholder="Mi negocio"
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none transition"
-                />
-              </div>
+                    {/* Phone */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <Phone className="h-3 w-3" /> Teléfono
+                      </label>
+                      <Input type="tel" placeholder="+54 11 1234-5678" {...register("phone")} />
+                      {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
+                    </div>
 
-              {/* Phone */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-wa-text-secondary">Telefono</label>
-                <input
-                  type="tel"
-                  placeholder="+54 11 1234-5678"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none transition"
-                />
-              </div>
+                    {/* Address */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <MapPin className="h-3 w-3" /> Dirección
+                      </label>
+                      <Input type="text" placeholder="Av. Principal 1234, Ciudad" {...register("address")} />
+                      {errors.address && <p className="text-xs text-destructive">{errors.address.message}</p>}
+                    </div>
 
-              {/* Address */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-wa-text-secondary">Direccion</label>
-                <input
-                  type="text"
-                  placeholder="Av. Principal 1234, Ciudad"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none transition"
-                />
-              </div>
+                    <Separator />
 
-              {/* Save button */}
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={saving || !hasChanges}
-                className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#00a884] to-[#25d366] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#00a884]/20 transition-all hover:shadow-xl hover:shadow-[#00a884]/30 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? <LoaderIcon className="h-4 w-4 animate-spin" /> : <CheckIcon className="h-4 w-4" />}
-                {saving ? "Guardando..." : "Guardar cambios"}
-              </button>
-            </div>
-          </div>
+                    {/* Save button */}
+                    <Button
+                      type="submit"
+                      disabled={saving || !isDirty}
+                      className="w-full gap-2 bg-gradient-to-r from-primary to-emerald-500 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30"
+                    >
+                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                      {saving ? "Guardando..." : "Guardar cambios"}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </motion.div>
         )}
       </div>
     </div>

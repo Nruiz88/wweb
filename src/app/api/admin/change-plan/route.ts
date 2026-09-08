@@ -26,7 +26,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ status: "error", error: "userId and planType required" }, { status: 400 });
   }
 
-  if (!["starter", "pro", "community"].includes(planType)) {
+  if (!["starter", "pro"].includes(planType)) {
     return NextResponse.json({ status: "error", error: "Invalid plan type" }, { status: 400 });
   }
 

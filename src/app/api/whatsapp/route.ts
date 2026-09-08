@@ -16,6 +16,9 @@ export const dynamic = "force-dynamic";
 // Cachear el QR evita invalidarlo con cada polling del panel.
 const qrCache = new Map<string, { base64: string; at: number }>();
 const QR_TTL_MS = 20000;
+// Track recent logouts to avoid stale "open" from Evolution overriding the DB close
+const recentLogout = new Map<string, number>();
+const LOGOUT_GRACE_MS = 15000;
 
 // Cada instancia = una conexion WhatsApp (RAM en Railway).
 // Al preparar una instancia la registramos en Evolution (si falta) y
@@ -163,12 +166,22 @@ export async function GET(request: Request) {
 
   let currentState = instance.status;
   if (stateResult.ok) {
-    currentState = stateResult.data;
-    // Update status in DB
-    await supabase
-      .from("instances")
-      .update({ status: stateResult.data })
-      .eq("id", instance.id);
+    const key = cacheKey(instance.evolution_api_url, instance.instance_name);
+    const justLoggedOut = recentLogout.has(key) && Date.now() - (recentLogout.get(key) ?? 0) < LOGOUT_GRACE_MS;
+    // Si acabamos de desloguear, no dejar que un "open" stale pise el "close"
+    if (justLoggedOut && stateResult.data === "open" && instance.status === "close") {
+      currentState = "close";
+    } else {
+      currentState = stateResult.data;
+      // Update status in DB
+      await supabase
+        .from("instances")
+        .update({ status: stateResult.data })
+        .eq("id", instance.id);
+    }
+    if (justLoggedOut && Date.now() - (recentLogout.get(key) ?? 0) >= LOGOUT_GRACE_MS) {
+      recentLogout.delete(key);
+    }
   }
 
   // If state is qrcode or close, try to connect and get QR
@@ -330,20 +343,20 @@ export async function DELETE(request: Request) {
     instance.instance_name
   );
 
-  if (!result.ok) {
-    return NextResponse.json(
-      { status: "error", error: result.message },
-      { status: 500 }
-    );
-  }
-
-  // Update status
+  // Siempre marcar como desconectado localmente, aunque Evolution falle o tarde en propagar
   await supabase
     .from("instances")
     .update({ status: "close" })
     .eq("id", instance.id);
 
-  qrCache.delete(cacheKey(instance.evolution_api_url, instance.instance_name));
+  const key = cacheKey(instance.evolution_api_url, instance.instance_name);
+  qrCache.delete(key);
+  recentLogout.set(key, Date.now());
+
+  if (!result.ok) {
+    // Mejor esfuerzo: ya marcamos close localmente, igual devolvemos success con warning
+    console.warn("[whatsapp] logout Evolution falló pero se marcó close", { instance: instance.instance_name, status: result.status, message: result.message });
+  }
 
   return NextResponse.json({ status: "success" });
 }

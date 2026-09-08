@@ -2,28 +2,29 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Appointment, BusinessHours } from "@/lib/supabase/types";
-import {
-  CheckIcon,
-  ClockIcon,
-  LoaderIcon,
-  PenIcon,
-  PlusIcon,
-  TrashIcon,
-  XIcon,
-  CalendarIcon,
-  ShieldIcon,
-} from "@/components/icons";
 import { useUserPlan } from "@/hooks/useUserPlan";
 import PlanPaywall from "@/components/PlanPaywall";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
+import { Calendar, Clock, Shield, Check, X, Loader2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { useSearchParams, useRouter } from "next/navigation";
+import { todayInBusinessTimezone } from "@/lib/timezone";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 
 const DAYS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-const DAYS_FULL = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
-const STATUS_META: Record<string, { label: string; accent: string }> = {
-  pending: { label: "Pendiente", accent: "#e6a44e" },
-  confirmed: { label: "Confirmada", accent: "#00a884" },
-  canceled: { label: "Cancelada", accent: "#ef4444" },
-  completed: { label: "Completada", accent: "#53bdeb" },
+const STATUS_META: Record<string, { label: string; accent: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  pending: { label: "Pendiente", accent: "#e6a44e", variant: "secondary" },
+  confirmed: { label: "Confirmada", accent: "#00a884", variant: "default" },
+  canceled: { label: "Cancelada", accent: "#ef4444", variant: "destructive" },
+  completed: { label: "Completada", accent: "#53bdeb", variant: "outline" },
 };
 
 function formatDate(dateStr: string): string {
@@ -35,26 +36,51 @@ function formatTime(timeStr: string): string {
   return timeStr.slice(0, 5);
 }
 
+// zod schema for business-hours (per requirement)
+const hoursRowSchema = z
+  .object({
+    day: z.number().min(0).max(6),
+    start: z.string().regex(/^\d{2}:\d{2}$/, "Formato HH:MM"),
+    end: z.string().regex(/^\d{2}:\d{2}$/, "Formato HH:MM"),
+    duration: z.number().min(15, "Mín 15 min"),
+    active: z.boolean(),
+  })
+  .refine((d) => d.start < d.end, { message: "Inicio debe ser < fin", path: ["end"] });
+
+const hoursFormSchema = z.object({
+  schedule: z.array(hoursRowSchema).length(7),
+});
+type HoursFormValues = z.infer<typeof hoursFormSchema>;
+
 export default function CalendarPage() {
   const { plan, isAdmin, loading: planLoading } = useUserPlan();
-  const canEdit = isAdmin || plan === "pro" || plan === "community";
+  const canEdit = isAdmin || plan === "pro";
   const [instanceId, setInstanceId] = useState<string | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [businessHours, setBusinessHours] = useState<BusinessHours[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
-  // Filters
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const now = new Date();
-    return now.toISOString().slice(0, 10);
-  });
+  // Filters — hoy en zona Buenos Aires (no UTC)
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  // Business hours form
+  // Business hours form — RHF + zod + Drawer
   const [showHoursForm, setShowHoursForm] = useState(false);
-  const [hoursSchedule, setHoursSchedule] = useState<{ day: number; start: string; end: string; duration: number; active: boolean }[]>([]);
   const [savingHours, setSavingHours] = useState(false);
+
+  const hoursForm = useForm<HoursFormValues>({
+    resolver: zodResolver(hoursFormSchema),
+    defaultValues: {
+      schedule: [0, 1, 2, 3, 4, 5, 6].map((day) => ({
+        day,
+        start: "09:00",
+        end: "18:00",
+        duration: 30,
+        active: day >= 1 && day <= 5,
+      })),
+    },
+  });
+  const watchedSchedule = hoursForm.watch("schedule");
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -65,8 +91,8 @@ export default function CalendarPage() {
         const id = instPayload.data[0].id;
         setInstanceId(id);
 
-        // Load appointments for the week
-        const now = new Date();
+        const nowStr = todayInBusinessTimezone();
+        const now = new Date(`${nowStr}T12:00:00`);
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - now.getDay());
         const weekEnd = new Date(weekStart);
@@ -106,13 +132,9 @@ export default function CalendarPage() {
     }
   }, [feedback]);
 
-  // Open the business-hours modal when navigating with ?config=1
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("config") === "1" && instanceId && canEdit) {
-      openHoursForm();
-    }
-  }, [instanceId, canEdit]);
+  const searchParams = useSearchParams();
+  const routerNav = useRouter();
+  const isConfigMode = searchParams.get("config") === "1";
 
   const filteredAppointments = useMemo(() => {
     let list = appointments;
@@ -129,7 +151,6 @@ export default function CalendarPage() {
       if (!groups[appt.appointment_date]) groups[appt.appointment_date] = [];
       groups[appt.appointment_date].push(appt);
     }
-    // Sort each group by time
     for (const date of Object.keys(groups)) {
       groups[date].sort((a, b) => a.appointment_time.localeCompare(b.appointment_time));
     }
@@ -147,50 +168,37 @@ export default function CalendarPage() {
     const payload = await res.json();
     if (payload.status === "success") {
       setFeedback({ kind: "success", message: `Turno ${STATUS_META[newStatus]?.label || newStatus}` });
+      toast.success(`Turno ${STATUS_META[newStatus]?.label || newStatus}`);
       await loadData();
     } else {
       setFeedback({ kind: "error", message: payload.error });
+      toast.error(payload.error);
     }
   }
 
-  // Borrar un turno (limpia canceladas/completadas u otros).
   async function handleDeleteAppt(apptId: string) {
     if (!confirm("Eliminar este turno?")) return;
     const res = await fetch(`/api/appointments?id=${apptId}`, { method: "DELETE" });
     const payload = await res.json();
     if (payload.status === "success") {
       setFeedback({ kind: "success", message: "Turno eliminado" });
+      toast.success("Turno eliminado");
       await loadData();
     } else {
       setFeedback({ kind: "error", message: payload.error });
+      toast.error(payload.error);
     }
   }
 
-  // Link de WhatsApp para escribirle al cliente (si tiene teléfono).
   function waLink(phone: string | null): string | null {
     const digits = (phone || "").replace(/\D/g, "");
     return digits.length >= 8 ? `https://wa.me/${digits}` : null;
   }
 
-  function openHoursForm() {
-    const schedule = [0, 1, 2, 3, 4, 5, 6].map((day) => {
-      const existing = businessHours.find((h) => h.day_of_week === day);
-      return {
-        day,
-        start: existing?.start_time || "09:00",
-        end: existing?.end_time || "18:00",
-        duration: existing?.slot_duration_min || 30,
-        active: existing?.is_active ?? (day >= 1 && day <= 5), // Mon-Fri active by default
-      };
-    });
-    setHoursSchedule(schedule);
-    setShowHoursForm(true);
-  }
-
-  async function handleSaveHours() {
+  const onSubmitHours = hoursForm.handleSubmit(async (values) => {
     if (!instanceId) return;
     setSavingHours(true);
-    const schedule = hoursSchedule.map((h) => ({
+    const schedule = values.schedule.map((h) => ({
       dayOfWeek: h.day,
       startTime: h.start,
       endTime: h.end,
@@ -205,13 +213,15 @@ export default function CalendarPage() {
     const payload = await res.json();
     if (payload.status === "success") {
       setFeedback({ kind: "success", message: "Horarios guardados" });
+      toast.success("Horarios guardados");
       setShowHoursForm(false);
       await loadData();
     } else {
       setFeedback({ kind: "error", message: payload.error });
+      toast.error(payload.error);
     }
     setSavingHours(false);
-  }
+  });
 
   const activeHoursCount = businessHours.filter((h) => h.is_active).length;
 
@@ -228,310 +238,203 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-wa-panel">
+    <div className="flex h-full flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       {/* Read-only banner */}
       {!planLoading && plan && !isAdmin && (
-        <div className="flex items-center gap-2 bg-[#53bdeb]/10 px-4 py-2 text-xs text-[#53bdeb]">
-          <ShieldIcon className="h-3.5 w-3.5" />
+        <div className="mx-4 mt-4 flex items-center gap-2 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2.5 text-xs font-medium text-sky-300">
+          <Shield className="h-3.5 w-3.5 shrink-0" />
           Modo solo lectura — upgradeá a <strong>Pro</strong> para editar horarios y gestionar turnos
         </div>
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#00a884]/15 text-[#00a884]">
-            <CalendarIcon className="h-4.5 w-4.5" />
+      <div className="px-4 sm:px-6 pt-4 pb-4">
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <div className="absolute inset-0 bg-cyan-500/20 blur-xl rounded-2xl" />
+            <div className="relative h-12 w-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-cyan-600 flex items-center justify-center text-slate-950 shadow-lg shadow-cyan-500/25">
+              <Calendar className="h-6 w-6" strokeWidth={2.5} />
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-wa-text">Calendario</p>
-            <p className="text-[10px] text-wa-text-secondary/60">
-              {appointments.length} turno{appointments.length !== 1 ? "s" : ""} esta semana
-              {activeHoursCount > 0 && ` · ${activeHoursCount} día${activeHoursCount !== 1 ? "s" : ""} activo${activeHoursCount !== 1 ? "s" : ""}`}
-            </p>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-100">{isConfigMode ? "Horarios del negocio" : "Calendario"}</h1>
+            <p className="text-xs text-slate-400 mt-0.5">{isConfigMode ? "Configurá días, horarios y duración por turno" : `${appointments.length} turno${appointments.length !== 1 ? "s" : ""} esta semana`}</p>
           </div>
+          {isConfigMode ? (
+            <Button variant="ghost" onClick={() => routerNav.push("/calendar")} className="text-slate-300">Ver turnos</Button>
+          ) : (
+            <Button variant="ghost" onClick={() => routerNav.push("/calendar?config=1")} className="text-slate-300 h-9 rounded-xl gap-1.5 border border-white/[0.08] hover:bg-white/[0.05]"><Clock className="h-4 w-4" />Horarios</Button>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={openHoursForm}
-          disabled={!instanceId || !canEdit}
-          className={`flex items-center gap-1.5 rounded-lg border border-wa-border bg-wa-header px-3 py-2 text-xs font-medium transition ${canEdit ? "text-wa-text-secondary hover:bg-wa-hover hover:text-wa-text" : "text-wa-text-secondary/40 cursor-not-allowed"}`}
-        >
-          <ClockIcon className="h-3.5 w-3.5" />
-          Horarios
-        </button>
       </div>
 
       {/* Feedback */}
-      {feedback && (
-        <div className={`mx-4 mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-xs fade-up ${
-          feedback.kind === "success" ? "bg-[#00a884]/10 text-[#00a884]" : "bg-red-500/10 text-red-400"
-        }`}>
-          {feedback.kind === "success" ? <CheckIcon className="h-3.5 w-3.5" /> : <XIcon className="h-3.5 w-3.5" />}
-          {feedback.message}
-        </div>
-      )}
-
-      {/* Status filter */}
-      <div className="flex gap-2 border-b border-wa-border bg-wa-header px-4 py-2.5 overflow-x-auto">
-        {["all", "pending", "confirmed", "canceled", "completed"].map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setStatusFilter(s)}
-            className={`shrink-0 rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${
-              statusFilter === s
-                ? "bg-[#00a884]/15 text-[#00a884]"
-                : "bg-wa-panel text-wa-text-secondary hover:bg-wa-hover"
-            }`}
-          >
-            {s === "all" ? "Todas" : STATUS_META[s]?.label || s}
-            {s !== "all" && (
-              <span className="ml-1 opacity-60">
-                {appointments.filter((a) => a.status === s).length}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-        {!instanceId ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-center">
-            <CalendarIcon className="h-12 w-12 text-wa-text-secondary/20" />
-            <p className="text-sm text-wa-text-secondary">Espera a tener una instancia asignada</p>
-          </div>
-        ) : loading ? (
-          <div className="flex items-center justify-center py-16">
-            <LoaderIcon className="h-8 w-8 animate-spin text-wa-text-secondary/40" />
-          </div>
-        ) : appointments.length === 0 ? (
-          <div className="flex flex-col items-center gap-4 py-16 text-center">
-            <div className="relative">
-              <div className="absolute -inset-3 rounded-full bg-[#00a884]/10 blur-xl" />
-              <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-[#00a884]/20 to-[#00a884]/5 ring-4 ring-[#00a884]/10">
-                <CalendarIcon className="h-9 w-9 text-[#00a884]" />
-              </div>
-            </div>
-            <div>
-              <p className="text-lg font-semibold text-wa-text">Sin turnos esta semana</p>
-              <p className="mt-1 max-w-xs text-sm text-wa-text-secondary">
-                Los turnos aparecerán cuando los clientes agenden vía WhatsApp
-              </p>
-            </div>
-            <div className="rounded-xl border border-wa-border bg-wa-header p-4 max-w-xs text-center">
-              <p className="text-xs text-wa-text-secondary/60">
-                Configurá los <button onClick={openHoursForm} className="text-[#00a884] hover:underline">horarios del negocio</button> para que los clientes puedan agendar turnos
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-5">
-            {dateKeys.map((date) => {
-              const dayAppts = groupedByDate[date];
-              const isToday = date === new Date().toISOString().slice(0, 10);
-              return (
-                <div key={date}>
-                  {/* Date header */}
-                  <div className={`mb-2 flex items-center gap-2 ${isToday ? "text-[#00a884]" : ""}`}>
-                    <span className={`text-xs font-semibold ${isToday ? "text-[#00a884]" : "text-wa-text-secondary"}`}>
-                      {formatDate(date)}
-                    </span>
-                    {isToday && (
-                      <span className="rounded-full bg-[#00a884]/15 px-2 py-0.5 text-[9px] font-bold text-[#00a884]">
-                        HOY
-                      </span>
-                    )}
-                    <span className="text-[10px] text-wa-text-secondary/40">
-                      {dayAppts.length} turno{dayAppts.length !== 1 ? "s" : ""}
-                    </span>
-                  </div>
-
-                  {/* Appointments — grid of compact cards */}
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                    {dayAppts.map((appt) => {
-                      const meta = STATUS_META[appt.status] || STATUS_META.pending;
-                      return (
-                        <div
-                          key={appt.id}
-                          className="group flex flex-col rounded-xl border border-wa-border bg-wa-header p-3 transition hover:border-wa-text-secondary/20 hover:shadow-md hover:shadow-black/10"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            {/* Time */}
-                            <div className="flex h-8 w-12 shrink-0 items-center justify-center rounded-lg bg-[#00a884]/10 text-[#00a884]">
-                              <span className="text-[11px] font-bold">{formatTime(appt.appointment_time)}</span>
-                            </div>
-                            {/* Status */}
-                            <span
-                              className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold"
-                              style={{ backgroundColor: `${meta.accent}15`, color: meta.accent }}
-                            >
-                              {meta.label}
-                            </span>
-                          </div>
-
-                          {/* Name */}
-                          <p className="mt-2 truncate text-xs font-semibold text-wa-text">
-                            {appt.customer_name || (appt.customer_phone ? `+${appt.customer_phone}` : "Turno sin datos")}
-                          </p>
-                          <p className="mt-0.5 truncate text-[10px] text-wa-text-secondary/50">
-                            {appt.customer_phone ? (
-                              <a
-                                href={waLink(appt.customer_phone) || "#"}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-semibold text-[#00a884] hover:underline"
-                              >
-                                💬 {appt.customer_phone}
-                              </a>
-                            ) : (
-                              "sin teléfono"
-                            )}
-                            {appt.duration_min && ` · ${appt.duration_min} min`}
-                            {appt.reminder_24h_sent && " · 🔔"}
-                          </p>
-
-                          {/* Actions */}
-                          <div className="mt-2 flex gap-1 border-t border-wa-border/30 pt-2">
-                            {appt.status === "pending" && canEdit && (
-                              <button
-                                type="button"
-                                onClick={() => void handleStatusChange(appt.id, "confirmed")}
-                                className="flex-1 rounded-md bg-[#00a884]/10 px-2 py-1 text-[10px] font-semibold text-[#00a884] transition hover:bg-[#00a884]/20"
-                              >
-                                Confirmar
-                              </button>
-                            )}
-                            {appt.status !== "canceled" && appt.status !== "completed" && canEdit && (
-                              <button
-                                type="button"
-                                onClick={() => void handleStatusChange(appt.id, "canceled")}
-                                className="flex-1 rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-semibold text-red-400 transition hover:bg-red-500/20"
-                              >
-                                Cancelar
-                              </button>
-                            )}
-                            {(appt.status === "canceled" || appt.status === "completed") && canEdit && (
-                              <button
-                                type="button"
-                                onClick={() => void handleDeleteAppt(appt.id)}
-                                className="flex-1 rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-semibold text-red-400 transition hover:bg-red-500/20"
-                              >
-                                Borrar
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      <AnimatePresence>
+        {feedback && (
+          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className={cn("mx-4 sm:mx-6 mb-3 flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium", feedback.kind === "success" ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-300" : "border-rose-400/30 bg-rose-500/10 text-rose-300")}>
+            {feedback.kind === "success" ? <Check className="h-3.5 w-3.5 shrink-0" /> : <X className="h-3.5 w-3.5 shrink-0" />}
+            {feedback.message}
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
 
-      {/* Business Hours Modal */}
-      {showHoursForm && (
-        <div className="modal-overlay" onClick={() => setShowHoursForm(false)}>
-          <div className="mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-5 py-4">
-              <div>
-                <h3 className="text-base font-semibold text-wa-text">Horarios del negocio</h3>
-                <p className="text-[10px] text-wa-text-secondary/60">Configurá los días y horarios de atención</p>
-              </div>
-              <button type="button" onClick={() => setShowHoursForm(false)} className="icon-btn h-8 w-8">
-                <XIcon className="h-4 w-4" />
-              </button>
+      {isConfigMode ? (
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6">
+          <div className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-md shadow-xl shadow-black/20 overflow-hidden">
+            <div className="px-4 py-3 bg-white/[0.03] border-b border-white/[0.06] flex items-center gap-2">
+              <Clock className="h-4 w-4 text-cyan-400" />
+              <span className="text-sm font-semibold text-slate-100">Horarios y duración por turno</span>
+              <span className="ml-auto text-[10px] font-bold text-cyan-400 px-2 py-0.5 rounded-full bg-cyan-400/10 border border-cyan-400/20">{activeHoursCount} activos</span>
             </div>
-
-            <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-5">
-              {hoursSchedule.map((h, idx) => (
-                <div
-                  key={h.day}
-                  className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition ${
-                    h.active ? "border-[#00a884]/30 bg-[#00a884]/5" : "border-wa-border bg-wa-input opacity-60"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = [...hoursSchedule];
-                      next[idx] = { ...next[idx], active: !next[idx].active };
-                      setHoursSchedule(next);
-                    }}
-                    className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${h.active ? "bg-[#00a884]" : "bg-wa-text-secondary/30"}`}
-                  >
-                    <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${h.active ? "translate-x-[22px]" : "translate-x-0.5"}`} />
-                  </button>
-                  <span className="w-10 text-xs font-semibold text-wa-text">{DAYS_ES[h.day]}</span>
-                  <input
-                    type="time"
-                    value={h.start}
-                    onChange={(e) => {
-                      const next = [...hoursSchedule];
-                      next[idx] = { ...next[idx], start: e.target.value };
-                      setHoursSchedule(next);
-                    }}
-                    disabled={!h.active}
-                    className="rounded-lg border border-wa-border bg-wa-panel px-2 py-1.5 text-xs text-wa-text focus:border-[#00a884] focus:outline-none disabled:opacity-40"
-                  />
-                  <span className="text-wa-text-secondary/50">a</span>
-                  <input
-                    type="time"
-                    value={h.end}
-                    onChange={(e) => {
-                      const next = [...hoursSchedule];
-                      next[idx] = { ...next[idx], end: e.target.value };
-                      setHoursSchedule(next);
-                    }}
-                    disabled={!h.active}
-                    className="rounded-lg border border-wa-border bg-wa-panel px-2 py-1.5 text-xs text-wa-text focus:border-[#00a884] focus:outline-none disabled:opacity-40"
-                  />
-                  <select
-                    value={h.duration}
-                    onChange={(e) => {
-                      const next = [...hoursSchedule];
-                      next[idx] = { ...next[idx], duration: Number(e.target.value) };
-                      setHoursSchedule(next);
-                    }}
-                    disabled={!h.active}
-                    title="Duración del turno"
-                    className="rounded-lg border border-wa-border bg-wa-panel px-1.5 py-1.5 text-xs text-wa-text focus:border-[#00a884] focus:outline-none disabled:opacity-40"
-                  >
-                    <option value={30}>30 min</option>
-                    <option value={45}>45 min</option>
-                    <option value={60}>1 hora</option>
-                    <option value={90}>1.5 h</option>
-                    <option value={120}>2 h</option>
-                  </select>
+            <div className="p-4 space-y-3">
+              <form onSubmit={onSubmitHours} className="space-y-3">
+                {watchedSchedule?.map((h, idx) => {
+                  const errStart = hoursForm.formState.errors.schedule?.[idx]?.start;
+                  const errEnd = hoursForm.formState.errors.schedule?.[idx]?.end;
+                  return (
+                    <div key={h.day} className={cn("flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 rounded-xl border px-3 sm:px-4 py-3", h.active ? "border-cyan-400/20 bg-cyan-500/5" : "border-white/[0.06] bg-white/[0.02] opacity-60")}>
+                      <button type="button" onClick={() => hoursForm.setValue(`schedule.${idx}.active`, !h.active, { shouldValidate: true })} className={cn("relative h-6 w-11 shrink-0 rounded-full", h.active ? "bg-cyan-400" : "bg-slate-600")}><span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", h.active ? "translate-x-[22px]" : "translate-x-0.5")} /></button>
+                      <span className="w-8 sm:w-10 shrink-0 text-xs font-semibold text-slate-300">{DAYS_ES[h.day]}</span>
+                      <div className="flex min-w-0 flex-1 flex-col gap-1"><Input type="time" {...hoursForm.register(`schedule.${idx}.start`)} disabled={!h.active} className={cn("h-8 min-w-0 text-xs bg-white/[0.04] border-white/[0.08] text-slate-200", errStart && "border-rose-400/50")} />{errStart && <span className="text-[10px] text-rose-400">{errStart.message}</span>}</div>
+                      <span className="text-slate-500 shrink-0 text-xs">a</span>
+                      <div className="flex min-w-0 flex-1 flex-col gap-1"><Input type="time" {...hoursForm.register(`schedule.${idx}.end`)} disabled={!h.active} className={cn("h-8 min-w-0 text-xs bg-white/[0.04] border-white/[0.08] text-slate-200", errEnd && "border-rose-400/50")} />{errEnd && <span className="text-[10px] text-rose-400">{errEnd.message}</span>}</div>
+                      <select value={h.duration} onChange={(e) => hoursForm.setValue(`schedule.${idx}.duration`, Number(e.target.value), { shouldValidate: true })} disabled={!h.active} className="flex h-8 shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.04] px-2 text-xs text-slate-200">
+                        <option value={30}>30 min</option><option value={45}>45 min</option><option value={60}>1 hora</option><option value={90}>1.5 h</option><option value={120}>2 h</option>
+                      </select>
+                    </div>
+                  );
+                })}
+                <div className="flex gap-3 pt-2">
+                  <Button type="button" variant="outline" onClick={() => routerNav.push("/calendar")} className="flex-1 border-white/[0.08] text-slate-300">Cancelar</Button>
+                  <Button type="submit" disabled={savingHours} className="flex-1 gap-2 bg-gradient-to-r from-cyan-400 to-cyan-500 hover:from-cyan-300 hover:to-cyan-400 text-slate-950 font-semibold shadow-lg shadow-cyan-500/20">{savingHours ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Guardar</Button>
                 </div>
-              ))}
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowHoursForm(false)}
-                  className="flex-1 rounded-xl border border-wa-border py-3 text-sm font-medium text-wa-text-secondary hover:bg-wa-hover"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSaveHours()}
-                  disabled={savingHours}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#00a884] py-3 text-sm font-semibold text-white hover:bg-[#00a884]/90 disabled:opacity-50"
-                >
-                  {savingHours ? <LoaderIcon className="h-4 w-4 animate-spin" /> : null}
-                  {savingHours ? "Guardando..." : "Guardar horarios"}
-                </button>
-              </div>
+              </form>
             </div>
           </div>
         </div>
+      ) : (
+        <>
+          {/* Status filter */}
+          <div className="mx-4 sm:mx-6 mb-3 flex gap-1 bg-white/[0.03] border border-white/[0.06] rounded-xl p-0.5">
+            {["all", "pending", "confirmed", "canceled", "completed"].map((s) => (
+              <button key={s} onClick={() => setStatusFilter(s)} className={cn("px-2.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all flex items-center gap-1", statusFilter === s ? "bg-gradient-to-br from-cyan-400/20 to-violet-400/20 text-cyan-300 border border-cyan-400/30 shadow-sm" : "text-slate-500 hover:text-slate-300")}>
+                {s === "all" ? "Todas" : STATUS_META[s]?.label || s}
+                {s !== "all" && <span className="opacity-60 text-[10px]">{appointments.filter(a => a.status === s).length}</span>}
+              </button>
+            ))}
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6">
+            {!instanceId ? (
+              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
+                <Calendar className="h-10 w-10 text-slate-600 mx-auto mb-3" />
+                <p className="text-sm text-slate-400">Espera a tener una instancia asignada</p>
+              </div>
+            ) : loading ? (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {[0, 1, 2].map(i => <Skeleton key={i} className="h-32 rounded-2xl bg-white/[0.03]" />)}
+              </div>
+            ) : appointments.length === 0 ? (
+              <div className="rounded-2xl border-2 border-dashed border-white/[0.06] bg-white/[0.01] p-12 text-center">
+                <div className="relative inline-block mb-3">
+                  <div className="absolute inset-0 bg-cyan-500/20 blur-2xl rounded-full" />
+                  <div className="relative h-16 w-16 rounded-2xl bg-cyan-500/10 flex items-center justify-center border border-cyan-400/20">
+                    <Calendar className="h-8 w-8 text-cyan-400" />
+                  </div>
+                </div>
+                <p className="text-base font-semibold text-slate-300">Sin turnos esta semana</p>
+                <p className="text-xs text-slate-500 mt-1">Los turnos aparecerán cuando los clientes agenden vía WhatsApp</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {dateKeys.map((date) => {
+                  const dayAppts = groupedByDate[date];
+                  const isToday = date === todayInBusinessTimezone();
+                  return (
+                    <div key={date}>
+                      <div className={cn("mb-3 flex items-center gap-2", isToday ? "text-cyan-400" : "")}>
+                        <span className={cn("text-xs font-semibold", isToday ? "text-cyan-400" : "text-slate-500")}>{formatDate(date)}</span>
+                        {isToday && <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-cyan-400/10 text-cyan-400 border border-cyan-400/20">HOY</span>}
+                        <span className="text-[11px] text-slate-600">{dayAppts.length} turno{dayAppts.length !== 1 ? "s" : ""}</span>
+                      </div>
+                      <motion.div initial="hidden" animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.06 } } }} className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {dayAppts.map((appt) => {
+                          const meta = STATUS_META[appt.status] || STATUS_META.pending;
+                          return (
+                            <motion.div key={appt.id} variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }} transition={{ duration: 0.3, ease: "easeOut" }}>
+                              <div className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-md shadow-xl shadow-black/20 hover:border-white/[0.12] transition-all h-full">
+                                <div className="p-3 flex flex-col h-full">
+                                  <div className="flex items-center justify-between gap-2 mb-2">
+                                    <div className="h-8 w-14 rounded-lg bg-cyan-400/10 text-cyan-400 flex items-center justify-center border border-cyan-400/20">
+                                      <span className="text-[11px] font-bold">{formatTime(appt.appointment_time)}</span>
+                                    </div>
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border" style={{ backgroundColor: `${meta.accent}15`, color: meta.accent, borderColor: `${meta.accent}30` }}>{meta.label}</span>
+                                  </div>
+                                  <p className="text-sm font-semibold truncate text-slate-100">{appt.customer_name || (appt.customer_phone ? `+${appt.customer_phone}` : "Turno sin datos")}</p>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    {appt.customer_phone ? (
+                                      <a href={waLink(appt.customer_phone) || "#"} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline font-medium">💬 {appt.customer_phone}</a>
+                                    ) : "sin teléfono"}
+                                    {appt.duration_min && ` · ${appt.duration_min} min`}
+                                  </p>
+                                  <Separator className="my-2.5 bg-white/[0.06]" />
+                                  <div className="flex gap-1.5 mt-auto">
+                                    {appt.status === "pending" && canEdit && (
+                                      <Button size="sm" variant="outline" onClick={() => void handleStatusChange(appt.id, "confirmed")} className="flex-1 text-[11px] border-emerald-400/30 text-emerald-400 hover:bg-emerald-400/10">Confirmar</Button>
+                                    )}
+                                    {appt.status !== "canceled" && appt.status !== "completed" && canEdit && (
+                                      <Button size="sm" variant="outline" onClick={() => void handleStatusChange(appt.id, "canceled")} className="flex-1 text-[11px] border-white/[0.08] text-slate-400 hover:text-rose-400 hover:border-rose-400/30">Cancelar</Button>
+                                    )}
+                                    {(appt.status === "canceled" || appt.status === "completed") && canEdit && (
+                                      <Button size="sm" variant="outline" onClick={() => void handleDeleteAppt(appt.id)} className="flex-1 text-[11px] border-rose-400/30 text-rose-400 hover:bg-rose-400/10"><Trash2 className="h-3 w-3" />Borrar</Button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                      </motion.div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
       )}
+
+      {/* Business Hours modal legacy (mantenido por compatibilidad, oculto en modo config inline) */}
+      <AnimatePresence>
+        {showHoursForm && !isConfigMode && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4 backdrop-blur-md md:flex" onClick={() => setShowHoursForm(false)}>
+            <motion.div initial={{ opacity: 0, y: 16, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.97 }} transition={{ duration: 0.2 }} onClick={(e) => e.stopPropagation()} className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col rounded-2xl border border-white/[0.06] bg-gradient-to-br from-slate-900 to-slate-950 shadow-2xl shadow-black/50">
+              <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
+                <p className="text-base font-semibold text-slate-100">Horarios del negocio</p>
+                <Button variant="ghost" size="icon" onClick={() => setShowHoursForm(false)} className="h-8 w-8 text-slate-400"><X className="h-4 w-4" /></Button>
+              </div>
+              <form onSubmit={onSubmitHours} className="flex flex-1 flex-col overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                  {watchedSchedule?.map((h, idx) => (
+                    <div key={h.day} className="flex flex-wrap sm:flex-nowrap items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
+                      <button type="button" onClick={() => hoursForm.setValue(`schedule.${idx}.active`, !h.active)} className={cn("relative h-6 w-11 shrink-0 rounded-full", h.active ? "bg-cyan-400" : "bg-slate-600")}><span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", h.active ? "translate-x-[22px]" : "translate-x-0.5")} /></button>
+                      <span className="w-8 sm:w-10 shrink-0 text-xs font-semibold text-slate-300">{DAYS_ES[h.day]}</span>
+                      <Input type="time" {...hoursForm.register(`schedule.${idx}.start`)} disabled={!h.active} className="h-8 min-w-0 text-xs flex-1 bg-white/[0.04] border-white/[0.08] text-slate-200" />
+                      <span className="text-xs text-slate-500">a</span>
+                      <Input type="time" {...hoursForm.register(`schedule.${idx}.end`)} disabled={!h.active} className="h-8 min-w-0 text-xs flex-1 bg-white/[0.04] border-white/[0.08] text-slate-200" />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-3 border-t border-white/[0.06] p-4">
+                  <Button type="button" variant="ghost" onClick={() => setShowHoursForm(false)} className="flex-1 text-slate-300">Cancelar</Button>
+                  <Button type="submit" disabled={savingHours} className="flex-1 bg-gradient-to-r from-cyan-400 to-cyan-500 text-slate-950 font-semibold">{savingHours ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Guardar</Button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

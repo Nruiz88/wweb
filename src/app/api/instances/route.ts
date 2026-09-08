@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { supabaseConfig } from "@/lib/supabase/config";
-import { getConnectionState } from "@/lib/evolution-multi";
+import { getConnectionState, testEvolutionConnection } from "@/lib/evolution-multi";
 import { validateEvolutionUrl, sanitizeString } from "@/lib/validation";
 import { safeErrorMessage } from "@/lib/api-helpers";
 
@@ -14,7 +14,10 @@ interface InstanceRow {
   created_at: string;
   evolution_api_url?: string;
   evolution_api_key?: string;
+  status_checked_at?: string | null;
 }
+
+type ServiceClient = Awaited<ReturnType<typeof createServerClient>>;
 
 function sanitizeInstance(instance: InstanceRow) {
   return {
@@ -30,9 +33,43 @@ function sanitizeInstance(instance: InstanceRow) {
 const statusCache = new Map<string, { status: string; at: number }>();
 const STATUS_TTL_MS = 60_000;
 
+const BASE_COLUMNS = "id, instance_name, status, created_at, evolution_api_url, evolution_api_key";
+
+// Lee las instancias intentando usar la marca de frescura (status_checked_at).
+// Si la DB aún no tiene la columna (migración pendiente), cae a live siempre.
+async function selectInstances(
+  supabase: ServiceClient,
+  scope: { adminId: string } | { ids: string[] }
+): Promise<{ rows: InstanceRow[]; freshCheck: boolean; error: unknown }> {
+  const build = (columns: string) => {
+    const q = supabase.from("instances").select(columns).order("created_at", { ascending: false });
+    return "adminId" in scope ? q.eq("admin_id", scope.adminId) : q.in("id", scope.ids);
+  };
+  const first = await build(`${BASE_COLUMNS}, status_checked_at`);
+  if (!first.error) return { rows: (first.data ?? []) as unknown as InstanceRow[], freshCheck: true, error: null };
+  if (typeof first.error === "object" && first.error !== null && (first.error as { code?: string }).code === "42703") {
+    const second = await build(BASE_COLUMNS);
+    return { rows: (second.data ?? []) as unknown as InstanceRow[], freshCheck: false, error: second.error };
+  }
+  return { rows: [], freshCheck: false, error: first.error };
+}
+
+async function persistStatus(supabase: ServiceClient, id: string, status: string) {
+  const stamp = new Date().toISOString();
+  try {
+    const upd = await supabase.from("instances").update({ status, status_checked_at: stamp }).eq("id", id);
+    if (upd.error && typeof upd.error === "object" && (upd.error as { code?: string }).code === "42703") {
+      await supabase.from("instances").update({ status }).eq("id", id);
+    }
+  } catch {
+    // Non-critical: keep serving even if DB update fails
+  }
+}
+
 async function withLiveStatus(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
-  instances: InstanceRow[]
+  supabase: ServiceClient,
+  instances: InstanceRow[],
+  freshCheck: boolean
 ) {
   const now = Date.now();
 
@@ -40,6 +77,15 @@ async function withLiveStatus(
     instances.map(async (instance) => {
       if (!instance.evolution_api_url || !instance.evolution_api_key) {
         return sanitizeInstance(instance);
+      }
+
+      // DB fresca (<TTL): servir sin llamar a Evolution. En serverless el
+      // caché en memoria casi siempre está frío, por eso se persiste en DB.
+      if (freshCheck && instance.status_checked_at) {
+        const checkedAt = new Date(instance.status_checked_at).getTime();
+        if (!Number.isNaN(checkedAt) && now - checkedAt < STATUS_TTL_MS) {
+          return sanitizeInstance(instance);
+        }
       }
 
       const cacheKey = `${instance.evolution_api_url}|${instance.instance_name}`;
@@ -57,14 +103,7 @@ async function withLiveStatus(
 
       if (state.ok && state.data) {
         statusCache.set(cacheKey, { status: state.data, at: Date.now() });
-        try {
-          await supabase
-            .from("instances")
-            .update({ status: state.data })
-            .eq("id", instance.id);
-        } catch {
-          // Non-critical: keep serving even if DB update fails
-        }
+        await persistStatus(supabase, instance.id, state.data);
         return sanitizeInstance({ ...instance, status: state.data });
       }
 
@@ -107,20 +146,16 @@ export async function GET(request: Request) {
     .single();
 
   if (profile?.role === "admin") {
-    const { data: instances, error } = await supabase
-      .from("instances")
-      .select("id, instance_name, status, created_at, evolution_api_url, evolution_api_key")
-      .eq("admin_id", user.id)
-      .order("created_at", { ascending: false });
+    const { rows: instances, freshCheck, error } = await selectInstances(supabase, { adminId: user.id });
 
     if (error) {
       return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
     }
 
     if (lite) {
-      return NextResponse.json({ status: "success", data: (instances as InstanceRow[]).map(sanitizeInstance), role: "admin" });
+      return NextResponse.json({ status: "success", data: instances.map(sanitizeInstance), role: "admin" });
     }
-    const live = await withLiveStatus(supabase, instances as InstanceRow[]);
+    const live = await withLiveStatus(supabase, instances, freshCheck);
     return NextResponse.json({ status: "success", data: live, role: "admin" });
   }
 
@@ -133,19 +168,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "success", data: [], role: "user" });
   }
 
-  const { data: instances, error } = await supabase
-    .from("instances")
-    .select("id, instance_name, status, created_at, evolution_api_url, evolution_api_key")
-    .in("id", assignments.map((a) => a.instance_id));
+  const { rows: instances, freshCheck, error } = await selectInstances(supabase, { ids: assignments.map((a) => a.instance_id) });
 
   if (error) {
     return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
   if (lite) {
-    return NextResponse.json({ status: "success", data: (instances as InstanceRow[]).map(sanitizeInstance), role: "user" });
+    return NextResponse.json({ status: "success", data: instances.map(sanitizeInstance), role: "user" });
   }
-  const live = await withLiveStatus(supabase, instances as InstanceRow[]);
+  const live = await withLiveStatus(supabase, instances, freshCheck);
   return NextResponse.json({ status: "success", data: live, role: "user" });
 }
 
@@ -205,9 +237,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: urlCheck.error }, { status: 400 });
   }
 
+  const normalizedUrl = urlCheck.normalized || evolutionApiUrl.trim();
+  // Verificamos solo que el SERVIDOR responda (no la instancia/QR del usuario)
+  const serverCheck = await testEvolutionConnection(normalizedUrl, evolutionApiKey);
+  if (!serverCheck.ok) {
+    const hint = serverCheck.status === 401 || serverCheck.status === 403 ? " (API key global de Evolution inválida)" : serverCheck.status === 404 ? " (URL mal — debe ser https://xxx.up.railway.app sin /instance/...)" : "";
+    return NextResponse.json({ status: "error", error: `Servidor no responde: ${serverCheck.message}${hint}` }, { status: 400 });
+  }
+
   const { data: instance, error } = await supabase
     .from("instances")
-    .insert({ admin_id: user.id, instance_name: cleanName, evolution_api_url: urlCheck.normalized || evolutionApiUrl.trim(), evolution_api_key: evolutionApiKey })
+    .insert({ admin_id: user.id, instance_name: cleanName, evolution_api_url: normalizedUrl, evolution_api_key: evolutionApiKey })
     .select("id, instance_name, status, created_at")
     .single();
 
@@ -215,7 +255,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
-  return NextResponse.json({ status: "success", data: instance });
+  return NextResponse.json({ status: "success", data: instance, message: "Servidor verificado — instancia lista. El usuario debe vincular QR en Mi WhatsApp para pasar a conectada." });
 }
 
 // DELETE: Delete instance (admin only)

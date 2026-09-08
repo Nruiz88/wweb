@@ -4,13 +4,12 @@ import { getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { verifyWebhookSignature } from "@/lib/webhook-secret";
 import { extractMessageText, extractButtonText, extractListText, extractRawButtonId } from "@/lib/webhook/extract";
 import { hasPlan, type WebhookContext } from "@/lib/webhook/context";
-import { handleGroupWelcome } from "@/lib/webhook/group-welcome";
-import { handleGroupSpam } from "@/lib/webhook/group-spam";
 import { handleWelcome } from "@/lib/webhook/welcome";
 import { handleOutsideHours } from "@/lib/webhook/outside-hours";
 import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect, isAgendaActive } from "@/lib/webhook/booking";
 import { handleMenuTap, handleMenuTextReply } from "@/lib/webhook/menus";
 import { handleAutoReply } from "@/lib/webhook/auto-reply";
+import { handleCatalogIntent } from "@/lib/webhook/catalog";
 import type { PlanType } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +27,6 @@ interface WebhookPayload {
     action?: "add" | "remove";
   };
 }
-
-const PLAN_HIERARCHY: PlanType[] = ["starter", "pro", "community"];
 
 export async function POST(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "webhook", { maxRequests: 100, windowMs: 60_000 });
@@ -52,64 +49,8 @@ export async function POST(request: Request) {
 
   const supabase = await createServerClient();
 
-  // ============================================================
-  // GROUP-PARTICIPANTS.UPDATE → Community feature + auto-capture
-  // ============================================================
+  // Community features removed — ignore group events and group messages
   if (body.event === "group-participants.update") {
-    const groupJid = body.data?.id;
-    const participantJid = body.data?.participant;
-    const action = body.data?.action;
-
-    if (!groupJid || !participantJid) {
-      return NextResponse.json({ status: "ignored" });
-    }
-
-    // Find instance
-    const { data: instance } = await supabase
-      .from("instances")
-      .select("id, instance_name, evolution_api_url, evolution_api_key")
-      .eq("instance_name", body.instance)
-      .single();
-
-    if (!instance) {
-      return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-    }
-
-    // Auto-capture: store discovered group (upsert updates last_seen_at)
-    if (groupJid.endsWith("@g.us")) {
-      const { data: existingGrp } = await supabase
-        .from("group_settings")
-        .select("id")
-        .eq("instance_id", instance.id)
-        .eq("group_jid", groupJid)
-        .maybeSingle();
-
-      // Only auto-capture if not already configured
-      if (!existingGrp) {
-        await supabase
-          .from("discovered_groups")
-          .upsert({
-            instance_id: instance.id,
-            group_jid: groupJid,
-            last_seen_at: new Date().toISOString(),
-          }, { onConflict: "instance_id,group_jid" });
-      }
-    }
-
-    if (action !== "add") {
-      return NextResponse.json({ status: "ignored" });
-    }
-
-    const plan = await getPlanForInstance(supabase, instance.id);
-
-    // Community feature: group welcome
-    if (hasPlan(plan, "community")) {
-      const result = await handleGroupWelcome({
-        supabase, instanceName: body.instance, groupJid, participantJid, action, bodyInstance: body.instance,
-      });
-      if (result) return NextResponse.json(result);
-    }
-
     return NextResponse.json({ status: "ignored" });
   }
 
@@ -119,60 +60,15 @@ export async function POST(request: Request) {
 
   const instanceName = body.instance;
   const remoteJid = body.data?.key?.remoteJid || "";
+  if (remoteJid.includes("@g.us")) {
+    return NextResponse.json({ status: "ignored" });
+  }
   const plainText = extractMessageText(body.data?.message);
   const buttonText = extractButtonText(body.data?.message);
   const listText = extractListText(body.data?.message);
   const effectiveText = plainText || buttonText || listText;
 
   if (!instanceName || !remoteJid || !effectiveText) {
-    return NextResponse.json({ status: "ignored" });
-  }
-
-  // ============================================================
-  // GROUP MESSAGES → Community feature (spam filter) + auto-capture
-  // ============================================================
-  if (remoteJid.includes("@g.us")) {
-    const { data: grpInstance } = await supabase
-      .from("instances")
-      .select("id, instance_name, evolution_api_url, evolution_api_key")
-      .eq("instance_name", instanceName)
-      .single();
-
-    if (!grpInstance) {
-      return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-    }
-
-    // Auto-capture: track active groups
-    const { data: existingGrp } = await supabase
-      .from("group_settings")
-      .select("id")
-      .eq("instance_id", grpInstance.id)
-      .eq("group_jid", remoteJid)
-      .maybeSingle();
-
-    if (!existingGrp) {
-      // Track active groups (name is filled later by fetchAllGroups sync)
-      await supabase
-        .from("discovered_groups")
-        .upsert({
-          instance_id: grpInstance.id,
-          group_jid: remoteJid,
-          last_seen_at: new Date().toISOString(),
-        }, { onConflict: "instance_id,group_jid" });
-    }
-
-    const plan = await getPlanForInstance(supabase, grpInstance.id);
-
-    if (hasPlan(plan, "community")) {
-      const result = await handleGroupSpam({
-        supabase, instanceName, remoteJid, plainText,
-        msgId: body.data?.key?.id,
-        senderJid: body.data?.key?.participant || remoteJid,
-        bodyInstance: instanceName,
-      });
-      if (result) return NextResponse.json(result);
-    }
-
     return NextResponse.json({ status: "ignored" });
   }
 
@@ -264,7 +160,7 @@ export async function POST(request: Request) {
     // disparar el menú; para reiniciar hay que escribir la palabra clave.
     const menuTextMatch = checkId.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "").trim();
     if (
-      isAgendaActive(ctx) &&
+      await isAgendaActive(ctx) &&
       (checkId === "agenda_hoy" || checkId === "agenda_proximo" || checkId === "agenda_completa" ||
       ["1", "hoy", "librehoy", "2", "proximo", "masproximo", "3", "completa", "agendacompleta"].includes(menuTextMatch))
     ) {
@@ -299,6 +195,12 @@ export async function POST(request: Request) {
     if (menuResult) return NextResponse.json(menuResult);
   }
 
+  // ============================================================
+  // CATALOG / Pedidos genéricos ( Starter + Pro )
+  // ============================================================
+  const catalogResult = await handleCatalogIntent(ctx);
+  if (catalogResult) return NextResponse.json(catalogResult);
+
   // Regular keyword/regex matching
   const replyResult = await handleAutoReply(ctx);
   return NextResponse.json(replyResult);
@@ -309,7 +211,7 @@ async function getPlanForInstance(
   supabase: Awaited<ReturnType<typeof createServerClient>>,
   instanceId: string,
 ): Promise<PlanType> {
-  const hierarchy: PlanType[] = ["starter", "pro", "community"];
+  const hierarchy: PlanType[] = ["starter", "pro"];
   let best: PlanType = "starter";
 
   const resolveUserPlan = async (userId: string | undefined | null) => {

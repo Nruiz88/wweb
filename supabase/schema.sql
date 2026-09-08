@@ -10,11 +10,11 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- 1. ENUMS
 -- ============================================
 DO $$ BEGIN
-  CREATE TYPE public.plan_type AS ENUM ('starter', 'pro', 'community');
+  CREATE TYPE public.plan_type AS ENUM ('pending', 'starter', 'pro');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN
-  CREATE TYPE public.subscription_status AS ENUM ('active', 'past_due', 'canceled');
+  CREATE TYPE public.subscription_status AS ENUM ('pending', 'active', 'past_due', 'canceled');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN
@@ -52,7 +52,7 @@ BEGIN
   );
 
   INSERT INTO public.subscriptions (user_id, plan_type, status, max_instances)
-  VALUES (NEW.id, 'starter', 'active', 1);
+  VALUES (NEW.id, 'pending', 'pending', 0);
 
   RETURN NEW;
 END;
@@ -72,9 +72,11 @@ CREATE OR REPLACE TRIGGER on_auth_user_created
 CREATE TABLE subscriptions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-  plan_type public.plan_type DEFAULT 'starter',
-  status public.subscription_status DEFAULT 'active',
-  max_instances INT DEFAULT 1 CHECK (max_instances >= 1),
+  plan_type public.plan_type DEFAULT 'pending',
+  status public.subscription_status DEFAULT 'pending',
+  max_instances INT DEFAULT 0 CHECK (max_instances >= 0),
+  paid_until TIMESTAMPTZ,
+  purchased_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -134,6 +136,7 @@ CREATE TABLE instances (
   evolution_api_url TEXT NOT NULL,
   evolution_api_key TEXT NOT NULL,
   status TEXT DEFAULT 'close' CHECK (status IN ('open', 'close', 'connecting', 'qrcode')),
+  status_checked_at TIMESTAMPTZ DEFAULT NULL,
   welcome_message TEXT DEFAULT NULL,
   outside_hours_message TEXT DEFAULT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -336,6 +339,11 @@ CREATE INDEX idx_appointments_instance ON appointments(instance_id);
 CREATE INDEX idx_appointments_date ON appointments(appointment_date);
 CREATE INDEX idx_appointments_status ON appointments(status);
 CREATE INDEX idx_appointments_reminder ON appointments(status, appointment_date, reminder_24h_sent) WHERE status IN ('pending', 'confirmed');
+CREATE INDEX idx_catalog_items_instance ON catalog_items(instance_id);
+CREATE INDEX idx_catalog_items_active ON catalog_items(instance_id, active, sort_order);
+CREATE INDEX idx_orders_instance ON orders(instance_id);
+CREATE INDEX idx_orders_date ON orders(instance_id, created_at);
+CREATE INDEX idx_orders_status ON orders(status);
 
 -- ============================================
 -- 9. Row Level Security (RLS)
@@ -456,90 +464,56 @@ CREATE POLICY "appointments access"
     OR EXISTS (SELECT 1 FROM user_instances WHERE instance_id = appointments.instance_id AND user_id = auth.uid())
   );
 
-ALTER TABLE group_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE broadcasts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE broadcast_recipients ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "group_settings access"
-  ON group_settings FOR ALL
-  USING (
-    auth.uid() = user_id
-    OR EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
-  );
-
-CREATE POLICY "broadcasts access"
-  ON broadcasts FOR ALL
-  USING (
-    auth.uid() = user_id
-    OR EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
-  );
-
-CREATE POLICY "broadcast_recipients access"
-  ON broadcast_recipients FOR ALL
-  USING (
-    EXISTS (
-      SELECT 1 FROM broadcasts WHERE id = broadcast_id
-      AND (
-        user_id = auth.uid()
-        OR EXISTS (SELECT 1 FROM instances WHERE id = instance_id AND admin_id = auth.uid())
-      )
-    )
-  );
-
 -- ============================================
--- 8b. Group Settings (Community feature)
+-- Catalog & Orders (generic orders)
 -- ============================================
-CREATE TABLE group_settings (
+ALTER TABLE catalog_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "catalog_items access" ON public.catalog_items;
+CREATE POLICY "catalog_items access"
+  ON catalog_items FOR ALL USING (
+    EXISTS (SELECT 1 FROM instances WHERE id = catalog_items.instance_id AND admin_id = auth.uid())
+    OR EXISTS (SELECT 1 FROM user_instances WHERE instance_id = catalog_items.instance_id AND user_id = auth.uid())
+  );
+
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "orders access" ON public.orders;
+CREATE POLICY "orders access"
+  ON orders FOR ALL USING (
+    EXISTS (SELECT 1 FROM instances WHERE id = orders.instance_id AND admin_id = auth.uid())
+    OR EXISTS (SELECT 1 FROM user_instances WHERE instance_id = orders.instance_id AND user_id = auth.uid())
+  );
+CREATE TABLE catalog_items (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   instance_id UUID REFERENCES instances(id) ON DELETE CASCADE NOT NULL,
-  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
-  group_jid TEXT NOT NULL,
-  group_name TEXT,
-  welcome_enabled BOOLEAN DEFAULT false,
-  welcome_message TEXT DEFAULT NULL,
-  spam_filter_enabled BOOLEAN DEFAULT false,
-  block_all_links BOOLEAN DEFAULT true,
-  allowed_domains TEXT[] DEFAULT '{}',
-  banned_words_enabled BOOLEAN DEFAULT false,
-  banned_words TEXT[] DEFAULT '{}',
-  banned_words_action TEXT DEFAULT 'delete_and_reply' CHECK (banned_words_action IN ('delete', 'delete_and_reply')),
-  banned_words_reply TEXT DEFAULT NULL,
+  label TEXT NOT NULL,
+  description TEXT,
+  price_cents INT NOT NULL DEFAULT 0 CHECK (price_cents >= 0),
+  active BOOLEAN NOT NULL DEFAULT true,
+  sort_order INT NOT NULL DEFAULT 0,
+  category TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(instance_id, group_jid)
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-DROP TRIGGER IF EXISTS group_settings_updated_at ON public.group_settings;
-CREATE TRIGGER group_settings_updated_at
-  BEFORE UPDATE ON public.group_settings
-  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+DROP TRIGGER IF EXISTS catalog_items_updated_at ON public.catalog_items;
+CREATE TRIGGER catalog_items_updated_at BEFORE UPDATE ON public.catalog_items FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
 
 -- ============================================
--- 8c. Broadcasts (Community feature)
+-- 8c. Orders (generic catalog orders)
 -- ============================================
-CREATE TABLE broadcasts (
+CREATE TABLE orders (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   instance_id UUID REFERENCES instances(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
-  title TEXT NOT NULL,
-  message TEXT NOT NULL,
-  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'sending', 'completed', 'failed')),
-  scheduled_at TIMESTAMPTZ DEFAULT NULL,
-  sent_at TIMESTAMPTZ DEFAULT NULL,
-  total_groups INT DEFAULT 0,
-  sent_count INT DEFAULT 0,
-  failed_count INT DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE broadcast_recipients (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  broadcast_id UUID REFERENCES broadcasts(id) ON DELETE CASCADE NOT NULL,
-  group_jid TEXT NOT NULL,
-  group_name TEXT,
-  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
-  error TEXT DEFAULT NULL,
-  sent_at TIMESTAMPTZ DEFAULT NULL
+  customer_phone TEXT,
+  customer_name TEXT,
+  catalog_item_id UUID REFERENCES catalog_items(id) ON DELETE SET NULL,
+  option_label TEXT NOT NULL,
+  price_cents INT NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','completed','canceled')),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
 );
 
 -- ============================================
@@ -648,8 +622,53 @@ GRANT ALL ON public.auto_responses TO service_role;
 GRANT ALL ON public.response_logs TO service_role;
 GRANT ALL ON public.business_hours TO service_role;
 GRANT ALL ON public.appointments TO service_role;
-GRANT ALL ON public.group_settings TO service_role;
-GRANT ALL ON public.broadcasts TO service_role;
-GRANT ALL ON public.broadcast_recipients TO service_role;
-GRANT ALL ON public.discovered_groups TO service_role;
-GRANT ALL ON public.group_discovery_cache TO service_role;
+GRANT ALL ON public.catalog_items TO service_role;
+GRANT ALL ON public.orders TO service_role;
+
+-- ============================================
+-- 11. Mercado Pago + Plan Config + Payments (MVP)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.mercado_pago_config (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  access_token TEXT,
+  public_key TEXT,
+  webhook_secret TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.mercado_pago_config ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Admin manage mp config" ON public.mercado_pago_config FOR ALL USING (auth.uid() IN (SELECT id FROM profiles WHERE role = 'admin')) WITH CHECK (auth.uid() IN (SELECT id FROM profiles WHERE role = 'admin'));
+GRANT ALL ON public.mercado_pago_config TO service_role;
+
+CREATE TABLE IF NOT EXISTS public.payments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  external_id TEXT NOT NULL UNIQUE,
+  amount_cents INT NOT NULL DEFAULT 0,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','cancelled')),
+  plan_activated BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "User view own payments" ON public.payments FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "User insert own payments" ON public.payments FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Admin all payments" ON public.payments FOR ALL USING (auth.uid() IN (SELECT id FROM profiles WHERE role = 'admin'));
+CREATE INDEX idx_payments_external ON public.payments(external_id);
+CREATE INDEX idx_payments_user_status ON public.payments(user_id, status);
+GRANT ALL ON public.payments TO service_role;
+
+CREATE TABLE IF NOT EXISTS public.plan_config (
+  plan_type TEXT PRIMARY KEY CHECK (plan_type IN ('starter','pro')),
+  amount_cents INT NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
+  label TEXT NOT NULL DEFAULT '',
+  description TEXT,
+  max_instances INT NOT NULL DEFAULT 1 CHECK (max_instances >= 1),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.plan_config ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Admin manage plan_config" ON public.plan_config FOR ALL USING (auth.uid() IN (SELECT id FROM profiles WHERE role = 'admin')) WITH CHECK (auth.uid() IN (SELECT id FROM profiles WHERE role = 'admin'));
+CREATE INDEX idx_plan_config_plan ON public.plan_config(plan_type);
+GRANT ALL ON public.plan_config TO service_role;

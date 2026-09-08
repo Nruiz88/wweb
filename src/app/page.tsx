@@ -265,9 +265,9 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="grid items-stretch gap-8 lg:grid-cols-3">
+          <div className="grid items-stretch gap-8 lg:grid-cols-2 max-w-4xl mx-auto">
             {/* Starter */}
-            <div className="ld-card-panel flex flex-col rounded-3xl border border-white/10 p-8 transition-colors hover:border-white/20">
+            <div className="ld-card-panel flex flex-col rounded-3xl border border-white/10 p-8 transition-all hover:border-white/20 hover:-translate-y-1">
               <h4 className="mb-2 text-2xl font-bold">Starter</h4>
               <p className="mb-6 text-text-secondary">Atención Básica</p>
               <div className="mb-8">
@@ -300,7 +300,7 @@ export default function HomePage() {
             </div>
 
             {/* Pro */}
-            <div className="ld-card-panel relative flex flex-col rounded-3xl border-2 border-whatsapp-green bg-surface-elevated p-8 shadow-[0_0_30px_rgba(37,211,102,0.15)] transition-transform lg:-translate-y-4">
+            <div className="ld-card-panel relative flex flex-col rounded-3xl border-2 border-whatsapp-green bg-surface-elevated p-8 shadow-[0_0_30px_rgba(37,211,102,0.15)] transition-transform lg:-translate-y-2 hover:shadow-[0_0_40px_rgba(37,211,102,0.22)]">
               <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-whatsapp-green px-4 py-1 font-label text-sm font-bold tracking-wide text-surface-dim">
                 Recomendado
               </div>
@@ -332,40 +332,6 @@ export default function HomePage() {
                   className="block w-full rounded-full bg-whatsapp-green py-3 px-4 text-center font-label text-sm font-bold text-surface-dim transition-colors hover:bg-[#00a884]"
                 >
                   Elegir Pro
-                </a>
-              </div>
-            </div>
-
-            {/* Community */}
-            <div className="ld-card-panel flex flex-col rounded-3xl border border-white/10 p-8 transition-colors hover:border-white/20">
-              <h4 className="mb-2 text-2xl font-bold">Community</h4>
-              <p className="mb-6 text-text-secondary">Grupos &amp; Difusión</p>
-              <div className="mb-8">
-                <span className="text-4xl font-bold">$35.000</span>
-                <span className="text-text-secondary"> ARS/mes</span>
-              </div>
-              <ul className="mb-8 flex-grow space-y-4 text-sm text-text-secondary">
-                {[
-                  "Todas las funciones del plan Starter",
-                  "Bienvenida automática en grupos etiquetando al usuario (@usuario)",
-                  "Moderación y filtro anti-spam (eliminación de links no autorizados)",
-                  "Programador de comunicados / notificaciones masivas a varios grupos",
-                ].map((item) => (
-                  <li key={item} className="flex items-start gap-3">
-                    <CheckCircle className="h-5 w-5 shrink-0 text-whatsapp-green" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-auto">
-                <p className="mb-6 text-xs italic text-text-secondary opacity-80">
-                  Ideal para: Profesores, academias, gimnasios, clubes, administradores de comunidades o señales
-                </p>
-                <a
-                  href="/register"
-                  className="block w-full rounded-full border border-whatsapp-green py-3 px-4 text-center font-label text-sm font-bold text-whatsapp-green transition-colors hover:bg-whatsapp-green/10"
-                >
-                  Elegir Community
                 </a>
               </div>
             </div>

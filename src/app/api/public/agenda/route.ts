@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { slugify } from "@/lib/slug";
+import { BUSINESS_TIMEZONE, todayInBusinessTimezone, timeInBusinessTimezone } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -116,24 +117,17 @@ export async function GET(request: Request) {
     bookedByInstance.get(b.instance_id)!.add(`${b.appointment_date}|${b.appointment_time}`);
   }
 
-  // Business timezone: Vercel runs UTC; compute "today" in Buenos Aires by default.
-  const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/Argentina/Buenos_Aires";
-  const todayStr = () =>
-    new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-  const nowMinutes = () => {
-    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: BUSINESS_TIMEZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
-    const h = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
-    const m = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  const today = todayInBusinessTimezone();
+  const nowMins = (() => {
+    const t = timeInBusinessTimezone();
+    const [h, m] = t.split(":").map(Number);
     return h * 60 + m;
-  };
-
-  const today = todayStr();
-  const nowMins = nowMinutes();
+  })();
   const days: { date: string; display: string }[] = [];
   for (let i = 1; i <= 14; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+    const base = new Date(`${today}T12:00:00`);
+    base.setDate(base.getDate() + i);
+    const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(base);
     days.push({ date: dateStr, display: dateStr });
   }
 

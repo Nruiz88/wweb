@@ -1,7 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-// Rutas publicas (no requieren sesion)
 const PUBLIC_PATHS = ["/login", "/register", "/reset-password", "/agendar"];
 const PUBLIC_API = ["/api/webhook", "/api/health", "/api/public", "/api/appointments/slots"];
 
@@ -17,8 +16,8 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
   // 'unsafe-inline': los browsers CSP3 ignoran 'unsafe-inline' cuando hay
   // 'strict-dynamic'. Se requiere 'unsafe-eval' solo en dev (Fast Refresh).
   const isDev = process.env.NODE_ENV !== "production";
-  const scriptSrc = "script-src 'self' 'unsafe-inline'" + (isDev ? " 'unsafe-eval'; " : "; ");
-
+  const scriptSrc = "script-src 'self' 'unsafe-inline'" + (isDev ? " 'unsafe-eval'; " : " ; ");
+  
   response.headers.set(
     "Content-Security-Policy",
     "default-src 'self'; " +
@@ -36,7 +35,7 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
-
+  
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -55,10 +54,8 @@ export async function proxy(request: NextRequest) {
           );
         },
       },
-    }
-  );
+  });
 
-  // IMPORTANTE: refresh de sesion en cada request
   const {
     data: { user },
   } = await supabase.auth.getUser();

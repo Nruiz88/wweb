@@ -1,4 +1,4 @@
-export type PlanType = "starter" | "pro" | "community";
+export type PlanType = "pending" | "starter" | "pro";
 export type SubscriptionStatus = "active" | "past_due" | "canceled";
 export type InstanceStatus = "open" | "close" | "connecting" | "qrcode";
 
@@ -26,14 +26,12 @@ export type PlanFeature =
   | "menus"
   | "calendar"
   | "appointments"
-  | "reminders"
-  | "group_moderation"
-  | "broadcasts";
+  | "reminders";
 
 export const PLAN_FEATURES: Record<PlanType, PlanFeature[]> = {
+  pending: [],
   starter: ["keywords", "menus"],
   pro: ["keywords", "menus", "calendar", "appointments", "reminders"],
-  community: ["keywords", "menus", "group_moderation", "broadcasts"],
 };
 
 export function hasPlanFeature(plan: PlanType, feature: PlanFeature): boolean {
@@ -175,70 +173,37 @@ export interface CalendarDay {
 }
 
 // ============================================
-// Community: Groups, Anti-spam, Broadcasts
+// Catalog / Orders (generic)
 // ============================================
 
-export interface GroupSetting {
+export interface CatalogItem {
   id: string;
   instance_id: string;
-  user_id: string;
-  group_jid: string;
-  group_name: string | null;
-  picture_url: string | null;
-  welcome_enabled: boolean;
-  welcome_message: string | null;
-  spam_filter_enabled: boolean;
-  block_all_links: boolean;
-  allowed_domains: string[];
-  banned_words_enabled: boolean;
-  banned_words: string[];
-  banned_words_action: "delete" | "delete_and_reply";
-  banned_words_reply: string | null;
+  label: string;
+  description: string | null;
+  price_cents: number;
+  active: boolean;
+  sort_order: number;
+  category: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export type BroadcastStatus = "draft" | "sending" | "completed" | "failed";
+export type OrderStatus = "pending" | "completed" | "canceled";
 
-export interface Broadcast {
+export interface Order {
   id: string;
   instance_id: string;
   user_id: string | null;
-  title: string;
-  message: string;
-  status: BroadcastStatus;
-  scheduled_at: string | null;
-  sent_at: string | null;
-  total_groups: number;
-  sent_count: number;
-  failed_count: number;
+  customer_phone: string | null;
+  customer_name: string | null;
+  catalog_item_id: string | null;
+  option_label: string;
+  price_cents: number;
+  status: OrderStatus;
+  notes: string | null;
   created_at: string;
+  completed_at: string | null;
 }
 
-export interface BroadcastRecipient {
-  id: string;
-  broadcast_id: string;
-  group_jid: string;
-  group_name: string | null;
-  status: "pending" | "sent" | "failed";
-  error: string | null;
-  sent_at: string | null;
-}
 
-/** Simple link detection regex */
-const URL_REGEX = /https?:\/\/[^\s]+|www\.[^\s]+/gi;
-
-export function containsLink(text: string): boolean {
-  return URL_REGEX.test(text);
-}
-
-export function extractDomains(text: string): string[] {
-  const urls = text.match(URL_REGEX) || [];
-  return [...new Set(urls.map((u) => {
-    try {
-      return new URL(u.startsWith("http") ? u : `https://${u}`).hostname.replace(/^www\./, "");
-    } catch {
-      return u;
-    }
-  }))];
-}

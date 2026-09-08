@@ -53,6 +53,6 @@ export interface HandlerResult {
 
 /** Helper to check if plan meets minimum requirement */
 export function hasPlan(current: PlanType, minimum: PlanType): boolean {
-  const hierarchy: PlanType[] = ["starter", "pro", "community"];
+  const hierarchy: PlanType[] = ["pending", "starter", "pro"];
   return hierarchy.indexOf(current) >= hierarchy.indexOf(minimum);
 }

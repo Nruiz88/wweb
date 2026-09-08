@@ -18,27 +18,12 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
-  -- 1) Caché temporal del "Buscar grupos" vencido
-  DELETE FROM public.group_discovery_cache WHERE expires_at < now();
-
-  -- 2) Logs de respuestas del bot > 30 días
+  -- 1) Logs de respuestas del bot > 30 días
   DELETE FROM public.response_logs WHERE sent_at < now() - interval '30 days';
 
-  -- 3) Grupos descubiertos sin actividad en 30 días (y que NO estén configurados)
-  DELETE FROM public.discovered_groups dg
-  WHERE dg.last_seen_at < now() - interval '30 days'
-    AND NOT EXISTS (
-      SELECT 1 FROM public.group_settings gs
-      WHERE gs.instance_id = dg.instance_id AND gs.group_jid = dg.group_jid
-    );
-
-  -- 4) Destinatarios de broadcasts (enviados/fallidos) > 30 días
-  DELETE FROM public.broadcast_recipients
-  WHERE status IN ('sent', 'failed') AND sent_at < now() - interval '30 days';
-
-  -- 5) Broadcasts completados/fallidos > 90 días (se conservan borradores)
-  DELETE FROM public.broadcasts
-  WHERE status IN ('completed', 'failed') AND created_at < now() - interval '90 days';
+  -- 2) Pedidos completados/cancelados > 90 días
+  DELETE FROM public.orders
+  WHERE status IN ('completed', 'canceled') AND created_at < now() - interval '90 days';
 END;
 $$;
 

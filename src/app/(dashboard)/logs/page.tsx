@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Clock, Inbox, MessageCircle, Zap, Search } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import type { Instance } from "@/lib/supabase/types";
-import { ClockIcon, InboxIcon, LoaderIcon, MessageCircleIcon, ZapIcon } from "@/components/icons";
 
 interface LogEntry {
   id: string;
@@ -13,52 +19,80 @@ interface LogEntry {
   sent_at: string;
 }
 
-// Log entry card
 function LogCard({ log }: { log: LogEntry }) {
   const time = new Date(log.sent_at);
   const timeStr = time.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
   const dateStr = time.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
 
   return (
-    <div className="group rounded-2xl border border-wa-border/50 bg-wa-header p-4 transition-all hover:border-wa-border hover:shadow-md hover:shadow-black/10">
-      {/* Header row */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#53bdeb]/10 text-[10px] font-bold text-[#53bdeb]">
-            {log.incoming_phone?.slice(-2) || "?"}
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -1 }}>
+      <Card className="transition-shadow hover:shadow-md">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-500/10 text-[10px] font-bold text-sky-600">
+                {log.incoming_phone?.slice(-2) || "?"}
+              </div>
+              <span className="text-xs font-medium">{log.incoming_phone}</span>
+              {log.matched_keyword ? (
+                <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 text-[10px]">
+                  {log.matched_keyword}
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-[10px]">sin match</Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <Clock className="h-3 w-3" />
+              <span>
+                {dateStr} {timeStr}
+              </span>
+            </div>
           </div>
-          <span className="text-xs font-medium text-wa-text">{log.incoming_phone}</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-wa-text-secondary/50">
-          <ClockIcon className="h-3 w-3" />
-          <span>{dateStr} {timeStr}</span>
-        </div>
-      </div>
 
-      {/* Message */}
-      <div className="mt-3 flex items-start gap-2">
-        <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[#202c33]">
-          <MessageCircleIcon className="h-3 w-3 text-wa-text-secondary/40" />
-        </div>
-        <p className="text-xs text-wa-text-secondary line-clamp-2">{log.incoming_message}</p>
-      </div>
+          <div className="mt-3 flex items-start gap-2">
+            <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted">
+              <MessageCircle className="h-3 w-3 text-muted-foreground" />
+            </div>
+            <p className="text-xs text-muted-foreground line-clamp-2">{log.incoming_message}</p>
+          </div>
 
-      {/* Match */}
-      {log.auto_responses && (
-        <div className="mt-2 flex items-start gap-2">
-          <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[#00a884]/10">
-            <ZapIcon className="h-3 w-3 text-[#00a884]" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[10px] text-[#00a884]">
-              Match: &quot;{log.matched_keyword}&quot;
-            </p>
-            <p className="text-[10px] text-wa-text-secondary/50 line-clamp-1">
-              {log.auto_responses.response_text.slice(0, 80)}
-            </p>
-          </div>
-        </div>
-      )}
+          {log.auto_responses && (
+            <div className="mt-2 flex items-start gap-2">
+              <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-emerald-500/10">
+                <Zap className="h-3 w-3 text-emerald-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium text-emerald-600">Match: &quot;{log.matched_keyword}&quot;</p>
+                <p className="text-[10px] text-muted-foreground line-clamp-1">{log.auto_responses.response_text.slice(0, 80)}</p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
+function LogSkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <Card key={i}>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-7 w-7 rounded-full" />
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-4 w-16 rounded-full" />
+              </div>
+              <Skeleton className="h-3 w-20" />
+            </div>
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-3/4" />
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
@@ -70,6 +104,7 @@ export default function LogsPage() {
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
+  const [search, setSearch] = useState("");
   const pageSize = 20;
   const totalPages = Math.ceil(total / pageSize);
 
@@ -96,7 +131,6 @@ export default function LogsPage() {
     setLoading(false);
   }, [selectedInstance, page]);
 
-  // Reset page when switching instances
   useEffect(() => {
     const t = setTimeout(() => setPage(0), 0);
     return () => clearTimeout(t);
@@ -111,87 +145,102 @@ export default function LogsPage() {
     return () => clearTimeout(t);
   }, [loadLogs]);
 
+  const filteredLogs = useMemo(() => {
+    if (!search.trim()) return logs;
+    const q = search.toLowerCase();
+    return logs.filter(
+      (l) =>
+        l.incoming_phone.toLowerCase().includes(q) ||
+        l.incoming_message.toLowerCase().includes(q) ||
+        l.matched_keyword?.toLowerCase().includes(q)
+    );
+  }, [logs, search]);
+
   return (
-    <div className="flex h-full flex-col bg-wa-panel">
+    <div className="flex h-full flex-col bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-4 py-2.5">
+      <div className="flex items-center justify-between border-b bg-card px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-[0.9375rem] font-normal text-wa-text">Actividad</span>
-          {total > 0 && (
-            <span className="rounded-full bg-[#53bdeb]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#53bdeb]">
-              {total}
-            </span>
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Clock className="h-3.5 w-3.5" />
+          </div>
+          <span className="text-sm font-semibold">Actividad</span>
+          {total > 0 && <Badge variant="secondary" className="text-[10px]">{total}</Badge>}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative hidden sm:block">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-48 pl-8 text-xs" />
+          </div>
+          {instances.length > 1 && (
+            <select
+              value={selectedInstance || ""}
+              onChange={(e) => setSelectedInstance(e.target.value)}
+              className="h-8 rounded-xl border border-input bg-background px-3 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {instances.map((inst) => (
+                <option key={inst.id} value={inst.id}>
+                  {inst.instance_name}
+                </option>
+              ))}
+            </select>
           )}
         </div>
-        {instances.length > 1 && (
-          <select
-            value={selectedInstance || ""}
-            onChange={(e) => setSelectedInstance(e.target.value)}
-            className="rounded-lg border border-wa-border bg-wa-header px-3 py-1.5 text-xs text-wa-text-secondary focus:border-[#00a884] focus:outline-none"
-          >
-            {instances.map((inst) => (
-              <option key={inst.id} value={inst.id}>{inst.instance_name}</option>
-            ))}
-          </select>
-        )}
+      </div>
+
+      {/* Mobile search */}
+      <div className="border-b bg-card px-4 py-2 sm:hidden">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input placeholder="Buscar por teléfono o mensaje..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 pl-8 text-xs" />
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {!selectedInstance ? (
           <div className="flex flex-col items-center gap-4 py-16 text-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-wa-header ring-4 ring-wa-border/30">
-              <ClockIcon className="h-10 w-10 text-wa-text-secondary/20" />
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-muted">
+              <Clock className="h-10 w-10 text-muted-foreground/30" />
             </div>
-            <p className="text-sm text-wa-text-secondary">Crea una instancia primero</p>
+            <p className="text-sm text-muted-foreground">Crea una instancia primero</p>
           </div>
         ) : loading ? (
-          <div className="flex items-center justify-center py-16">
-            <LoaderIcon className="h-8 w-8 animate-spin text-wa-text-secondary/40" />
-          </div>
-        ) : logs.length === 0 ? (
+          <LogSkeleton />
+        ) : filteredLogs.length === 0 ? (
           <div className="flex flex-col items-center gap-4 py-16 text-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-wa-header ring-4 ring-wa-border/30">
-              <InboxIcon className="h-10 w-10 text-wa-text-secondary/20" />
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-muted">
+              <Inbox className="h-10 w-10 text-muted-foreground/30" />
             </div>
             <div>
-              <p className="text-base font-semibold text-wa-text">Sin actividad</p>
-              <p className="mt-1 max-w-xs text-sm text-wa-text-secondary">
-                Los registros apareceran cuando se activen las auto-respuestas
+              <p className="text-base font-semibold">{search ? "Sin resultados" : "Sin actividad"}</p>
+              <p className="mt-1 max-w-xs text-sm text-muted-foreground">
+                {search ? `No hay registros para "${search}"` : "Los registros aparecerán cuando se activen las auto-respuestas"}
               </p>
             </div>
           </div>
         ) : (
-          <>
-            <div className="space-y-3">
-              {logs.map((log) => (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-3">
+            <AnimatePresence>
+              {filteredLogs.map((log) => (
                 <LogCard key={log.id} log={log} />
               ))}
-            </div>
+            </AnimatePresence>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="mt-6 flex items-center justify-center gap-3">
-                <button
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                  className="rounded-lg border border-wa-border bg-wa-header px-3 py-1.5 text-xs font-medium text-wa-text-secondary hover:border-wa-border/80 disabled:opacity-30 disabled:cursor-not-allowed"
-                >
+            {totalPages > 1 && !search && (
+              <div className="flex items-center justify-center gap-3 pt-4">
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
                   Anterior
-                </button>
-                <span className="text-xs text-wa-text-secondary">
+                </Button>
+                <span className="text-xs text-muted-foreground">
                   Página {page + 1} de {totalPages}
                 </span>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                  disabled={page >= totalPages - 1}
-                  className="rounded-lg border border-wa-border bg-wa-header px-3 py-1.5 text-xs font-medium text-wa-text-secondary hover:border-wa-border/80 disabled:opacity-30 disabled:cursor-not-allowed"
-                >
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}>
                   Siguiente
-                </button>
+                </Button>
               </div>
             )}
-          </>
+          </motion.div>
         )}
       </div>
     </div>

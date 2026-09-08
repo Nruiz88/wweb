@@ -1,692 +1,198 @@
 "use client";
-
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AutoResponse, MenuButton } from "@/lib/supabase/types";
-import {
-  CheckIcon,
-  LoaderIcon,
-  PenIcon,
-  PlusIcon,
-  SearchIcon,
-  TrashIcon,
-  XIcon,
-  ZapIcon,
-  ChevronDownIcon,
-} from "@/components/icons";
-
-interface SubOption {
-  id: string;
-  text: string;
-  target_id: string | null;
-}
-
-interface SubMenu {
-  title: string;
-  description: string;
-  footer: string;
-  buttons: SubOption[];
-  savedId?: string | null; // auto_response id if this submenu was already persisted
-}
-
-interface MenuOption {
-  id: string;
-  text: string;
-  mode: "text" | "submenu";
-  target_id: string | null; // text mode: linked auto-response
-  submenu: SubMenu | null; // submenu mode: inline submenu
-}
-
-interface MenuItem {
-  id: string;
-  title: string;
-  description: string;
-  footer: string;
-  buttons: MenuOption[];
-}
-
-const newSubOption = (): SubOption => ({ id: crypto.randomUUID().slice(0, 8), text: "", target_id: null });
-
-const newSubMenu = (): SubMenu => ({
-  title: "",
-  description: "",
-  footer: "",
-  buttons: [newSubOption(), newSubOption(), newSubOption()],
-});
-
-const newOption = (): MenuOption => ({
-  id: crypto.randomUUID().slice(0, 8),
-  text: "",
-  mode: "text",
-  target_id: null,
-  submenu: null,
-});
-
-const emptyItem = (): MenuItem => ({
-  id: crypto.randomUUID().slice(0, 8),
-  title: "",
-  description: "",
-  footer: "",
-  buttons: [newOption(), newOption(), newOption()],
-});
+import { useCallback, useEffect, useState } from "react";
+import type { AutoResponse } from "@/lib/supabase/types";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
+import { Plus, Trash2, Pencil, X, Eye, EyeOff, Layers, Menu } from "lucide-react";
 
 export default function MenusPage() {
   const [instanceId, setInstanceId] = useState<string | null>(null);
   const [menus, setMenus] = useState<AutoResponse[]>([]);
-  const [textResponses, setTextResponses] = useState<AutoResponse[]>([]);
-  const [loading, setLoading] = useState(true);
+  // loading derivado: true hasta que los datos se cargan para el instanceId actual
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const [editing, setEditing] = useState<AutoResponse | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [editingMenu, setEditingMenu] = useState<AutoResponse | null>(null);
-  const [search, setSearch] = useState("");
-  const [item, setItem] = useState<MenuItem>(emptyItem());
+  const [search] = useState("");
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const instRes = await fetch("/api/instances?lite=1");
-      const instPayload = await instRes.json();
+  const load = useCallback(async () => {
+    if (!instanceId) return;
+    const res = await fetch(`/api/auto-responses?instanceId=${instanceId}&type=menu`);
+    const p = await res.json();
+    if (p.status === "success") setMenus(p.data);
+  }, [instanceId]);
 
-      if (instPayload.status === "success" && instPayload.data?.length > 0) {
-        const id = instPayload.data[0].id;
-        setInstanceId(id);
-
-        const [menusRes, textsRes] = await Promise.all([
-          fetch(`/api/auto-responses?instanceId=${id}&type=menu`),
-          fetch(`/api/auto-responses?instanceId=${id}&type=text`),
-        ]);
-        const menusPayload = await menusRes.json();
-        const textsPayload = await textsRes.json();
-        if (menusPayload.status === "success") setMenus(menusPayload.data);
-        if (textsPayload.status === "success") setTextResponses(textsPayload.data);
-      }
-    } catch {
-      // Non-critical
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    (async () => {
+      const r = await fetch("/api/instances?lite=1");
+      const j = await r.json();
+      if (j.status === "success" && j.data?.[0]) setInstanceId(j.data[0].id);
+    })();
   }, []);
-
   useEffect(() => {
-    const t = setTimeout(() => void loadData(), 0);
-    return () => clearTimeout(t);
-  }, [loadData]);
+    if (!instanceId || loadedFor === instanceId) return;
+    let cancelled = false;
+    (async () => {
+      await load();
+      if (!cancelled) setLoadedFor(instanceId);
+    })();
+    return () => { cancelled = true; };
+  }, [instanceId, load, loadedFor]);
+  const loading = instanceId ? loadedFor !== instanceId : true;
 
-  useEffect(() => {
-    if (feedback) {
-      const t = setTimeout(() => setFeedback(null), 3000);
-      return () => clearTimeout(t);
-    }
-  }, [feedback]);
+  const filteredMenus = menus.filter(
+    (m) =>
+      m.menu_config?.title?.toLowerCase().includes(search.toLowerCase()) ||
+      m.menu_config?.description?.toLowerCase().includes(search.toLowerCase()) ||
+      m.menu_config?.buttons?.some(b => b.text.toLowerCase().includes(search.toLowerCase()))
+  );
 
-  const filteredMenus = useMemo(() => {
-    if (!search.trim()) return menus;
-    const q = search.trim().toLowerCase();
-    return menus.filter(
-      (m) =>
-        m.menu_config?.title?.toLowerCase().includes(q) ||
-        m.menu_config?.buttons?.some((b) => b.text.toLowerCase().includes(q)),
-    );
-  }, [menus, search]);
-
-  // Resolve a submenu inline when editing: find the linked menu by target_id
-  function submenuFromTarget(targetId: string | null): SubMenu | null {
-    if (!targetId) return null;
-    const linked = menus.find((m) => m.id === targetId);
-    if (!linked?.menu_config) return null;
-    return {
-      title: linked.menu_config.title,
-      description: linked.menu_config.description || "",
-      footer: linked.menu_config.footer || "",
-      buttons: linked.menu_config.buttons?.map((b) => ({ id: b.id, text: b.text, target_id: b.target_id })) || [],
-      savedId: linked.id,
-    };
-  }
-
-  function openCreate() {
-    setItem(emptyItem());
-    setIsActive(true);
-    setEditingMenu(null);
-    setShowForm(true);
-  }
-
-  function openEdit(m: AutoResponse) {
-    setEditingMenu(m);
-    setItem({
-      id: m.id,
-      title: m.menu_config?.title || "",
-      description: m.menu_config?.description || "",
-      footer: m.menu_config?.footer || "",
-      buttons: (m.menu_config?.buttons?.length ? m.menu_config.buttons : [newOption(), newOption(), newOption()]).map((b) => {
-        const submenu = submenuFromTarget(b.target_id);
-        return {
-          id: b.id,
-          text: b.text,
-          mode: submenu ? "submenu" : "text",
-          target_id: submenu ? null : b.target_id,
-          submenu,
-        };
-      }),
-    });
+  function startEdit(m: AutoResponse) {
+    setEditing(m);
+    setTitle(m.menu_config?.title || "");
+    setDescription(m.menu_config?.description || "");
     setIsActive(m.is_active);
     setShowForm(true);
   }
 
-  const hasTitle = item.title.trim();
-  const hasAnyText = item.buttons.some((b) => b.text.trim());
-
-  function updateButton(idx: number, patch: Partial<MenuOption>) {
-    const next = [...item.buttons];
-    next[idx] = { ...next[idx], ...patch };
-    setItem({ ...item, buttons: next });
+  function resetForm() {
+    setEditing(null); setShowForm(false);
+    setTitle(""); setDescription(""); setIsActive(true);
   }
 
-  function updateSubOption(btnIdx: number, subIdx: number, patch: Partial<SubOption>) {
-    const next = [...item.buttons];
-    const sub = next[btnIdx].submenu;
-    if (!sub) return;
-    const subButtons = [...sub.buttons];
-    subButtons[subIdx] = { ...subButtons[subIdx], ...patch };
-    next[btnIdx] = { ...next[btnIdx], submenu: { ...sub, buttons: subButtons } };
-    setItem({ ...item, buttons: next });
-  }
-
-  // Save: persist submenus first (they are auto_responses of type menu), then the parent.
-  async function handleSave() {
-    if (!instanceId) return;
-    setSaving(true);
-    setFeedback(null);
+  async function onSubmit() {
     try {
-      // 1. Persist inline submenus → get their saved ids
-      const buttons = await Promise.all(
-        item.buttons.map(async (btn, btnIdx) => {
-          const base = { id: btn.id, text: btn.text.trim() };
-          if (!base.text) return null;
-
-          if (btn.mode === "submenu" && btn.submenu) {
-            const sub = btn.submenu;
-            const subButtons = sub.buttons.filter((sb) => sb.text.trim());
-            if (subButtons.length === 0) {
-              return { ...base, target_id: null };
-            }
-            const subMenuConfig = {
-              title: sub.title || base.text,
-              description: sub.description,
-              footer: sub.footer || undefined,
-              buttons: subButtons.map((sb, i) => ({
-                id: sb.id || `${base.id}_s${i}`,
-                text: sb.text.trim(),
-                target_id: sb.target_id || null,
-              })),
-            };
-            const method = sub.savedId ? "PUT" : "POST";
-            const body = sub.savedId
-              ? { id: sub.savedId, responseType: "menu", menuConfig: subMenuConfig, isActive: true }
-              : { instanceId, responseType: "menu", menuConfig: subMenuConfig, isActive: true };
-            const res = await fetch("/api/auto-responses", {
-              method,
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-            });
-            const payload = await res.json();
-            if (payload.status !== "success") {
-              throw new Error(payload.error || "Error al guardar submenú");
-            }
-            return { ...base, target_id: payload.data.id };
-          }
-
-          // text mode
-          return { ...base, target_id: btn.target_id || null };
-        }),
-      );
-
-      const finalButtons = buttons.filter((b): b is { id: string; text: string; target_id: string | null } => b !== null);
-
-      const menuConfig = {
-        title: item.title,
-        description: item.description,
-        footer: item.footer || undefined,
-        buttons: finalButtons,
-      };
-
-      const method = editingMenu ? "PUT" : "POST";
-      const body = editingMenu
-        ? { id: editingMenu.id, responseType: "menu", menuConfig, isActive }
-        : { instanceId, responseType: "menu", menuConfig, isActive };
-
-      const res = await fetch("/api/auto-responses", {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const payload = await res.json();
-      if (payload.status !== "success") {
-        setFeedback({ kind: "error", message: payload.error });
-        return;
-      }
-
-      setFeedback({ kind: "success", message: editingMenu ? "Menú actualizado" : "Menú creado" });
-      setShowForm(false);
-      await loadData();
-    } catch (e) {
-      setFeedback({ kind: "error", message: e instanceof Error ? e.message : "Error de red" });
-    } finally {
-      setSaving(false);
-    }
+      const body = editing
+        ? { id: editing.id, menu_config: { title: title.trim(), description: description.trim(), buttons: editing.menu_config?.buttons || [] }, is_active: isActive }
+        : { instanceId, menu_config: { title: title.trim(), description: description.trim(), buttons: [] }, is_active: isActive };
+      const res = await fetch("/api/auto-responses", { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const p = await res.json();
+      if (p.status === "success") { toast.success(editing ? "Actualizado" : "Agregado"); resetForm(); load(); }
+      else toast.error(p.error || "Error");
+    } catch { toast.error("Error inesperado"); }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("Eliminar este menú y sus submenús?")) return;
+  async function toggle(id: string) {
+    const m = menus.find(x => x.id === id); if (!m) return;
+    await fetch("/api/auto-responses", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, active: !m.is_active }) });
+    load();
+  }
+
+  async function remove(id: string) {
+    if (!confirm("¿Eliminar este menú?")) return;
     await fetch(`/api/auto-responses?id=${id}`, { method: "DELETE" });
-    await loadData();
-  }
-
-  async function handleToggle(m: AutoResponse) {
-    await fetch("/api/auto-responses", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: m.id, isActive: !m.is_active }),
-    });
-    await loadData();
-  }
-
-  function targetLabel(id: string): string {
-    const t = textResponses.find((r) => r.id === id);
-    if (t) return `💬 ${t.keyword || t.response_text.slice(0, 20)}`;
-    const m = menus.find((r) => r.id === id);
-    if (m) return `🔘 ${m.menu_config?.title || "submenú"}`;
-    return "—";
+    load();
   }
 
   return (
-    <div className="flex h-full flex-col bg-wa-panel">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#53bdeb]/15 text-[#53bdeb]">
-            <ZapIcon className="h-4.5 w-4.5" />
+    <div className="flex h-full flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+      <div className="px-4 sm:px-6 pt-6 pb-4">
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <div className="absolute inset-0 bg-violet-500/20 blur-xl rounded-2xl" />
+            <div className="relative h-12 w-12 rounded-2xl bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-violet-500/25">
+              <Menu className="h-6 w-6" strokeWidth={2.5} />
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-wa-text">Menús interactivos</p>
-            <p className="text-[10px] text-wa-text-secondary/60">
-              {menus.length} menú{menus.length !== 1 ? "s" : ""} · hasta 3 opciones con submenús
-            </p>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-100">Menús interactivos</h1>
+            <p className="text-xs text-slate-400 mt-0.5">{menus.length} menú{menus.length !== 1 ? "s" : ""} · Botones navegables</p>
           </div>
+          {!editing && !showForm && (
+            <Button onClick={() => setShowForm(true)} className="h-10 rounded-xl gap-1.5 bg-gradient-to-r from-violet-400 to-violet-500 hover:from-violet-300 hover:to-violet-400 text-slate-950 font-semibold shadow-lg shadow-violet-500/20 transition-all hover:shadow-violet-400/40">
+              <Plus className="h-4 w-4" strokeWidth={2.5} />Nuevo
+            </Button>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          disabled={!instanceId}
-          className="flex items-center gap-1.5 rounded-lg bg-[#53bdeb] px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-[#53bdeb]/20 transition hover:bg-[#53bdeb]/90 disabled:opacity-50"
-        >
-          <PlusIcon className="h-3.5 w-3.5" />
-          Nuevo menú
-        </button>
       </div>
 
-      {/* Feedback */}
-      {feedback && (
-        <div className={`mx-4 mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-xs fade-up ${
-          feedback.kind === "success" ? "bg-[#00a884]/10 text-[#00a884]" : "bg-red-500/10 text-red-400"
-        }`}>
-          {feedback.kind === "success" ? <CheckIcon className="h-3.5 w-3.5" /> : <XIcon className="h-3.5 w-3.5" />}
-          {feedback.message}
-        </div>
-      )}
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-        {!instanceId ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-center">
-            <ZapIcon className="h-12 w-12 text-wa-text-secondary/20" />
-            <p className="text-sm text-wa-text-secondary">Espera a que el administrador te asigne una instancia</p>
-          </div>
-        ) : loading ? (
-          <div className="flex items-center justify-center py-16">
-            <LoaderIcon className="h-8 w-8 animate-spin text-wa-text-secondary/40" />
-          </div>
-        ) : (
-          <div className="mx-auto max-w-3xl space-y-4">
-            {/* Toolbar */}
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-wa-text-secondary/50" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar menú u opción..."
-                  className="w-full rounded-xl border border-wa-border bg-wa-header py-2.5 pl-9 pr-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#00a884] focus:outline-none"
-                />
+      <AnimatePresence>
+        {(editing || showForm) && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+            <div className="px-4 sm:px-6 pb-3">
+              <div className="rounded-2xl border-2 border-violet-400/20 bg-gradient-to-br from-violet-500/[0.06] to-transparent p-4 backdrop-blur-md">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-slate-100">{editing ? "Editar menú" : "Nuevo menú"}</p>
+                  <Button variant="ghost" size="icon" onClick={resetForm} className="h-7 w-7 text-slate-400 hover:text-slate-200"><X className="h-3.5 w-3.5" /></Button>
+                </div>
+                <Input placeholder="Título del menú" value={title} onChange={e => setTitle(e.target.value)} className="h-9 text-sm bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-500 mb-2" />
+                <Input placeholder="Descripción" value={description} onChange={e => setDescription(e.target.value)} className="h-9 text-sm bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-500 mb-2" />
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-xs font-semibold text-slate-300">Estado:</span>
+                  <Button variant={isActive ? "outline" : "default"} size="sm" onClick={() => setIsActive(true)} className="h-8 text-xs">Activo</Button>
+                  <Button variant={isActive ? "default" : "outline"} size="sm" onClick={() => setIsActive(false)} className="h-8 text-xs">Inactivo</Button>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={resetForm} className="h-8 text-xs text-slate-300">Cancelar</Button>
+                  <Button onClick={onSubmit} size="sm" className="h-8 text-xs bg-gradient-to-r from-violet-400 to-violet-500 hover:from-violet-300 hover:to-violet-400 text-slate-950 font-semibold">Guardar</Button>
+                </div>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-            {menus.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-wa-border bg-wa-header p-10 text-center">
-                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#53bdeb]/10">
-                  <ZapIcon className="h-7 w-7 text-[#53bdeb]" />
-                </div>
-                <p className="text-sm font-semibold text-wa-text">Creá tu primer menú interactivo</p>
-                <p className="mt-1 text-xs text-wa-text-secondary">
-                  Cada opción puede responder con texto o abrir un submenú con sus propias opciones
-                </p>
-                <button
-                  type="button"
-                  onClick={openCreate}
-                  className="mt-4 rounded-lg bg-[#53bdeb] px-4 py-2 text-xs font-semibold text-white hover:bg-[#53bdeb]/90"
-                >
-                  + Nuevo menú
-                </button>
-              </div>
-            ) : filteredMenus.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-wa-border bg-wa-header p-10 text-center">
-                <p className="text-sm text-wa-text-secondary">No hay menús que coincidan con tu búsqueda</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredMenus.map((m) => (
-                  <div key={m.id} className="overflow-hidden rounded-2xl border border-wa-border bg-wa-header">
-                    {/* Header */}
-                    <div className="flex items-center gap-3 border-b border-wa-border/50 px-4 py-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#53bdeb]/15 text-[#53bdeb]">
-                        <ZapIcon className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-wa-text">
-                          {m.menu_config?.title || "Sin título"}
-                        </p>
-                        <p className="text-[10px] text-wa-text-secondary/50">
-                          {m.menu_config?.buttons?.length || 0} opciones
-                          {m.menu_config?.description ? ` · ${m.menu_config.description}` : ""}
-                        </p>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold ${
-                          m.is_active ? "bg-[#00a884]/15 text-[#00a884]" : "bg-wa-text-secondary/10 text-wa-text-secondary/60"
-                        }`}
-                      >
-                        {m.is_active ? "Activo" : "Inactivo"}
-                      </span>
-                      <div className="flex shrink-0 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => void handleToggle(m)}
-                          className="rounded-lg p-1.5 text-wa-text-secondary transition hover:bg-wa-hover hover:text-wa-text"
-                          title={m.is_active ? "Desactivar" : "Activar"}
-                        >
-                          {m.is_active ? "⏸" : "▶"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openEdit(m)}
-                          className="rounded-lg p-1.5 text-wa-text-secondary transition hover:bg-wa-hover hover:text-wa-text"
-                          title="Editar"
-                        >
-                          <PenIcon className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDelete(m.id)}
-                          className="rounded-lg p-1.5 text-red-400/50 transition hover:bg-red-500/10 hover:text-red-400"
-                          title="Eliminar"
-                        >
-                          <TrashIcon className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6">
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl bg-white/[0.03]" />)}</div>
+        ) : filteredMenus.length === 0 ? (
+          <div className="rounded-2xl border-2 border-dashed border-white/[0.06] p-12 text-center">
+            <Layers className="h-10 w-10 text-slate-600 mx-auto mb-3" />
+            <p className="text-sm text-slate-400">{search ? "Sin resultados" : "Sin menús aún"}</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {filteredMenus.map((m, idx) => (
+              <motion.div key={m.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.04 }}>
+                <Card className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-md overflow-hidden shadow-xl shadow-black/30 hover:border-white/[0.12] transition-all">
+                  <CardContent className="p-0">
+                    <div className="flex items-center gap-2 px-4 py-3 bg-white/[0.03] border-b border-white/[0.06]">
+                      <span className="text-xs font-bold text-violet-400 truncate">{m.menu_config?.title || "Sin título"}</span>
+                      <span className="ml-auto text-[10px] text-slate-500">{m.menu_config?.buttons?.length || 0} opciones</span>
+                      <Badge variant={m.is_active ? "default" : "secondary"} className={m.is_active ? "bg-emerald-400/10 text-emerald-400 border-emerald-400/20 text-[10px]" : "bg-rose-400/10 text-rose-400 border-rose-400/20 text-[10px]"}>{m.is_active ? "Activo" : "Inactivo"}</Badge>
                     </div>
-
-                    {/* Options */}
-                    {m.menu_config?.buttons && m.menu_config.buttons.length > 0 && (
-                      <div className="grid grid-cols-1 gap-2 px-4 py-3 sm:grid-cols-3">
-                        {m.menu_config.buttons.map((b) => {
-                          const isSub = b.target_id && menus.some((x) => x.id === b.target_id);
-                          return (
-                            <div key={b.id} className="rounded-xl border border-wa-border/50 bg-wa-panel/50 px-3 py-2">
-                              <p className="truncate text-xs font-semibold text-wa-text">{b.text}</p>
-                              <p className="mt-0.5 truncate text-[10px] text-wa-text-secondary/50">
-                                {isSub ? `🔘 Submenú · ${targetLabel(b.target_id!)}` : b.target_id ? targetLabel(b.target_id) : "Responde con el texto"}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+                    <div className="p-4 space-y-2">
+                      {m.menu_config?.description && <p className="text-sm text-slate-300">{m.menu_config.description}</p>}
+                      {m.menu_config?.buttons && m.menu_config.buttons.length > 0 && (
+                        <div className="p-2.5 bg-violet-500/[0.04] rounded-xl border border-violet-400/10">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-400 mb-1.5">Botones</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {m.menu_config.buttons.map(b => (
+                              <span key={b.id} className="text-[10px] px-2 py-0.5 rounded-lg bg-violet-500/10 text-violet-300 border border-violet-400/15">{b.text}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="px-4 py-2.5 border-t border-white/[0.06] bg-white/[0.02] flex gap-1">
+                      {editing?.id === m.id ? (
+                        <>
+                          <Button onClick={onSubmit} size="icon" className="h-7 w-7 bg-emerald-500 hover:bg-emerald-400 text-slate-950" title="Guardar"><Pencil className="h-3.5 w-3.5" /></Button>
+                          <Button variant="ghost" size="icon" onClick={resetForm} className="h-7 w-7 text-slate-300" title="Cancelar"><X className="h-3.5 w-3.5" /></Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button size="icon" variant="ghost" onClick={() => startEdit(m)} className="h-7 w-7 text-slate-400 hover:text-violet-400 hover:bg-violet-400/10" title="Editar"><Pencil className="h-3.5 w-3.5" /></Button>
+                          <Button size="icon" variant="ghost" onClick={() => toggle(m.id)} className="h-7 w-7 text-slate-400 hover:text-amber-400 hover:bg-amber-400/10" title={m.is_active ? "Pausar" : "Activar"}>{m.is_active ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-rose-400 hover:bg-rose-400/10" onClick={() => remove(m.id)} title="Eliminar"><Trash2 className="h-3.5 w-3.5" /></Button>
+                        </>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
           </div>
         )}
       </div>
-
-      {/* Form modal */}
-      {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <div className="mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-wa-border bg-wa-panel shadow-2xl fade-up" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-wa-border bg-wa-header px-5 py-4">
-              <div>
-                <h3 className="text-base font-semibold text-wa-text">{editingMenu ? "Editar menú" : "Nuevo menú"}</h3>
-                <p className="text-[10px] text-wa-text-secondary/60">
-                  Tu bot muestra botones y el cliente elige
-                </p>
-              </div>
-              <button type="button" onClick={() => setShowForm(false)} className="icon-btn h-8 w-8">
-                <XIcon className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
-              {/* Title */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">¿Qué pregunta el menú?</label>
-                <input
-                  type="text"
-                  placeholder='Ej: "¿En qué te puedo ayudar?"'
-                  value={item.title}
-                  onChange={(e) => setItem({ ...item, title: e.target.value })}
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
-                />
-                <p className="text-[10px] text-wa-text-secondary/50">El título que ve el cliente arriba de los botones</p>
-              </div>
-
-              {/* Description */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">
-                  Mensaje de apoyo <span className="text-wa-text-secondary/40">(opcional)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder='Ej: "Elegí una opción"'
-                  value={item.description}
-                  onChange={(e) => setItem({ ...item, description: e.target.value })}
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
-                />
-              </div>
-
-              {/* Options */}
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-wa-text-secondary">Botones del menú</label>
-                  <span className="text-[10px] text-wa-text-secondary/40">hasta 3</span>
-                </div>
-
-                {item.buttons.map((btn, idx) => (
-                  <div key={btn.id} className="rounded-2xl border border-wa-border bg-wa-header p-4 space-y-3">
-                    {/* Button label */}
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#53bdeb]/15 text-xs font-bold text-[#53bdeb]">
-                        {idx + 1}
-                      </span>
-                      <input
-                        type="text"
-                        placeholder={`Texto del botón ${idx + 1}`}
-                        value={btn.text}
-                        onChange={(e) => updateButton(idx, { text: e.target.value })}
-                        className="flex-1 rounded-xl border border-wa-border bg-wa-input px-3 py-2.5 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
-                      />
-                    </div>
-
-                    {/* What happens on tap */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => updateButton(idx, { mode: "text", submenu: null })}
-                        className={`flex flex-col items-center gap-1 rounded-xl border px-3 py-2.5 transition ${
-                          btn.mode === "text"
-                            ? "border-[#53bdeb]/50 bg-[#53bdeb]/10 text-[#53bdeb]"
-                            : "border-wa-border bg-wa-panel text-wa-text-secondary hover:bg-wa-hover"
-                        }`}
-                      >
-                        <span className="text-lg">💬</span>
-                        <span className="text-[10px] font-semibold">Responder un mensaje</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateButton(idx, {
-                          mode: "submenu",
-                          target_id: null,
-                          submenu: btn.submenu || newSubMenu(),
-                        })}
-                        className={`flex flex-col items-center gap-1 rounded-xl border px-3 py-2.5 transition ${
-                          btn.mode === "submenu"
-                            ? "border-[#53bdeb]/50 bg-[#53bdeb]/10 text-[#53bdeb]"
-                            : "border-wa-border bg-wa-panel text-wa-text-secondary hover:bg-wa-hover"
-                        }`}
-                      >
-                        <span className="text-lg">🔽</span>
-                        <span className="text-[10px] font-semibold">Abrir submenú</span>
-                      </button>
-                    </div>
-
-                    {btn.mode === "text" ? (
-                      /* What message to reply */
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-medium text-wa-text-secondary/70">
-                          ¿Qué responde el bot?
-                        </label>
-                        <select
-                          value={btn.target_id || ""}
-                          onChange={(e) => updateButton(idx, { target_id: e.target.value || null })}
-                          className="w-full rounded-xl border border-wa-border bg-wa-input px-3 py-2.5 text-sm text-wa-text-secondary focus:border-[#53bdeb] focus:outline-none"
-                        >
-                          <option value="">El texto del botón</option>
-                          <optgroup label="Usar una respuesta que ya tenés">
-                            {textResponses.map((r) => (
-                              <option key={r.id} value={r.id}>
-                                {r.keyword || r.response_text.slice(0, 30)}
-                              </option>
-                            ))}
-                          </optgroup>
-                        </select>
-                      </div>
-                    ) : (
-                      /* Submenu editor */
-                      <div className="space-y-2 rounded-xl border border-[#53bdeb]/30 bg-[#53bdeb]/5 p-3">
-                        <div className="flex items-center gap-2">
-                          <ChevronDownIcon className="h-4 w-4 text-[#53bdeb]" />
-                          <span className="text-xs font-semibold text-[#53bdeb]">Submenú</span>
-                        </div>
-                        {btn.submenu && (
-                          <>
-                            <input
-                              type="text"
-                              placeholder="Título del submenú"
-                              value={btn.submenu.title}
-                              onChange={(e) => {
-                                const next = [...item.buttons];
-                                const sub = next[idx].submenu!;
-                                next[idx] = { ...next[idx], submenu: { ...sub, title: e.target.value } };
-                                setItem({ ...item, buttons: next });
-                              }}
-                              className="w-full rounded-xl border border-wa-border bg-wa-panel px-3 py-2 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
-                            />
-                            <p className="text-[10px] text-wa-text-secondary/60">
-                              Cuando el cliente toca &quot;{btn.text || `Botón ${idx + 1}`}&quot;, se abre este submenú con sus botones. El botón &quot;⬅ Volver&quot; se agrega solo.
-                            </p>
-                            {btn.submenu.buttons.map((sb, subIdx) => (
-                              <div key={sb.id} className="flex items-center gap-2">
-                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#53bdeb]/15 text-[9px] font-bold text-[#53bdeb]">
-                                  {subIdx + 1}
-                                </span>
-                                <input
-                                  type="text"
-                                  placeholder={`Sub-botón ${subIdx + 1}`}
-                                  value={sb.text}
-                                  onChange={(e) => updateSubOption(idx, subIdx, { text: e.target.value })}
-                                  className="flex-1 rounded-lg border border-wa-border bg-wa-panel px-2.5 py-2 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
-                                />
-                                <select
-                                  value={sb.target_id || ""}
-                                  onChange={(e) => updateSubOption(idx, subIdx, { target_id: e.target.value || null })}
-                                  className="max-w-[110px] rounded-lg border border-wa-border bg-wa-panel px-1.5 py-2 text-[10px] text-wa-text-secondary focus:border-[#53bdeb] focus:outline-none"
-                                >
-                                  <option value="">Mensaje</option>
-                                  {textResponses.map((r) => (
-                                    <option key={r.id} value={r.id}>
-                                      {r.keyword || r.response_text.slice(0, 18)}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            ))}
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Footer */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-wa-text-secondary">
-                  Texto al pie <span className="text-wa-text-secondary/40">(opcional)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder='Ej: "Boti - Tu asistente"'
-                  value={item.footer}
-                  onChange={(e) => setItem({ ...item, footer: e.target.value })}
-                  className="rounded-xl border border-wa-border bg-wa-input px-4 py-3 text-sm text-wa-text placeholder:text-wa-text-secondary/40 focus:border-[#53bdeb] focus:outline-none"
-                />
-              </div>
-
-              {/* Active toggle */}
-              <div className="flex items-center justify-between rounded-xl border border-wa-border bg-wa-input px-4 py-3">
-                <span className="text-sm text-wa-text">Menú activo</span>
-                <button
-                  type="button"
-                  onClick={() => setIsActive(!isActive)}
-                  className={`relative h-6 w-11 rounded-full transition-colors ${isActive ? "bg-[#00a884]" : "bg-wa-text-secondary/30"}`}
-                >
-                  <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${isActive ? "translate-x-[22px]" : "translate-x-0.5"}`} />
-                </button>
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="flex-1 rounded-xl border border-wa-border py-3 text-sm font-medium text-wa-text-secondary hover:bg-wa-hover"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSave()}
-                  disabled={saving || !hasTitle || !hasAnyText}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#53bdeb] py-3 text-sm font-semibold text-white hover:bg-[#53bdeb]/90 disabled:opacity-50"
-                >
-                  {saving ? <LoaderIcon className="h-4 w-4 animate-spin" /> : null}
-                  {saving ? "Guardando..." : "Guardar menú"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { sendTextMessage, sendButtonMessage } from "@/lib/evolution-multi";
 import type { ButtonItem } from "@/lib/evolution-multi";
 import type { MenuConfig } from "@/lib/supabase/types";
 import type { WebhookContext } from "./context";
+import { isValidUUID } from "@/lib/validation";
+import { buildCatalogMenus } from "./catalog";
 
 // Button id used to signal "go back to the parent menu".
 function backButtonId(parentId: string): string {
@@ -170,6 +172,73 @@ export async function handleMenuTap(ctx: WebhookContext) {
   const { supabase, instance, phoneNumber, remoteJid, effectiveText, instanceName, rawButtonId } = ctx;
 
   if (!ctx.buttonText && !ctx.listText) return null;
+
+  // ---- Catalog menu navigation: "Ver más →" (target_id = menu_pN) ----
+  const navMatch = (rawButtonId || effectiveText || "").match(/^menu_p(\d+)$/);
+  if (navMatch) {
+    const pageNum = parseInt(navMatch[1], 10);
+    const { data: items } = await supabase
+      .from("catalog_items")
+      .select("*")
+      .eq("instance_id", instance.id)
+      .eq("active", true)
+      .order("sort_order", { ascending: true });
+    const { menus } = buildCatalogMenus(items || []);
+    const menu = menus[pageNum - 1];
+    if (menu) {
+      await sendMenuResponse(
+        instance.evolution_api_url, instance.evolution_api_key,
+        instance.instance_name, phoneNumber, menu,
+      );
+      return { status: "success", matched: `[catálogo pág ${pageNum}]` };
+    }
+    return null;
+  }
+
+  // ---- Catalog item selected (target_id = order_<itemId>) ----
+  const orderMatch = (rawButtonId || effectiveText || "").match(/^order_(.+)$/);
+  if (orderMatch) {
+    const itemId = orderMatch[1];
+    if (isValidUUID(itemId)) {
+      const { data: item } = await supabase
+        .from("catalog_items")
+        .select("*")
+        .eq("id", itemId)
+        .eq("active", true)
+        .single();
+      if (item) {
+        const { data: order } = await supabase
+          .from("orders")
+          .insert({
+            instance_id: instance.id,
+            customer_phone: phoneNumber,
+            customer_name: ctx.pushName || null,
+            catalog_item_id: item.id,
+            option_label: item.label,
+            price_cents: item.price_cents,
+            status: "pending",
+          })
+          .select("*")
+          .single();
+        if (order) {
+          await sendTextMessage(
+            instance.evolution_api_url, instance.evolution_api_key,
+            instance.instance_name, phoneNumber,
+            `✅ *Pedido registrado*\n\n📦 ${item.label}\n💰 $${(item.price_cents / 100).toFixed(2)}\n\nTu pedido fue cargado 🚀`,
+            1500,
+          );
+          return { status: "success", matched: `[pedido creado ${order.id}]` };
+        }
+      }
+    }
+    await sendTextMessage(
+      instance.evolution_api_url, instance.evolution_api_key,
+      instance.instance_name, phoneNumber,
+      "❌ *Producto no disponible*. Elegí otra opción.",
+      1500,
+    );
+    return { status: "success", matched: "[order failed]" };
+  }
 
   const autoResponses = ctx.autoResponses;
   if (!autoResponses) return null;

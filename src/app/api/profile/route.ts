@@ -16,7 +16,9 @@ export async function GET(request: Request) {
   const supabase = await createServerClient();
 
   // lite=1: solo el plan (1 query). Para el layout/nav que solo muestra el badge.
-  const lite = new URL(request.url).searchParams.get("lite") === "1";
+  const searchParams = new URL(request.url).searchParams;
+  const lite = searchParams.get("lite") === "1";
+  const includeUpcoming = searchParams.get("include") === "upcoming";
   if (lite) {
     const { data: sub } = await supabase
       .from("subscriptions")
@@ -64,6 +66,41 @@ export async function GET(request: Request) {
   const usedInstances = usedRes.count ?? 0;
   const addonCount = addonRes.count ?? 0;
 
+  // include=upcoming: agrega los próximos turnos en el servidor (1 roundtrip
+  // en vez del N+1 que hacía el cliente: 1x instances + Nx appointments).
+  let upcoming: Array<{ date: string; time: string; name: string | null }> = [];
+  if (includeUpcoming) {
+    const [ownRes, assignRes] = await Promise.all([
+      supabase.from("instances").select("id").eq("admin_id", user.id),
+      supabase.from("user_instances").select("instance_id").eq("user_id", user.id),
+    ]);
+    const ids = [
+      ...((ownRes.data ?? []) as Array<{ id: string }>).map((i) => i.id),
+      ...((assignRes.data ?? []) as Array<{ instance_id: string }>).map((a) => a.instance_id),
+    ];
+    if (ids.length > 0) {
+      const now = new Date();
+      const from = now.toISOString().slice(0, 10);
+      const to = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const { data: appts } = await supabase
+        .from("appointments")
+        .select("status, appointment_date, appointment_time, customer_name, customer_phone")
+        .in("instance_id", ids)
+        .gte("appointment_date", from)
+        .lte("appointment_date", to)
+        .in("status", ["pending", "confirmed"])
+        .order("appointment_date", { ascending: true })
+        .order("appointment_time", { ascending: true })
+        .limit(25);
+      upcoming = ((appts ?? []) as Array<{
+        status: string; appointment_date: string; appointment_time: string;
+        customer_name: string | null; customer_phone: string | null;
+      }>)
+        .map((a) => ({ date: a.appointment_date, time: a.appointment_time, name: a.customer_name || a.customer_phone }))
+        .slice(0, 5);
+    }
+  }
+
   return NextResponse.json({
     status: "success",
     data: {
@@ -83,6 +120,7 @@ export async function GET(request: Request) {
         addons: 0,
         updated_at: null,
       },
+      ...(includeUpcoming ? { upcoming } : {}),
     },
   });
 }
