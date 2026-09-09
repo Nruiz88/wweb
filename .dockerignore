@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+build
+.git
+.gitignore
+.vercel
+.freebuff
+.env*
+*.tsbuildinfo
+next-env.d.ts
+coverage
+npm-debug.log*
+README.md
+AGENTS.md
+CLAUDE.md
+supabase/.temp
