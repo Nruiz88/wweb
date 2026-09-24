@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
-import { pool } from "./db";
+import { pool, query } from "./db";
 
 const JWT_SECRET = process.env.JWT_SECRET || "wweb-secret-dev-change-me";
 const COOKIE_NAME = "wweb_session";
@@ -68,10 +68,8 @@ export async function createUser(
      VALUES (?, ?, ?, ?, 'user', NOW())`,
     [id, email, passwordHash, full_name]
   );
-  // mysql2 pool.execute devuelve [ResultSetHeader, FieldPacket[]]; insertId está en el primer elemento
-  const insertId = (result as any).insertId || id;
   return {
-    id: insertId,
+    id,
     email,
     full_name,
     role: "user",

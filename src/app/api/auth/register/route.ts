@@ -20,6 +20,13 @@ export async function POST(request: NextRequest) {
 
     const trimmedEmail = email.trim().toLowerCase();
 
+    if (!trimmedEmail.includes("@") || trimmedEmail.length > 255) {
+      return NextResponse.json(
+        { status: "error", error: "Email inválido" },
+        { status: 400 }
+      );
+    }
+
     // Email ya registrado?
     const [existing] = await query(
       "SELECT id FROM profiles WHERE email = ?",
@@ -32,9 +39,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (password.length < 6) {
+    if (password.length < 6 || password.length > 128) {
       return NextResponse.json(
-        { status: "error", error: "La contraseña debe tener al menos 6 caracteres" },
+        { status: "error", error: "La contraseña debe tener entre 6 y 128 caracteres" },
+        { status: 400 }
+      );
+    }
+    if (/\s/.test(password)) {
+      return NextResponse.json(
+        { status: "error", error: "La contraseña no debe contener espacios" },
         { status: 400 }
       );
     }
