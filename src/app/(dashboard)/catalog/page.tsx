@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Skeleton } from "../components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -26,9 +26,9 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { cn } from "../lib/utils";
-import { colors, layout } from "../lib/design-system";
-import type { CatalogItem } from "../../lib/db/types";
+import { cn } from "@/lib/utils";
+import { colors, layout } from "@/lib/design-system";
+import type { CatalogItem } from "@/lib/db/types";
 
 interface CategoryGroup {
   name: string;

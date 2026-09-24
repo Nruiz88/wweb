@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { query } from "../../../../lib/db";
-import { sendButtonMessage } from "../../../../lib/evolution-multi";
-import { safeErrorMessage } from "../../../../lib/api-helpers";
+import { query } from "@/lib/db";
+import { sendButtonMessage } from "@/lib/evolution-multi";
+import { safeErrorMessage } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 

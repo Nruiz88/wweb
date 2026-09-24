@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { query } from "../../../lib/db";
-import { getClientIp, rateLimitResponse } from "../../../lib/rate-limit";
-import { verifyWebhookSignature } from "../../../lib/webhook-secret";
-import { extractMessageText, extractButtonText, extractListText, extractRawButtonId } from "../../../lib/webhook/extract";
-import { hasPlan, type WebhookContext } from "../../../lib/webhook/context";
-import { handleWelcome } from "../../../lib/webhook/welcome";
-import { handleOutsideHours } from "../../../lib/webhook/outside-hours";
-import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect, isAgendaActive } from "../../../lib/webhook/booking";
-import { handleMenuTap, handleMenuTextReply } from "../../../lib/webhook/menus";
-import { handleAutoReply } from "../../../lib/webhook/auto-reply";
-import { handleCatalogIntent } from "../../../lib/webhook/catalog";
-import type { PlanType } from "../../../lib/db/types";
+import { query } from "@/lib/db";
+import { getClientIp, rateLimitResponse } from "@/lib/rate-limit";
+import { verifyWebhookSignature } from "@/lib/webhook-secret";
+import { extractMessageText, extractButtonText, extractListText, extractRawButtonId } from "@/lib/webhook/extract";
+import { hasPlan, type WebhookContext } from "@/lib/webhook/context";
+import { handleWelcome } from "@/lib/webhook/welcome";
+import { handleOutsideHours } from "@/lib/webhook/outside-hours";
+import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect, isAgendaActive } from "@/lib/webhook/booking";
+import { handleMenuTap, handleMenuTextReply } from "@/lib/webhook/menus";
+import { handleAutoReply } from "@/lib/webhook/auto-reply";
+import { handleCatalogIntent } from "@/lib/webhook/catalog";
+import type { PlanType } from "@/lib/db/types";
 
 export const dynamic = "force-dynamic";
 

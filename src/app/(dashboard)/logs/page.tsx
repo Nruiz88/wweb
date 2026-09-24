@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Clock, Inbox, MessageCircle, Zap, Search } from "lucide-react";
-import { Card, CardContent } from "../components/ui/card";
-import { Badge } from "../components/ui/badge";
-import { Input } from "../components/ui/input";
-import { Skeleton } from "../components/ui/skeleton";
-import { Button } from "../components/ui/button";
-import type { Instance } from "../../lib/db/types";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import type { Instance } from "@/lib/db/types";
 
 interface LogEntry {
   id: string;

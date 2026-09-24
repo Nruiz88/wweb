@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "../../../lib/admin/auth";
-import { safeErrorMessage } from "../../../lib/api-helpers";
-import { query } from "../../../lib/db";
+import { requireAdmin } from "@/lib/admin/auth";
+import { safeErrorMessage } from "@/lib/api-helpers";
+import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 

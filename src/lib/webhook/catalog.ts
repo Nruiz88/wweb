@@ -1,6 +1,6 @@
-import { sendTextMessage } from "../lib/evolution-multi";
+import { sendTextMessage } from "@/lib/evolution-multi";
 import type { WebhookContext } from "./context";
-import type { CatalogItem } from "../../lib/db/types";
+import type { CatalogItem } from "@/lib/db/types";
 import { query } from "../db";
 import { sendMenuResponse } from "./menus";
 

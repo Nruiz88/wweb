@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSession } from "../../../lib/auth";
-import { query } from "../../../lib/db";
-import { safeErrorMessage, verifyUserAccess } from "../../../lib/api-helpers";
-import { sanitizeString } from "../../../lib/validation";
+import { getSession } from "@/lib/auth";
+import { query } from "@/lib/db";
+import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
+import { sanitizeString } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 

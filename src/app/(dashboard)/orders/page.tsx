@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { Card, CardContent } from "../components/ui/card";
-import { Button } from "../components/ui/button";
-import { Badge } from "../components/ui/badge";
-import { Skeleton } from "../components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { ClipboardList, Check, CheckCircle2, Clock3, Package } from "lucide-react";
-import type { Order } from "../../lib/db/types";
+import type { Order } from "@/lib/db/types";
 
 export default function OrdersPage() {
   const [instanceId, setInstanceId] = useState<string | null>(null);

@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageCircleIcon } from "../components/icons";
+import { MessageCircleIcon } from "@/components/icons";
 
 function displayHost(url: string): string {
   try { return new URL(url).hostname; } catch { return url; }

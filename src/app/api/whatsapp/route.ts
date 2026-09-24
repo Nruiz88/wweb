@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { getSession } from "../../../lib/auth";
-import { rateLimitResponse } from "../../../lib/rate-limit";
+import { getSession } from "@/lib/auth";
+import { rateLimitResponse } from "@/lib/rate-limit";
 import {
   connectInstance,
   createInstance,
   getConnectionState,
   logoutInstance,
   setWebhook,
-} from "../../../lib/evolution-multi";
+} from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 

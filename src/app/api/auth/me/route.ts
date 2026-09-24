@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { query } from "../../../lib/db";
-import { getSession } from "../../../lib/auth/server";
+import { query } from "@/lib/db";
+import { getSession } from "@/lib/auth/server";
 
 // GET: Rol del usuario autenticado (ligero, sin llamadas a Evolution)
 export async function GET() {

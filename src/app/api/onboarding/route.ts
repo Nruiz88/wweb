@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSession } from "../../../lib/auth";
-import { query } from "../../../lib/db";
+import { getSession } from "@/lib/auth";
+import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 

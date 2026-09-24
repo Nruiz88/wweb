@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { login as doLogin, getUserByEmail } from "../../../lib/auth";
-import { query } from "../../../lib/db";
+import { login as doLogin, getUserByEmail } from "@/lib/auth";
+import { query } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {

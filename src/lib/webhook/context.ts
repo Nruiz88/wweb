@@ -1,4 +1,4 @@
-import type { PlanType } from "../../lib/db/types";
+import type { PlanType } from "@/lib/db/types";
 
 /**
  * Minimal MariaDB query builder interface used by the webhook handlers.

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "../../../lib/admin/auth";
-import { setWebhook } from "../../../lib/evolution-multi";
-import { safeErrorMessage } from "../../../lib/api-helpers";
+import { requireAdmin } from "@/lib/admin/auth";
+import { setWebhook } from "@/lib/evolution-multi";
+import { safeErrorMessage } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 

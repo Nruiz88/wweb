@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { query } from "../../../../lib/db";
-import { rateLimitResponse } from "../../../../lib/rate-limit";
-import { slugify } from "../../../../lib/slug";
-import { BUSINESS_TIMEZONE, todayInBusinessTimezone, timeInBusinessTimezone } from "../../../../lib/timezone";
+import { query } from "@/lib/db";
+import { rateLimitResponse } from "@/lib/rate-limit";
+import { slugify } from "@/lib/slug";
+import { BUSINESS_TIMEZONE, todayInBusinessTimezone, timeInBusinessTimezone } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckIcon, XIcon } from "../components/icons";
+import { CheckIcon, XIcon } from "@/components/icons";
 
 interface PlanUser {
   id: string; email: string | null; full_name: string | null; role: string; created_at: string;

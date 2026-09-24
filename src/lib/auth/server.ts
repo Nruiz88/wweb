@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { parseToken, getUserById } from "./auth";
+import { parseToken, getUserById } from "../auth";
 
 export async function getSession(): Promise<
   | { userId: string; email: string; role: string }

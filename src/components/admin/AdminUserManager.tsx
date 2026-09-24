@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { UsersIcon } from "../components/icons";
+import { UsersIcon } from "@/components/icons";
 import type { Profile, Instance } from "../../lib/db/types";
 
 interface PlanUser {

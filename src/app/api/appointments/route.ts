@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSession } from "../../lib/auth";
-import { query } from "../../lib/db";
-import { rateLimitResponse } from "../../lib/rate-limit";
-import { safeErrorMessage, verifyUserAccess } from "../../lib/api-helpers";
+import { getSession } from "@/lib/auth";
+import { query } from "@/lib/db";
+import { rateLimitResponse } from "@/lib/rate-limit";
+import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { Instance, Profile } from "../../lib/db/types";
-import { CheckIcon, LoaderIcon, PlusIcon, TrashIcon, XIcon, MessageCircleIcon, ArrowRightIcon } from "../components/icons";
+import { CheckIcon, LoaderIcon, PlusIcon, TrashIcon, XIcon, MessageCircleIcon, ArrowRightIcon } from "@/components/icons";
 
 interface Props {
   instances: Instance[];

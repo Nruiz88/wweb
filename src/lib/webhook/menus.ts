@@ -1,9 +1,9 @@
-import { sendTextMessage, sendButtonMessage } from "../lib/evolution-multi";
-import type { ButtonItem } from "../lib/evolution-multi";
-import type { MenuConfig } from "../../lib/db/types";
+import { sendTextMessage, sendButtonMessage } from "@/lib/evolution-multi";
+import type { ButtonItem } from "@/lib/evolution-multi";
+import type { MenuConfig } from "@/lib/db/types";
 import type { WebhookContext } from "./context";
 import { query } from "../db";
-import { isValidUUID } from "../lib/validation";
+import { isValidUUID } from "@/lib/validation";
 import { buildCatalogMenus } from "./catalog";
 
 // Button id used to signal "go back to the parent menu".

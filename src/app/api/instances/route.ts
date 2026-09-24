@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getSession } from "../../../lib/auth";
-import { query, select } from "../../../lib/db";
-import { getConnectionState, testEvolutionConnection } from "../../../lib/evolution-multi";
-import { validateEvolutionUrl, sanitizeString } from "../../../lib/validation";
-import { safeErrorMessage } from "../../../lib/api-helpers";
+import { getSession } from "@/lib/auth";
+import { query, select } from "@/lib/db";
+import { getConnectionState, testEvolutionConnection } from "@/lib/evolution-multi";
+import { validateEvolutionUrl, sanitizeString } from "@/lib/validation";
+import { safeErrorMessage } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 

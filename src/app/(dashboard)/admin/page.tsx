@@ -1,15 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { Profile, Instance } from "../../lib/db/types";
-import { ShieldIcon, LoaderIcon, UsersIcon, MessageCircleIcon, ClockIcon, SettingsIcon } from "../components/icons";
-import AdminStats from "../components/admin/AdminStats";
-import AdminPlans from "../components/admin/AdminPlans";
-import AdminActivityChart from "../components/admin/AdminActivityChart";
-import AdminServers from "../components/admin/AdminServers";
-import AdminInstanceManager from "../components/admin/AdminInstanceManager";
-import AdminMP from "../components/admin/AdminMP";
-import AdminUserManager from "../components/admin/AdminUserManager";
+import type { Profile, Instance } from "@/lib/db/types";
+import { ShieldIcon, LoaderIcon, UsersIcon, MessageCircleIcon, ClockIcon, SettingsIcon } from "@/components/icons";
+import AdminStats from "@/components/admin/AdminStats";
+import AdminPlans from "@/components/admin/AdminPlans";
+import AdminActivityChart from "@/components/admin/AdminActivityChart";
+import AdminServers from "@/components/admin/AdminServers";
+import AdminInstanceManager from "@/components/admin/AdminInstanceManager";
+import AdminMP from "@/components/admin/AdminMP";
+import AdminUserManager from "@/components/admin/AdminUserManager";
 
 interface Stats {
   totalUsers: number;

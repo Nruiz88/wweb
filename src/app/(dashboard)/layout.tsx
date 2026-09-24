@@ -14,13 +14,13 @@ import {
   UserIcon,
   CalendarIcon,
   ChevronDownIcon,
-} from "../components/icons";
-import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
-import { LogoMark } from "../components/logo";
-import { CommandPalette } from "../components/command-palette";
-import { PlanProvider, usePlanContext } from "../components/plan-context";
-import { cn } from "../lib/utils";
+} from "@/components/icons";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { LogoMark } from "@/components/logo";
+import { CommandPalette } from "@/components/command-palette";
+import { PlanProvider, usePlanContext } from "@/components/plan-context";
+import { cn } from "@/lib/utils";
 import { LogOut } from "lucide-react";
 
 type NavChild = { href: string; label: string };
