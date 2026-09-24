@@ -12,7 +12,6 @@ const pool = poolUrl
       uri: poolUrl,
       waitForConnections: true,
       connectionLimit: 10,
-      namedPlaceholders: true,
     })
   : null as any;
 
