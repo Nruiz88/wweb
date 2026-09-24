@@ -68,8 +68,10 @@ export async function createUser(
      VALUES (?, ?, ?, ?, 'user', NOW())`,
     [id, email, passwordHash, full_name]
   );
+  // mysql2 pool.execute devuelve [ResultSetHeader, FieldPacket[]]; insertId está en el primer elemento
+  const insertId = (result as any).insertId || id;
   return {
-    id: result.insertId,
+    id: insertId,
     email,
     full_name,
     role: "user",
