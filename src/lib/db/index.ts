@@ -3,12 +3,15 @@ import { v4 as uuidv4 } from "uuid";
 
 // La connection string se lee de la variable de entorno MARIADB_URL.
 // En prod la va a proveer Coolify. En local puedes definirla en .env.
-const pool = mysql.createPool({
-  uri: process.env.MARIADB_URL || "mysql://mariadb:BXjbq9w2mwTel6ANoMTwH975nJS2q6n6yVQgHrm6NKTFRm5wdRf3VtROrbikOWTa@w3uymvdjpzxod6zqajtdkoom:3306/default",
-  waitForConnections: true,
-  connectionLimit: 10,
-  namedPlaceholders: true,
-});
+const dbUrl = process.env.MARIADB_URL;
+const pool = dbUrl && dbUrl.startsWith("mysql://")
+  ? mysql.createPool({
+      uri: dbUrl,
+      waitForConnections: true,
+      connectionLimit: 10,
+      namedPlaceholders: true,
+    })
+  : null as any;
 
 export { pool };
 
