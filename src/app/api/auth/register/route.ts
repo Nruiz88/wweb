@@ -59,8 +59,11 @@ export async function POST(request: NextRequest) {
       { status: "success", message: "Usuario creado correctamente" },
       { status: 201 }
     );
-  } catch (error) {
-    console.error("[auth/register]", error);
+  } catch (error: any) {
+    console.error("[auth/register] ERROR DETALLADO:", error?.message || error);
+    console.error("[auth/register] MARIADB_URL:", process.env.MARIADB_URL ? "definida" : "NO DEFINIDA");
+    console.error("[auth/register] DATABASE_URL:", process.env.DATABASE_URL ? "definida" : "NO DEFINIDA");
+    console.error("[auth/register] pool:", require("./db/index").pool ? "ok" : "null");
     return NextResponse.json(
       { status: "error", error: "Error interno del servidor" },
       { status: 500 }
