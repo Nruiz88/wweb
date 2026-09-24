@@ -16,7 +16,7 @@ export default function PrivacidadPage() {
       <header className="relative z-[1] border-b border-white/5">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2 font-bold text-[#25d366]">
-            <LogoMark /> Boti
+            <span class="font-bold text-[#25d366]">Boti</span> Boti
           </Link>
           <Link href="/" className="text-sm text-[#a8b8c2] hover:text-white">← Volver</Link>
         </div>
