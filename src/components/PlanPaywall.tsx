@@ -1,7 +1,7 @@
 "use client";
 
-import type { PlanType } from "@/lib/supabase/types";
-import { ShieldIcon, ArrowRightIcon } from "@/components/icons";
+import type { PlanType } from "../../lib/db/types";
+import { ShieldIcon, ArrowRightIcon } from "../components/icons";
 
 const PLAN_META: Record<string, { label: string; color: string; price: string }> = {
   starter: { label: "Starter", color: "#53bdeb", price: "$12.000" },

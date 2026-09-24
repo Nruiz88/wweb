@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { rateLimitResponse } from "@/lib/rate-limit";
-import { slugify } from "@/lib/slug";
-import { BUSINESS_TIMEZONE, todayInBusinessTimezone, timeInBusinessTimezone } from "@/lib/timezone";
+import { query } from "../../../../lib/db";
+import { rateLimitResponse } from "../../../../lib/rate-limit";
+import { slugify } from "../../../../lib/slug";
+import { BUSINESS_TIMEZONE, todayInBusinessTimezone, timeInBusinessTimezone } from "../../../../lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -38,24 +38,21 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "business is required" }, { status: 400 });
   }
 
-  const supabase = await createServerClient();
-
   // Resolve profile by business name slug or email.
   let profile: { id: string; role: string } | null = null;
 
   if (userEmail) {
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, role")
-      .eq("email", userEmail)
-      .single();
-    profile = data ?? null;
+    const [{ rows }] = await query<{ id: string; role: string }>(
+      "SELECT id, role FROM profiles WHERE email = ? LIMIT 1",
+      [userEmail]
+    );
+    profile = rows?.[0] ?? null;
   }
 
   if (!profile && businessSlug) {
-    const { data: all } = await supabase
-      .from("profiles")
-      .select("id, role, business_name, email");
+    const [{ rows: all }] = await query<{ id: string; role: string; business_name: string | null; email: string | null }>(
+      "SELECT id, role, business_name, email FROM profiles"
+    );
     profile =
       (all || []).find((p) => {
         if (p.business_name && slugify(p.business_name) === businessSlug) return true;
@@ -71,16 +68,13 @@ export async function GET(request: Request) {
   // Resolve the user's instances: admin → own, user → assigned
   let instanceIds: string[] = [];
   if (profile.role === "admin") {
-    const { data: own } = await supabase
-      .from("instances")
-      .select("id")
-      .eq("admin_id", profile.id);
+    const [{ rows: own }] = await query<{ id: string }>("SELECT id FROM instances WHERE admin_id = ?", [profile.id]);
     instanceIds = (own || []).map((i) => i.id);
   } else {
-    const { data: assigned } = await supabase
-      .from("user_instances")
-      .select("instance_id")
-      .eq("user_id", profile.id);
+    const [{ rows: assigned }] = await query<{ instance_id: string }>(
+      "SELECT instance_id FROM user_instances WHERE user_id = ?",
+      [profile.id]
+    );
     instanceIds = (assigned || []).map((a) => a.instance_id);
   }
 
@@ -88,22 +82,20 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "success", data: { instances: [] } });
   }
 
-  const { data: instances } = await supabase
-    .from("instances")
-    .select("id, instance_name, status")
-    .in("id", instanceIds);
+  const [{ rows: instances }] = await query<{ id: string; instance_name: string; status: string }>(
+    "SELECT id, instance_name, status FROM instances WHERE id IN (" + instanceIds.map(() => "?").join(", ") + ")",
+    instanceIds
+  );
 
-  const { data: hoursAll } = await supabase
-    .from("business_hours")
-    .select("instance_id, day_of_week, start_time, end_time, slot_duration_min")
-    .in("instance_id", instanceIds)
-    .eq("is_active", true);
+  const [{ rows: hoursAll }] = await query<{ instance_id: string; day_of_week: number; start_time: string; end_time: string; slot_duration_min: number }>(
+    "SELECT instance_id, day_of_week, start_time, end_time, slot_duration_min FROM business_hours WHERE instance_id IN (" + instanceIds.map(() => "?").join(", ") + ") AND is_active = true",
+    instanceIds
+  );
 
-  const { data: bookedAll } = await supabase
-    .from("appointments")
-    .select("instance_id, appointment_date, appointment_time")
-    .in("instance_id", instanceIds)
-    .in("status", ["pending", "confirmed"]);
+  const [{ rows: bookedAll }] = await query<{ instance_id: string; appointment_date: string; appointment_time: string }>(
+    "SELECT instance_id, appointment_date, appointment_time FROM appointments WHERE instance_id IN (" + instanceIds.map(() => "?").join(", ") + ") AND status IN ('pending','confirmed')",
+    instanceIds
+  );
 
   const hoursByInstance = new Map<string, Map<number, { start_time: string; end_time: string; slot_duration_min: number }>>();
   for (const h of hoursAll || []) {
@@ -123,6 +115,7 @@ export async function GET(request: Request) {
     const [h, m] = t.split(":").map(Number);
     return h * 60 + m;
   })();
+
   const days: { date: string; display: string }[] = [];
   for (let i = 1; i <= 14; i++) {
     const base = new Date(`${today}T12:00:00`);

@@ -1,6 +1,7 @@
-import { sendTextMessage } from "@/lib/evolution-multi";
+import { sendTextMessage } from "../lib/evolution-multi";
 import type { WebhookContext } from "./context";
-import type { CatalogItem } from "@/lib/supabase/types";
+import type { CatalogItem } from "../../lib/db/types";
+import { query } from "../db";
 import { sendMenuResponse } from "./menus";
 
 export interface MenuConfig {
@@ -94,35 +95,23 @@ export async function syncCatalogMenus(
   if (menus.length === 0) return null;
 
   // Remove old catalog menus for this instance
-  const { data: old } = await supabase
-    .from("auto_responses")
-    .select("id")
-    .eq("instance_id", instanceId)
-    .eq("response_type", "menu")
-    .like("keyword", "catalog_menu_%");
+  const [{ rows: old }] = await query<{ id: string }>(
+    "SELECT id FROM auto_responses WHERE instance_id = ? AND response_type = 'menu' AND keyword LIKE ?",
+    [instanceId, `catalog_menu_%`]
+  );
   if (old && old.length > 0) {
-    await supabase.from("auto_responses").delete().in("id", old.map((o) => o.id));
+    await query("DELETE FROM auto_responses WHERE id IN (" + old.map(() => "?").join(", ") + ")", old.map((o) => o.id));
   }
 
   // Insert each page as auto_response with keyword catalog_menu_pN
   for (let i = 0; i < menus.length; i++) {
     const menu = menus[i];
-    const { data: inserted } = await supabase
-      .from("auto_responses")
-      .insert({
-        instance_id: instanceId,
-        response_type: "menu",
-        keyword: `catalog_menu_p${i + 1}`,
-        menu_config: menu,
-        is_active: true,
-        priority: 10,
-      })
-      .select("id")
-      .single();
-    if (inserted) {
-      // Update target_ids to point to real auto_response ids for order items
-      // (order targets are handled inline in handleCatalogIntent)
-    }
+    const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15);
+    await query(
+      `INSERT INTO auto_responses (id, instance_id, user_id, response_type, keyword, menu_config, is_active, priority, created_at, updated_at)
+       VALUES (?, ?, ?, 'menu', ?, ?, true, 10, NOW(), NOW())`,
+      [id, instanceId, null, `catalog_menu_p${i + 1}`, menu]
+    );
   }
 
   return `catalog_menu_p1`;
@@ -138,12 +127,10 @@ export async function handleCatalogIntent(ctx: WebhookContext): Promise<{ status
   // Only respond to explicit catalog triggers (not booking words)
   if (!["pedido", "catálogo", "quiero", "menu", "catalogo"].includes(trigger)) return null;
 
-  const { data: items } = await supabase
-    .from("catalog_items")
-    .select("*")
-    .eq("instance_id", instance.id)
-    .eq("active", true)
-    .order("sort_order", { ascending: true });
+  const [{ rows: items }] = await query<{ id: string; label: string; description: string | null; price_cents: number; active: boolean; sort_order: number; category: string | null }>(
+    "SELECT id, label, description, price_cents, active, sort_order, category FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+    [instance.id]
+  );
 
   if (!items || items.length === 0) {
     await sendTextMessage(
@@ -171,14 +158,11 @@ export async function handleCatalogIntent(ctx: WebhookContext): Promise<{ status
  * Handle selection of a catalog item → creates order and confirms.
  */
 export async function handleOrderSelect(ctx: WebhookContext, itemId: string): Promise<{ status: string; matched: string } | null> {
-  const { supabase, instance, phoneNumber } = ctx;
-
-  const { data: item } = await supabase
-    .from("catalog_items")
-    .select("*")
-    .eq("id", itemId)
-    .eq("active", true)
-    .single();
+  const [{ rows: items }] = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
+    "SELECT id, label, price_cents, active FROM catalog_items WHERE id = ? AND active = true",
+    [itemId]
+  );
+  const item = items?.[0];
 
   if (!item) {
     await sendTextMessage(
@@ -191,21 +175,20 @@ export async function handleOrderSelect(ctx: WebhookContext, itemId: string): Pr
   }
 
   // Create order
-  const { data: order } = await supabase
-    .from("orders")
-    .insert({
-      instance_id: instance.id,
-      customer_phone: phoneNumber,
-      customer_name: ctx.pushName || null,
-      catalog_item_id: item.id,
-      option_label: item.label,
-      price_cents: item.price_cents,
-      status: "pending",
-    })
-    .select("*")
-    .single();
-
-  if (order) {
+  const [{ insertId }] = await query(
+    "INSERT INTO orders (id, instance_id, user_id, customer_phone, customer_name, catalog_item_id, option_label, price_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
+    [
+      String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+      instance.id,
+      null,
+      phoneNumber,
+      ctx.pushName || null,
+      item.id,
+      item.label,
+      item.price_cents,
+    ]
+  );
+  if (insertId) {
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,

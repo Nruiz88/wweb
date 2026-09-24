@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
 import { Clock, AlertTriangle } from "lucide-react";
 
 export default function SubscriptionStatus() {

@@ -1,48 +1,40 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin/auth";
-import { safeErrorMessage } from "@/lib/api-helpers";
+import { requireAdmin } from "../../../lib/admin/auth";
+import { query } from "../../../lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  const { supabase } = auth;
 
   try {
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const [
-      usersResult,
-      instancesResult,
-      activeInstancesResult,
-      autoResponsesResult,
-      appointmentsResult,
-      pendingAppointmentsResult,
-      messagesLastDayResult,
+      usersResult, instancesResult, activeInstancesResult, autoResponsesResult,
+      appointmentsResult, pendingAppointmentsResult, messagesLastDayResult
     ] = await Promise.all([
-      supabase.from("profiles").select("id", { count: "exact", head: true }),
-      supabase.from("instances").select("id", { count: "exact", head: true }),
-      supabase.from("instances").select("id", { count: "exact", head: true }).eq("status", "open"),
-      supabase.from("auto_responses").select("id", { count: "exact", head: true }).eq("is_active", true),
-      supabase.from("appointments").select("id", { count: "exact", head: true }).in("status", ["pending", "confirmed"]),
-      supabase.from("appointments").select("id", { count: "exact", head: true }).eq("status", "pending"),
-      supabase.from("response_logs").select("id", { count: "exact", head: true }).gte("sent_at", oneDayAgo),
+      query("SELECT COUNT(*) as count FROM profiles"),
+      query("SELECT COUNT(*) as count FROM instances"),
+      query("SELECT COUNT(*) as count FROM instances WHERE status = 'open'"),
+      query("SELECT COUNT(*) as count FROM auto_responses WHERE is_active = true"),
+      query("SELECT COUNT(*) as count FROM appointments WHERE status IN ('pending','confirmed')"),
+      query("SELECT COUNT(*) as count FROM appointments WHERE status = 'pending'"),
+      query("SELECT COUNT(*) as count FROM response_logs WHERE sent_at >= ?", [oneDayAgo]),
     ]);
 
-    // Top keywords
-    const { data: recentKeywords } = await supabase
-      .from("response_logs")
-      .select("matched_keyword")
-      .gte("sent_at", sevenDaysAgo)
-      .limit(500);
+    const [{ rows: recentKeywords }] = await query<{ matched_keyword: string }>(
+      "SELECT matched_keyword FROM response_logs WHERE sent_at >= ? LIMIT 500",
+      [sevenDaysAgo]
+    );
 
-    const keywordCounts: Record<string, number> = {};
-    (recentKeywords || []).forEach((r) => {
+    const keywordCounts = {};
+    for (const r of recentKeywords) {
       const kw = r.matched_keyword || "(sin keyword)";
       keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
-    });
+    }
     const topKeywords = Object.entries(keywordCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
@@ -51,17 +43,17 @@ export async function GET() {
     return NextResponse.json({
       status: "success",
       data: {
-        totalUsers: usersResult.count || 0,
-        totalInstances: instancesResult.count || 0,
-        activeInstances: activeInstancesResult.count || 0,
-        totalAutoResponses: autoResponsesResult.count || 0,
-        totalAppointments: appointmentsResult.count || 0,
-        pendingAppointments: pendingAppointmentsResult.count || 0,
-        messagesLastDay: messagesLastDayResult.count || 0,
+        totalUsers: usersResult[0]?.count || 0,
+        totalInstances: instancesResult[0]?.count || 0,
+        activeInstances: activeInstancesResult[0]?.count || 0,
+        totalAutoResponses: autoResponsesResult[0]?.count || 0,
+        totalAppointments: appointmentsResult[0]?.count || 0,
+        pendingAppointments: pendingAppointmentsResult[0]?.count || 0,
+        messagesLastDay: messagesLastDayResult[0]?.count || 0,
         topKeywords,
       },
     });
   } catch (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ status: "error", error: String(error) }, { status: 500 });
   }
 }

@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { supabase } from "@/lib/supabase/client";
 import {
   HomeIcon,
   MessageCircleIcon,
@@ -15,13 +14,13 @@ import {
   UserIcon,
   CalendarIcon,
   ChevronDownIcon,
-} from "@/components/icons";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { LogoMark } from "@/components/logo";
-import { CommandPalette } from "@/components/command-palette";
-import { PlanProvider, usePlanContext } from "@/components/plan-context";
-import { cn } from "@/lib/utils";
+} from "../components/icons";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { LogoMark } from "../components/logo";
+import { CommandPalette } from "../components/command-palette";
+import { PlanProvider, usePlanContext } from "../components/plan-context";
+import { cn } from "../lib/utils";
 import { LogOut } from "lucide-react";
 
 type NavChild = { href: string; label: string };
@@ -85,8 +84,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [sidebarCalendarOpen, setSidebarCalendarOpen] = useState(true);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
+    router.refresh();
   };
 
   const navItems = useMemo(() => {

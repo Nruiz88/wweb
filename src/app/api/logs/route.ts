@@ -1,18 +1,16 @@
 import { NextResponse } from "next/server";
-import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
-import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
+import { getSession } from "../../../lib/auth";
+import { query } from "../../../lib/db";
+import { safeErrorMessage, verifyUserAccess } from "../../../lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
 // GET: List logs for user's instance
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
-
-  const supabase = await createServerClient();
 
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");
@@ -20,40 +18,35 @@ export async function GET(request: Request) {
   const offset = parseInt(searchParams.get("offset") || "0", 10);
 
   if (!instanceId) {
-    return NextResponse.json(
-      { status: "error", error: "instanceId is required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
   }
 
   // Verify instance belongs to user
-  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
+  const hasAccess = await verifyUserAccess(session.userId, instanceId);
   if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  const { data: logs, error } = await supabase
-    .from("response_logs")
-    .select("*, auto_responses(keyword, regex_pattern, response_text)")
-    .eq("instance_id", instanceId)
-    .order("sent_at", { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
+  const [{ rows: logs }] = await query<any>(
+    `SELECT *, auto_responses(keyword, regex_pattern, response_text) 
+     FROM response_logs 
+     WHERE instance_id = ? 
+     ORDER BY sent_at DESC 
+     LIMIT ? OFFSET ?`,
+    [instanceId, limit, offset]
+  );
 
   // Get total count
-  const { count } = await supabase
-    .from("response_logs")
-    .select("*", { count: "exact", head: true })
-    .eq("instance_id", instanceId);
+  const [{ rows: countRows }] = await query<{ count: number }>(
+    "SELECT COUNT(*) as count FROM response_logs WHERE instance_id = ?",
+    [instanceId]
+  );
 
   return NextResponse.json({
     status: "success",
     data: {
       logs,
-      total: count ?? 0,
+      total: countRows?.[0]?.count ?? 0,
       limit,
       offset,
     },

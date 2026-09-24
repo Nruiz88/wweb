@@ -7,7 +7,7 @@ import {
   CheckIcon,
   XIcon,
   LoaderIcon,
-} from "@/components/icons";
+} from "../components/icons";
 
 interface OnboardingWizardProps {
   onComplete: () => void;

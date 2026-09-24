@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Loader2, Plus, Settings, Shield, Trash2, X, MessageCircle, Zap } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Badge } from "../components/ui/badge";
+import { Skeleton } from "../components/ui/skeleton";
 import { toast } from "sonner";
-import type { Instance, Profile } from "@/lib/supabase/types";
+import type { Instance, Profile } from "../../lib/db/types";
 
 function InstanceCard({ instance, onDelete }: { instance: Instance; onDelete: (id: string) => void }) {
   const isConnected = instance.status === "open";

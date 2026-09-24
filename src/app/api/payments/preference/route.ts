@@ -1,49 +1,36 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
+import { getSession } from "../../../../lib/auth";
+import { query } from "../../../../lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const supabase = await createServerClient();
-
-  // Verify auth
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError || !userData.user) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-
-  const user = userData.user;
+  const session = await getSession();
+  if (!session) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
 
   // Get MP config from DB
-  const { data: mpConfig } = await supabase
-    .from("mercado_pago_config")
-    .select("access_token, public_key")
-    .limit(1)
-    .maybeSingle();
-
-  if (!mpConfig?.access_token) {
+  const [{ rows: mpConfig }] = await query<{ access_token: string | null; public_key: string | null }>(
+    "SELECT access_token, public_key FROM mercado_pago_config ORDER BY updated_at DESC LIMIT 1"
+  );
+  if (!mpConfig?.length || !mpConfig[0].access_token) {
     return NextResponse.json({ status: "error", error: "Mercado Pago no configurado" }, { status: 400 });
   }
+  const mpConfigData = mpConfig[0];
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
-  const { amount_cents, external_ref, title, plan_type = "pro" } = (body ?? {}) as {
-    amount_cents?: number;
-    external_ref?: string;
-    title?: string;
-    plan_type?: string;
-  };
+  const { amount_cents, external_ref, title, plan_type = "pro" } = body as { amount_cents?: number; external_ref?: string; title?: string; plan_type?: string };
 
-  // Si no se envió amount_cents o es 0, buscar en plan_config
   let finalAmountCents = (amount_cents && amount_cents > 0) ? amount_cents : null;
   const finalPlanType = (plan_type || "pro");
 
   if (!finalAmountCents) {
-    const { data: planConfig } = await supabase
-      .from("plan_config")
-      .select("amount_cents, label")
-      .eq("plan_type", finalPlanType)
-      .maybeSingle();
-    if (planConfig && planConfig.amount_cents > 0) {
-      finalAmountCents = planConfig.amount_cents;
+    const [{ rows: planConfig }] = await query<{ amount_cents: number; label: string }>(
+      "SELECT amount_cents, label FROM plan_config WHERE plan_type = ? LIMIT 1",
+      [finalPlanType]
+    );
+    if (planConfig?.length && planConfig[0].amount_cents > 0) {
+      finalAmountCents = planConfig[0].amount_cents;
     } else {
       return NextResponse.json({ status: "error", error: `Plan ${finalPlanType} no configurado en plan_config o sin precio` }, { status: 400 });
     }
@@ -56,7 +43,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${mpConfig.access_token}`,
+        "Authorization": `Bearer ${mpConfigData.access_token}`,
       },
       body: JSON.stringify({
         items: [
@@ -67,7 +54,7 @@ export async function POST(request: Request) {
             unit_price: finalAmountCents / 100,
           },
         ],
-        external_reference: external_ref || user.id,
+        external_reference: external_ref || session.userId,
         back_urls: {
           success: `${process.env.APP_URL || ""}/dashboard`,
           failure: `${process.env.APP_URL || ""}/dashboard`,
@@ -85,14 +72,10 @@ export async function POST(request: Request) {
     }
 
     // Record pending payment
-    const { error: insertErr } = await supabase.from("payments").insert({
-      user_id: user.id,
-      external_id: String(mpData.id || `mp_${Date.now()}`),
-      amount_cents: finalAmountCents,
-      status: "pending",
-    });
-
-    if (insertErr) console.error("[mp-preference] db insert error:", insertErr);
+    const [{ insertId }] = await query(
+      "INSERT INTO payments (id, user_id, external_id, amount_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', NOW(), NOW())",
+      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), session.userId, String(mpData.id || `mp_${Date.now()}`), finalAmountCents]
+    );
 
     return NextResponse.json({
       status: "success",

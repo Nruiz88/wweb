@@ -1,37 +1,37 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin/auth";
+import { requireAdmin } from "../../../lib/admin/auth";
+import { query } from "../../../lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  const { supabase } = auth;
 
-  const { data: users } = await supabase
-    .from("profiles")
-    .select("id, email, full_name, role, created_at")
-    .order("created_at", { ascending: false })
-    .limit(50);
+  const [{ rows: users }] = await query<{ id: string; email: string; full_name: string; role: string; created_at: string }>(
+    "SELECT id, email, full_name, role, created_at FROM profiles ORDER BY created_at DESC LIMIT 50"
+  );
 
-  const [subs, payments, assignments] = await Promise.all([
-    supabase.from("subscriptions").select("user_id, plan_type, status, max_instances, paid_until, purchased_at"),
-    supabase.from("payments").select("user_id, status, amount_cents, created_at").order("created_at", { ascending: false }),
-    supabase.from("user_instances").select("user_id, instance_id"),
-  ]);
+  const [{ rows: subs }] = await query<{ user_id: string; plan_type: string; status: string; max_instances: number; paid_until: string | null; purchased_at: string | null }>(
+    "SELECT user_id, plan_type, status, max_instances, paid_until, purchased_at FROM subscriptions"
+  );
+  const [{ rows: payments }] = await query<{ user_id: string; status: string; amount_cents: number; created_at: string }>(
+    "SELECT user_id, status, amount_cents, created_at FROM payments ORDER BY created_at DESC"
+  );
+  const [{ rows: assignments }] = await query<{ user_id: string; instance_id: string }>(
+    "SELECT user_id, instance_id FROM user_instances"
+  );
 
-  const subByUser = new Map((subs.data ?? []).map((s) => [s.user_id, s]));
-  interface PaymentRow { user_id: string; created_at: string; amount_cents?: number; status?: string }
-  const payLatest: Record<string, PaymentRow> = {};
-  ((payments.data ?? []) as PaymentRow[]).forEach((p) => {
+  const subByUser = new Map(subs.map((s) => [s.user_id, s]));
+  const payLatest = {};
+  for (const p of payments) {
     if (!payLatest[p.user_id] || new Date(p.created_at) > new Date(payLatest[p.user_id].created_at)) {
       payLatest[p.user_id] = p;
     }
-  });
-  const assignedSet = new Set(((assignments.data ?? []) as Array<{ user_id: string }>).map((a) => a.user_id));
+  }
+  const assignedSet = new Set(assignments.map((a) => a.user_id));
 
-  interface ProfileRow { id: string; email: string; full_name: string; role: string; created_at: string }
-  const data = ((users ?? []) as ProfileRow[]).map((u) => {
+  const data = (users || []).map((u) => {
     const s = subByUser.get(u.id);
     const p = payLatest[u.id];
     return {

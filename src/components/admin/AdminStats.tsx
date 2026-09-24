@@ -1,6 +1,6 @@
 "use client";
 
-import { UsersIcon, MessageCircleIcon, ZapIcon, ClockIcon } from "@/components/icons";
+import { UsersIcon, MessageCircleIcon, ZapIcon, ClockIcon } from "../components/icons";
 
 interface Stats {
   totalUsers: number;

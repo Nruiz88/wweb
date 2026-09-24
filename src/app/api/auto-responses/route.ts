@@ -1,52 +1,41 @@
 import { NextResponse } from "next/server";
-import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
-import { rateLimitResponse } from "@/lib/rate-limit";
-import { isSafeRegex } from "@/lib/regex-guard";
-import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
+import { getSession } from "../../../lib/auth";
+import { query } from "../../../lib/db";
+import { rateLimitResponse } from "../../../lib/rate-limit";
+import { isSafeRegex } from "../../../lib/regex-guard";
+import { verifyUserAccess } from "../../../lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
 // GET: List auto-responses for user's instance
-// Optional ?type=text|menu to filter by response_type.
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
-
-  const supabase = await createServerClient();
 
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");
   const type = searchParams.get("type");
-
   if (!instanceId) {
-    return NextResponse.json(
-      { status: "error", error: "instanceId is required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
   }
 
-  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
+  const hasAccess = await verifyUserAccess(session.userId, instanceId);
   if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  let query = supabase
-    .from("auto_responses")
-    .select("id, keyword, regex_pattern, response_text, response_type, menu_config, is_active, schedule")
-    .eq("instance_id", instanceId);
+  let sql = "SELECT id, keyword, regex_pattern, response_text, response_type, menu_config, is_active, schedule FROM auto_responses WHERE instance_id = ?";
+  const params = [instanceId];
 
   if (type === "text" || type === "menu") {
-    query = query.eq("response_type", type);
+    sql += " AND response_type = ?";
+    params.push(type);
   }
 
-  const { data: responses, error } = await query.order("priority", { ascending: false });
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
+  sql += " ORDER BY priority DESC";
+  const [{ rows: responses }] = await query(sql, params);
 
   return NextResponse.json({ status: "success", data: responses });
 }
@@ -56,112 +45,56 @@ export async function POST(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getCurrentUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-
   let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
-  }
+  try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const {
-    instanceId,
-    keyword,
-    regexPattern,
-    responseText,
-    responseMediaUrl,
-    responseType,
-    menuConfig,
-    isActive,
-    priority,
-    schedule,
-  } = (body ?? {}) as {
+  const { instanceId, keyword, regexPattern, responseText, responseMediaUrl, responseType, menuConfig, isActive, priority, schedule } = body as {
     instanceId?: string;
     keyword?: string;
     regexPattern?: string;
     responseText?: string;
     responseMediaUrl?: string;
     responseType?: string;
-    menuConfig?: { title?: string; description?: string; footer?: string; buttons?: { id: string; text: string; target_id: string | null }[] } | null;
+    menuConfig?: any;
     isActive?: boolean;
     priority?: number;
     schedule?: { from?: string; to?: string };
   };
 
   if (!instanceId) {
-    return NextResponse.json(
-      { status: "error", error: "instanceId is required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
   }
 
-  // Menu type: menuConfig is required; text response is optional (used as fallback)
-  const isMenu = responseType === "menu";
-
-  if (!isMenu && !responseText) {
-    return NextResponse.json(
-      { status: "error", error: "responseText is required for text responses" },
-      { status: 400 }
-    );
-  }
-
-  if (isMenu && (!menuConfig || !menuConfig.buttons || menuConfig.buttons.length === 0)) {
-    return NextResponse.json(
-      { status: "error", error: "menuConfig with at least 1 button is required for menu responses" },
-      { status: 400 }
-    );
-  }
-
-  // Text type: keyword or regexPattern required
-  if (!isMenu && !keyword && !regexPattern) {
-    return NextResponse.json(
-      { status: "error", error: "Either keyword or regexPattern is required" },
-      { status: 400 }
-    );
-  }
-
-  if (regexPattern && !isSafeRegex(regexPattern)) {
-    return NextResponse.json(
-      { status: "error", error: "El patrón regex es inválido, muy largo o potencialmente peligroso" },
-      { status: 400 }
-    );
-  }
-
-  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
+  const hasAccess = await verifyUserAccess(session.userId, instanceId);
   if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  const { data: response, error } = await supabase
-    .from("auto_responses")
-    .insert({
-      instance_id: instanceId,
-      user_id: user.id,
-      keyword: keyword || null,
-      regex_pattern: regexPattern || null,
-      response_text: responseText || "",
-      response_media_url: responseMediaUrl || null,
-      response_type: isMenu ? "menu" : "text",
-      menu_config: menuConfig || null,
-      is_active: isActive ?? true,
-      priority: priority ?? 0,
-      schedule: schedule || null,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+  if (responseType === "menu" && (!menuConfig || !menuConfig.buttons || menuConfig.buttons.length === 0)) {
+    return NextResponse.json({ status: "error", error: "menuConfig with at least 1 button is required for menu responses" }, { status: 400 });
   }
 
-  return NextResponse.json({ status: "success", data: response });
+  if (responseType !== "menu" && !responseText) {
+    return NextResponse.json({ status: "error", error: "responseText is required for text responses" }, { status: 400 });
+  }
+
+  if (regexPattern && !isSafeRegex(regexPattern)) {
+    return NextResponse.json({ status: "error", error: "El patrón regex es inválido, muy largo o potencialmente peligroso" }, { status: 400 });
+  }
+
+  const id = Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15);
+  await query(
+    `INSERT INTO auto_responses (id, instance_id, user_id, keyword, regex_pattern, response_text, response_media_url, response_type, menu_config, is_active, priority, schedule, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+    [id, instanceId, session.userId, keyword || null, regexPattern || null, responseText || "", responseMediaUrl || null, responseType || "text", menuConfig || null, isActive ?? true, priority ?? 0, schedule || null]
+  );
+
+  return NextResponse.json({ status: "success", data: { id, instance_id: instanceId, user_id: session.userId, keyword: keyword || null, regex_pattern: regexPattern || null, response_text: responseText || "", response_media_url: responseMediaUrl || null, response_type: responseType || "text", menu_config: menuConfig || null, is_active: isActive ?? true, priority: priority ?? 0, schedule: schedule || null, created_at: new Date().toISOString() } });
 }
 
 // PUT: Update auto-response
@@ -169,29 +102,22 @@ export async function PUT(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getCurrentUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-
   let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
-  }
+  try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const { id, ...updates } = (body ?? {}) as {
+  const { id, keyword, regexPattern, responseText, responseMediaUrl, responseType, menuConfig, isActive, priority, schedule } = body as {
     id?: string;
     keyword?: string;
     regexPattern?: string;
     responseText?: string;
     responseMediaUrl?: string;
     responseType?: string;
-    menuConfig?: { title?: string; description?: string; footer?: string; buttons?: { id: string; text: string; target_id: string | null }[] } | null;
+    menuConfig?: any;
     isActive?: boolean;
     priority?: number;
     schedule?: { from?: string; to?: string };
@@ -201,45 +127,37 @@ export async function PUT(request: Request) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const { data: existing } = await supabase
-    .from("auto_responses")
-    .select("id, instance_id")
-    .eq("id", id)
-    .single();
-
-  if (!existing) {
+  // Verify access
+  const [{ rows: existing }] = await query<{ id: string; instance_id: string }>(
+    "SELECT id, instance_id FROM auto_responses WHERE id = ? LIMIT 1",
+    [id]
+  );
+  if (!existing.length) {
     return NextResponse.json({ status: "error", error: "Auto-response not found" }, { status: 404 });
   }
 
-  const hasAccess = await verifyUserAccess(supabase, user.id, existing.instance_id);
+  const hasAccess = await verifyUserAccess(session.userId, existing[0].instance_id);
   if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
   }
 
-  // Build update payload — only include fields that were sent
-  const updatePayload: Record<string, unknown> = {};
-  if (updates.keyword !== undefined) updatePayload.keyword = updates.keyword;
-  if (updates.regexPattern !== undefined) updatePayload.regex_pattern = updates.regexPattern;
-  if (updates.responseText !== undefined) updatePayload.response_text = updates.responseText;
-  if (updates.responseMediaUrl !== undefined) updatePayload.response_media_url = updates.responseMediaUrl;
-  if (updates.responseType !== undefined) updatePayload.response_type = updates.responseType;
-  if (updates.menuConfig !== undefined) updatePayload.menu_config = updates.menuConfig;
-  if (updates.isActive !== undefined) updatePayload.is_active = updates.isActive;
-  if (updates.priority !== undefined) updatePayload.priority = updates.priority;
-  if (updates.schedule !== undefined) updatePayload.schedule = updates.schedule;
+  const updates = {};
+  if (keyword !== undefined) updates.keyword = keyword;
+  if (regexPattern !== undefined) updates.regex_pattern = regexPattern;
+  if (responseText !== undefined) updates.response_text = responseText;
+  if (responseMediaUrl !== undefined) updates.response_media_url = responseMediaUrl;
+  if (responseType !== undefined) updates.response_type = responseType;
+  if (menuConfig !== undefined) updates.menu_config = menuConfig;
+  if (isActive !== undefined) updates.is_active = isActive;
+  if (priority !== undefined) updates.priority = priority;
+  if (schedule !== undefined) updates.schedule = schedule;
 
-  const { data: response, error } = await supabase
-    .from("auto_responses")
-    .update(updatePayload)
-    .eq("id", id)
-    .select()
-    .single();
+  const setClauses = Object.keys(updates).map((k) => `${k} = ?`);
+  const values = [...Object.values(updates), id];
 
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
+  await query(`UPDATE auto_responses SET ${setClauses.join(", ")} WHERE id = ?`, values);
 
-  return NextResponse.json({ status: "success", data: response });
+  return NextResponse.json({ status: "success", data: { id, ...updates } });
 }
 
 // DELETE: Delete auto-response
@@ -247,41 +165,30 @@ export async function DELETE(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getCurrentUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
-
   if (!id) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const { data: existing } = await supabase
-    .from("auto_responses")
-    .select("id, instance_id")
-    .eq("id", id)
-    .single();
-
-  if (!existing) {
+  const [{ rows: existing }] = await query<{ id: string; instance_id: string }>(
+    "SELECT id, instance_id FROM auto_responses WHERE id = ? LIMIT 1",
+    [id]
+  );
+  if (!existing.length) {
     return NextResponse.json({ status: "error", error: "Auto-response not found" }, { status: 404 });
   }
 
-  const hasAccess = await verifyUserAccess(supabase, user.id, existing.instance_id);
+  const hasAccess = await verifyUserAccess(session.userId, existing[0].instance_id);
   if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
   }
 
-  const { error } = await supabase.from("auto_responses").delete().eq("id", id);
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
-
+  await query("DELETE FROM auto_responses WHERE id = ?", [id]);
   return NextResponse.json({ status: "success" });
 }

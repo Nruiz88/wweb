@@ -1,9 +1,8 @@
-import { sendTextMessage } from "@/lib/evolution-multi";
-import { isWithinSchedule, matchKeyword, matchRegex } from "@/lib/webhook-matching";
+import { query } from "../db";
+import { isWithinSchedule, matchKeyword, matchRegex } from "../webhook-matching";
 import type { WebhookContext } from "./context";
 
-/**
- * Regular keyword/regex auto-reply matching.
+/** Regular keyword/regex auto-reply matching.
  * The core feature of the Starter plan.
  * Requires: Starter plan
  */
@@ -13,7 +12,7 @@ export async function handleAutoReply(ctx: WebhookContext) {
   const autoResponses = ctx.autoResponses;
   if (!autoResponses || autoResponses.length === 0) return { status: "no_match" as const };
 
-  let matched = null;
+  let matched: any = null;
   let matchedKeyword = "";
 
   for (const ar of autoResponses) {
@@ -51,14 +50,11 @@ export async function handleAutoReply(ctx: WebhookContext) {
   }
 
   try {
-    await supabase.from("response_logs").insert({
-      instance_id: instance.id,
-      auto_response_id: matched.id,
-      user_id: matched.user_id,
-      incoming_phone: remoteJid,
-      incoming_message: effectiveText,
-      matched_keyword: matchedKeyword,
-    });
+    await query(
+      `INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), instance.id, matched.id, matched.user_id, remoteJid, effectiveText, matchedKeyword]
+    );
   } catch (logErr) {
     console.error("[webhook] error guardando log", { instance: instanceName, error: logErr });
   }

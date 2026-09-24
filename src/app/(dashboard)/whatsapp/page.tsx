@@ -4,11 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageCircle, Loader2, RefreshCw, LogOut, Check, X, ArrowRight, HelpCircle, ChevronDown, Smartphone, Info, RotateCcw, Wifi } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import { Skeleton } from "../components/ui/skeleton";
+import { Separator } from "../components/ui/separator";
 import { toast } from "sonner";
 
 type ConnectionState = "open" | "close" | "connecting" | "qrcode" | "unknown";

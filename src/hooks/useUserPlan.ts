@@ -1,6 +1,6 @@
 "use client";
 
-import { usePlanContext } from "@/components/plan-context";
+import { usePlanContext } from "../components/plan-context";
 
 /**
  * Hook that returns the current user's subscription plan.

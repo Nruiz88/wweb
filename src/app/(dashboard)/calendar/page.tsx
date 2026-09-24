@@ -1,19 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Appointment, BusinessHours } from "@/lib/supabase/types";
-import { useUserPlan } from "@/hooks/useUserPlan";
-import PlanPaywall from "@/components/PlanPaywall";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
+import type { Appointment, BusinessHours } from "../../lib/db/types";
+import { useUserPlan } from "../hooks/useUserPlan";
+import PlanPaywall from "../components/PlanPaywall";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Skeleton } from "../components/ui/skeleton";
+import { Separator } from "../components/ui/separator";
+import { cn } from "../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Clock, Shield, Check, X, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSearchParams, useRouter } from "next/navigation";
-import { todayInBusinessTimezone } from "@/lib/timezone";
+import { todayInBusinessTimezone } from "../lib/timezone";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { rateLimitResponse } from "@/lib/rate-limit";
-import { slugify } from "@/lib/slug";
+import { query } from "../../../../lib/db";
+import { rateLimitResponse } from "../../../../lib/rate-limit";
+import { slugify } from "../../../../lib/slug";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +11,6 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "public-book", { maxRequests: 20, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
-
-  const supabase = await createServerClient();
 
   let body: unknown;
   try {
@@ -42,23 +40,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid date or time format" }, { status: 400 });
   }
 
-  // Verify the user owns / has access to this instance
+  // Resolve profile by email or by business_name/email slug.
   let profile: { id: string; role: string } | null = null;
 
   if (userEmail) {
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, role")
-      .eq("email", userEmail.trim().toLowerCase())
-      .single();
-    profile = data ?? null;
+    const [{ rows }] = await query<{ id: string; role: string }>(
+      "SELECT id, role FROM profiles WHERE email = ? LIMIT 1",
+      [userEmail.trim().toLowerCase()]
+    );
+    profile = rows?.[0] ?? null;
   }
 
   if (!profile && business) {
     const slug = business.trim().toLowerCase();
-    const { data: all } = await supabase
-      .from("profiles")
-      .select("id, role, business_name, email");
+    const [{ rows: all }] = await query<{ id: string; role: string; business_name: string | null; email: string | null }>(
+      "SELECT id, role, business_name, email FROM profiles"
+    );
     profile =
       (all || []).find((p) => {
         if (p.business_name && slugify(p.business_name) === slug) return true;
@@ -73,77 +70,63 @@ export async function POST(request: Request) {
 
   let owns = false;
   if (profile.role === "admin") {
-    const { data: inst } = await supabase
-      .from("instances")
-      .select("id")
-      .eq("id", instanceId)
-      .eq("admin_id", profile.id)
-      .single();
-    owns = !!inst;
+    const [{ rows: inst }] = await query<{ id: string }>(
+      "SELECT id FROM instances WHERE id = ? AND admin_id = ?",
+      [instanceId, profile.id]
+    );
+    owns = inst.length > 0;
   } else {
-    const { data: assigned } = await supabase
-      .from("user_instances")
-      .select("id")
-      .eq("instance_id", instanceId)
-      .eq("user_id", profile.id)
-      .single();
-    owns = !!assigned;
+    const [{ rows: assigned }] = await query<{ id: string }>(
+      "SELECT id FROM user_instances WHERE instance_id = ? AND user_id = ?",
+      [instanceId, profile.id]
+    );
+    owns = assigned.length > 0;
   }
 
   if (!owns) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  // Validate the day has active business hours
+  // Validate the day has active business hours.
   const dateObj = new Date(appointmentDate + "T12:00:00");
   const dayOfWeek = dateObj.getDay();
 
-  const { data: hours } = await supabase
-    .from("business_hours")
-    .select("id")
-    .eq("instance_id", instanceId)
-    .eq("day_of_week", dayOfWeek)
-    .eq("is_active", true)
-    .single();
+  const [{ rows: hours }] = await query<{ id: string }>(
+    "SELECT id FROM business_hours WHERE instance_id = ? AND day_of_week = ? AND is_active = true",
+    [instanceId, dayOfWeek]
+  );
 
-  if (!hours) {
+  if (hours.length === 0) {
     return NextResponse.json({ status: "error", error: "No hay horarios configurados para ese día" }, { status: 400 });
   }
 
-  // Check conflict (pending or confirmed)
-  const { data: conflict } = await supabase
-    .from("appointments")
-    .select("id")
-    .eq("instance_id", instanceId)
-    .eq("appointment_date", appointmentDate)
-    .eq("appointment_time", appointmentTime)
-    .in("status", ["pending", "confirmed"])
-    .limit(1);
+  // Check conflict (pending or confirmed).
+  const [{ rows: conflict }] = await query<{ id: string }>(
+    "SELECT id FROM appointments WHERE instance_id = ? AND appointment_date = ? AND appointment_time = ? AND status IN ('pending','confirmed') LIMIT 1",
+    [instanceId, appointmentDate, appointmentTime]
+  );
 
-  if (conflict && conflict.length > 0) {
+  if (conflict.length > 0) {
     return NextResponse.json(
       { status: "error", error: "Ese horario ya fue tomado. Elegí otro." },
       { status: 409 },
     );
   }
 
-  const { data: appointment, error } = await supabase
-    .from("appointments")
-    .insert({
-      instance_id: instanceId,
-      customer_name: customerName || null,
-      customer_phone: customerPhone ? String(customerPhone).trim().replace(/\D/g, "") || null : null,
-      appointment_date: appointmentDate,
-      appointment_time: appointmentTime,
-      status: "pending",
-    })
-    .select("id, appointment_date, appointment_time")
-    .single();
+  const [{ insertId }] = await query(
+    "INSERT INTO appointments (id, instance_id, customer_name, customer_phone, appointment_date, appointment_time, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
+    [
+      String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+      instanceId,
+      customerName || null,
+      customerPhone ? String(customerPhone).trim().replace(/\D/g, "") || null : null,
+      appointmentDate,
+      appointmentTime,
+    ]
+  );
 
-  if (error) {
-    console.error("[public-book] insert failed:", error.message);
-    return NextResponse.json({ status: "error", error: "No se pudo guardar el turno" }, { status: 500 });
-  }
-
-  return NextResponse.json({ status: "success", data: appointment });
+  return NextResponse.json({
+    status: "success",
+    data: { id: insertId, appointment_date: appointmentDate, appointment_time: appointmentTime },
+  });
 }

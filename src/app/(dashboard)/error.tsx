@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOutIcon } from "@/components/icons";
+import { LogOutIcon } from "../components/icons";
 
 export default function DashboardError({
   error,

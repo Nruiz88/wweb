@@ -1,6 +1,26 @@
+// MariaDB (Postgres-compatible) types for the WhatsApp dashboard application.
+// These replace ../../lib/db/types — the application uses only these types.
+
 export type PlanType = "pending" | "starter" | "pro";
-export type SubscriptionStatus = "active" | "past_due" | "canceled";
+export type UserRole = "admin" | "user";
 export type InstanceStatus = "open" | "close" | "connecting" | "qrcode";
+export type AddonStatus = "active" | "canceled";
+export type SubscriptionStatus = "pending" | "active" | "past_due" | "canceled";
+export type AppointmentStatus = "pending" | "confirmed" | "canceled" | "completed";
+export type ResponseType = "text" | "menu";
+export type ResponseLogStatus = "processed" | "failed" | "skipped";
+
+export interface Profile {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: UserRole;
+  business_name: string | null;
+  phone: string | null;
+  address: string | null;
+  onboarding_completed: boolean;
+  created_at: string;
+}
 
 export interface Subscription {
   id: string;
@@ -8,6 +28,8 @@ export interface Subscription {
   plan_type: PlanType;
   status: SubscriptionStatus;
   max_instances: number;
+  paid_until: string | null;
+  purchased_at: string;
   created_at: string;
   updated_at: string;
 }
@@ -16,37 +38,9 @@ export interface InstanceAddon {
   id: string;
   user_id: string;
   quantity: number;
-  status: "active" | "canceled";
+  status: AddonStatus;
   created_at: string;
   updated_at: string;
-}
-
-export type PlanFeature =
-  | "keywords"
-  | "menus"
-  | "calendar"
-  | "appointments"
-  | "reminders";
-
-export const PLAN_FEATURES: Record<PlanType, PlanFeature[]> = {
-  pending: [],
-  starter: ["keywords", "menus"],
-  pro: ["keywords", "menus", "calendar", "appointments", "reminders"],
-};
-
-export function hasPlanFeature(plan: PlanType, feature: PlanFeature): boolean {
-  return PLAN_FEATURES[plan].includes(feature);
-}
-
-export interface Profile {
-  id: string;
-  email: string | null;
-  full_name: string | null;
-  role: "admin" | "user";
-  business_name: string | null;
-  phone: string | null;
-  address: string | null;
-  created_at: string;
 }
 
 export interface Instance {
@@ -56,16 +50,9 @@ export interface Instance {
   evolution_api_url: string;
   evolution_api_key: string;
   status: InstanceStatus;
+  status_checked_at: string | null;
   welcome_message: string | null;
   outside_hours_message: string | null;
-  created_at: string;
-}
-
-// Safe instance view (no API keys)
-export interface InstancePublic {
-  id: string;
-  instance_name: string;
-  status: InstanceStatus;
   created_at: string;
 }
 
@@ -74,23 +61,6 @@ export interface UserInstance {
   user_id: string;
   instance_id: string;
   assigned_at: string;
-}
-
-export type ResponseType = "text" | "menu";
-
-export interface MenuButton {
-  id: string;
-  text: string;
-  /** Target auto_response_id — when tapped, the bot sends that response.
-   *  null means the button only sends its display text back as a keyword match. */
-  target_id: string | null;
-}
-
-export interface MenuConfig {
-  title: string;
-  description: string;
-  footer?: string;
-  buttons: MenuButton[];
 }
 
 export interface AutoResponse {
@@ -102,13 +72,10 @@ export interface AutoResponse {
   response_text: string;
   response_media_url: string | null;
   response_type: ResponseType;
-  menu_config: MenuConfig | null;
+  menu_config: Record<string, any> | null;
   is_active: boolean;
   priority: number;
-  schedule: {
-    from?: string;
-    to?: string;
-  } | null;
+  schedule: Record<string, any> | null;
   created_at: string;
 }
 
@@ -122,12 +89,6 @@ export interface ResponseLog {
   matched_keyword: string | null;
   sent_at: string;
 }
-
-// ============================================
-// Calendar / Appointments (Pro plan)
-// ============================================
-
-export type AppointmentStatus = "pending" | "confirmed" | "canceled" | "completed";
 
 export interface BusinessHours {
   id: string;
@@ -157,25 +118,6 @@ export interface Appointment {
   updated_at: string;
 }
 
-/** Available time slot for a given date */
-export interface TimeSlot {
-  time: string;
-  display: string;
-}
-
-/** Calendar day summary shown to the user */
-export interface CalendarDay {
-  date: string;
-  display: string;
-  dayOfWeek: string;
-  available: boolean;
-  slotCount: number;
-}
-
-// ============================================
-// Catalog / Orders (generic)
-// ============================================
-
 export interface CatalogItem {
   id: string;
   instance_id: string;
@@ -189,8 +131,6 @@ export interface CatalogItem {
   updated_at: string;
 }
 
-export type OrderStatus = "pending" | "completed" | "canceled";
-
 export interface Order {
   id: string;
   instance_id: string;
@@ -200,10 +140,69 @@ export interface Order {
   catalog_item_id: string | null;
   option_label: string;
   price_cents: number;
-  status: OrderStatus;
+  status: "pending" | "completed" | "canceled";
   notes: string | null;
   created_at: string;
   completed_at: string | null;
 }
 
+export interface MercadoPagoConfig {
+  id: string;
+  user_id: string;
+  access_token: string | null;
+  public_key: string | null;
+  webhook_secret: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
+export interface Payment {
+  id: string;
+  user_id: string | null;
+  external_id: string;
+  amount_cents: number;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  plan_activated: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlanConfig {
+  plan_type: PlanType;
+  amount_cents: number;
+  label: string;
+  description: string | null;
+  max_instances: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiscoveredGroup {
+  id: string;
+  instance_id: string;
+  jid: string;
+  group_name: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Invitation {
+  id: string;
+  instance_id: string;
+  email: string;
+  token: string;
+  status: "pending" | "accepted" | "expired";
+  created_at: string;
+  expires_at: string | null;
+}
+
+export interface WebhookLog {
+  id: string;
+  event_type: string;
+  instance_id: string | null;
+  user_id: string | null;
+  payload: Record<string, any> | null;
+  status: ResponseLogStatus;
+  error_message: string | null;
+  created_at: string;
+}

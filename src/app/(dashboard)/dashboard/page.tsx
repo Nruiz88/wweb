@@ -20,13 +20,13 @@ import {
   Menu,
   Clock,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { useUserPlan } from "@/hooks/useUserPlan";
-import OnboardingWizard from "@/components/OnboardingWizard";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import { buttonVariants } from "../components/ui/button";
+import { Skeleton } from "../components/ui/skeleton";
+import { Separator } from "../components/ui/separator";
+import { useUserPlan } from "../hooks/useUserPlan";
+import OnboardingWizard from "../components/OnboardingWizard";
 
 interface Status {
   hasInstance: boolean;

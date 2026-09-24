@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { UsersIcon } from "@/components/icons";
-import type { Profile, Instance } from "@/lib/supabase/types";
+import { UsersIcon } from "../components/icons";
+import type { Profile, Instance } from "../../lib/db/types";
 
 interface PlanUser {
   id: string; email: string | null; full_name: string | null; role: string; created_at: string;

@@ -6,11 +6,11 @@ import {
   PlayCircleIcon,
   QuickReplyIcon,
   AnalyticsIcon,
-} from "@/components/icons";
-import { LogoMark } from "@/components/logo";
-import LandingNav from "@/components/LandingNav";
-import { ChatAutoResponses, ChatAppointments } from "@/components/LandingChats";
-import { StepQRCode, StepConfig, StepActive } from "@/components/illustrations";
+} from "../components/icons";
+import { LogoMark } from "../components/logo";
+import LandingNav from "../components/LandingNav";
+import { ChatAutoResponses, ChatAppointments } from "../components/LandingChats";
+import { StepQRCode, StepConfig, StepActive } from "../components/illustrations";
 
 export const metadata: Metadata = {
   title: "Boti - Tu asistente de WhatsApp",

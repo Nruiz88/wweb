@@ -1,8 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { supabase } from "@/lib/supabase/client";
-import type { PlanType } from "@/lib/supabase/types";
+import type { PlanType } from "../../lib/db/types";
 
 interface PlanState {
   plan: PlanType | null;
@@ -27,8 +26,6 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
     async function init() {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (cancelled) return;
         // Rol y plan en paralelo (sin llamadas a Evolution API)
         const [meRes, profileRes] = await Promise.all([
           fetch("/api/auth/me"),
@@ -38,7 +35,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         const profilePayload = await profileRes.json();
         if (cancelled) return;
 
-        let userName = user?.user_metadata?.full_name || user?.email || "";
+        let userName = mePayload.data?.full_name || mePayload.data?.email || "";
         let isAdmin = false;
         if (mePayload.status === "success") {
           if (mePayload.data?.role === "admin") {

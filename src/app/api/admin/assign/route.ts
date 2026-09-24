@@ -1,99 +1,110 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin/auth";
-import { rateLimitResponse } from "@/lib/rate-limit";
-import { safeErrorMessage } from "@/lib/api-helpers";
+import { requireAdmin } from "../../../lib/admin/auth";
+import { rateLimitResponse } from "../../../lib/rate-limit";
+import { safeErrorMessage } from "../../../lib/api-helpers";
+import { query } from "../../../lib/db";
 
 export const dynamic = "force-dynamic";
 
-// GET: List assignments for an instance
 export async function GET(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "admin", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  const { user, supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");
   if (!instanceId) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
 
-  const { data: instance } = await supabase.from("instances").select("id").eq("id", instanceId).eq("admin_id", user.id).single();
-  if (!instance) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
+  const [{ rows: inst }] = await query<{ id: string; admin_id: string }>(
+    "SELECT id, admin_id FROM instances WHERE id = ? AND admin_id = ? LIMIT 1",
+    [instanceId, auth.user.id]
+  );
+  if (!inst.length) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
 
-  const { data: assignments, error } = await supabase
-    .from("user_instances").select("id, user_id, assigned_at, profiles:user_id(id, email, full_name)")
-    .eq("instance_id", instanceId);
+  const [{ rows: assignments }] = await query<{ id: string; user_id: string; assigned_at: string; email: string; full_name: string }>(
+    `SELECT ui.id, ui.user_id, ui.assigned_at, p.email, p.full_name
+     FROM user_instances ui
+     JOIN profiles p ON ui.user_id = p.id
+     WHERE ui.instance_id = ?`,
+    [instanceId]
+  );
 
-  if (error) return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  return NextResponse.json({ status: "success", data: assignments });
+  if (assignments.length) {
+    return NextResponse.json({ status: "success", data: assignments });
+  }
+  return NextResponse.json({ status: "success", data: [] });
 }
 
-// POST: Assign user to instance
 export async function POST(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "admin", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  const { user, supabase } = auth;
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const { instanceId, userEmail } = (body ?? {}) as { instanceId?: string; userEmail?: string };
-  if (!instanceId || !userEmail) return NextResponse.json({ status: "error", error: "instanceId and userEmail required" }, { status: 400 });
-
-  const { data: instance } = await supabase.from("instances").select("id").eq("id", instanceId).eq("admin_id", user.id).single();
-  if (!instance) return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-
-  const { data: targetUser, error: userError } = await supabase.from("profiles").select("id").eq("email", userEmail).single();
-  if (userError || !targetUser) return NextResponse.json({ status: "error", error: "User not found with that email" }, { status: 404 });
-
-  const { data: existing } = await supabase.from("user_instances").select("id").eq("user_id", targetUser.id).eq("instance_id", instanceId).single();
-  if (existing) return NextResponse.json({ status: "error", error: "User already assigned" }, { status: 409 });
-
-  const { data: effectiveMax, error: maxError } = await supabase.rpc("get_effective_max_instances", { p_user_id: targetUser.id });
-  if (maxError) return NextResponse.json({ status: "error", error: safeErrorMessage(maxError) }, { status: 500 });
-
-  const { count: currentCount } = await supabase.from("user_instances").select("id", { count: "exact", head: true }).eq("user_id", targetUser.id);
-
-  const max = Number(effectiveMax ?? 1);
-  const current = Number(currentCount ?? 0);
-  if (current >= max) {
-    return NextResponse.json(
-      { status: "error", error: `El usuario alcanzo su limite de ${max} bots. Contrata add-ons para ampliarlo.` },
-      { status: 409 }
-    );
+  const { instanceId, userEmail } = body as { instanceId?: string; userEmail?: string };
+  if (!instanceId || !userEmail) {
+    return NextResponse.json({ status: "error", error: "instanceId and userEmail required" }, { status: 400 });
   }
 
-  const { data: assignment, error } = await supabase.from("user_instances").insert({ user_id: targetUser.id, instance_id: instanceId }).select().single();
-  if (error) return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+  const [{ rows: inst }] = await query<{ id: string; admin_id: string }>(
+    "SELECT id, admin_id FROM instances WHERE id = ? AND admin_id = ? LIMIT 1",
+    [instanceId, auth.user.id]
+  );
+  if (!inst.length) return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
 
-  return NextResponse.json({ status: "success", data: assignment });
+  const [{ rows: targetUser }] = await query<{ id: string }>(
+    "SELECT id FROM profiles WHERE email = ? LIMIT 1",
+    [userEmail]
+  );
+  if (!targetUser.length) {
+    return NextResponse.json({ status: "error", error: "User not found with that email" }, { status: 404 });
+  }
+
+  const [{ rows: existing }] = await query<{ id: string }>(
+    "SELECT id FROM user_instances WHERE user_id = ? AND instance_id = ? LIMIT 1",
+    [targetUser[0].id, instanceId]
+  );
+  if (existing.length) {
+    return NextResponse.json({ status: "error", error: "User already assigned" }, { status: 409 });
+  }
+
+  const [{ insertId }] = await query(
+    "INSERT INTO user_instances (id, user_id, instance_id, assigned_at) VALUES (?, ?, ?, NOW())",
+    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), targetUser[0].id, instanceId]
+  );
+
+  return NextResponse.json({ status: "success", data: { id: insertId, user_id: targetUser[0].id, instance_id: instanceId } });
 }
 
-// DELETE: Unassign
 export async function DELETE(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "admin", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  const { user, supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const assignmentId = searchParams.get("id");
   if (!assignmentId) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
 
-  const { data: assignment } = await supabase.from("user_instances").select("id, instance_id").eq("id", assignmentId).single();
-  if (!assignment) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
+  const [{ rows: assignment }] = await query<{ id: string; instance_id: string }>(
+    "SELECT id, instance_id FROM user_instances WHERE id = ? LIMIT 1",
+    [assignmentId]
+  );
+  if (!assignment.length) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
 
-  const { data: inst } = await supabase.from("instances").select("id").eq("id", assignment.instance_id).eq("admin_id", user.id).single();
-  if (!inst) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
+  const [{ rows: inst }] = await query<{ id: string; admin_id: string }>(
+    "SELECT id, admin_id FROM instances WHERE id = ? AND admin_id = ? LIMIT 1",
+    [assignment[0].instance_id, auth.user.id]
+  );
+  if (!inst.length) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
 
-  const { error } = await supabase.from("user_instances").delete().eq("id", assignmentId);
-  if (error) return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-
+  await query("DELETE FROM user_instances WHERE id = ?", [assignmentId]);
   return NextResponse.json({ status: "success" });
 }

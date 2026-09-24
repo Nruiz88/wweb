@@ -1,4 +1,4 @@
-import { RobotIcon } from "@/components/icons";
+import { RobotIcon } from "../components/icons";
 
 function ChatTail({ from }: { from: "user" | "bot" }) {
   return from === "user" ? (

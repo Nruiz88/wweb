@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { sendButtonMessage } from "@/lib/evolution-multi";
-import type { ButtonItem } from "@/lib/evolution-multi";
-import { safeErrorMessage } from "@/lib/api-helpers";
+import { query } from "../../../../lib/db";
+import { sendButtonMessage } from "../../../../lib/evolution-multi";
+import { safeErrorMessage } from "../../../../lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -20,40 +19,49 @@ function formatDate(dateStr: string, timeStr: string): string {
 
 /** Process reminders: find appointments ~24h away and send WhatsApp reminders */
 async function processReminders() {
-  const supabase = await createServerClient();
-
   const now = new Date();
-  // Wider window since Vercel Hobby runs once per day
+  // Wider window since runs once per day
   const in30h = new Date(now.getTime() + 30 * 60 * 60 * 1000);
 
   const dateStrNow = now.toISOString().slice(0, 10);
   const dateStr30h = in30h.toISOString().slice(0, 10);
 
-  const { data: appointments, error } = await supabase
-    .from("appointments")
-    .select(`
-      id, instance_id, customer_phone, customer_name,
-      appointment_date, appointment_time, status,
-      reminder_24h_sent
-    `)
-    .in("status", ["pending", "confirmed"])
-    .eq("reminder_24h_sent", false)
-    .gte("appointment_date", dateStrNow)
-    .lte("appointment_date", dateStr30h);
-
-  if (error) {
-    return { status: "error" as const, error: safeErrorMessage(error) };
-  }
+  const [{ rows: appointments }] = await query<{
+    id: string;
+    instance_id: string;
+    customer_phone: string;
+    customer_name: string | null;
+    appointment_date: string;
+    appointment_time: string;
+    status: string;
+    reminder_24h_sent: boolean;
+  }>(
+    `SELECT id, instance_id, customer_phone, customer_name,
+            appointment_date, appointment_time, status, reminder_24h_sent
+     FROM appointments
+     WHERE status IN ('pending','confirmed')
+       AND reminder_24h_sent = false
+       AND appointment_date >= ? AND appointment_date <= ?
+     ORDER BY appointment_date ASC, appointment_time ASC`,
+    [dateStrNow, dateStr30h]
+  );
 
   if (!appointments || appointments.length === 0) {
     return { status: "success" as const, processed: 0, failed: 0, total: 0, message: "No reminders to send" };
   }
 
   const instanceIds = [...new Set(appointments.map((a) => a.instance_id))];
-  const { data: instances } = await supabase
-    .from("instances")
-    .select("id, instance_name, evolution_api_url, evolution_api_key")
-    .in("id", instanceIds);
+  const [{ rows: instances }] = await query<{
+    id: string;
+    instance_name: string;
+    evolution_api_url: string;
+    evolution_api_key: string;
+    status: string;
+    status_checked_at: string | null;
+  }>(
+    "SELECT id, instance_name, evolution_api_url, evolution_api_key FROM instances WHERE id IN (" + instanceIds.map(() => "?").join(", ") + ")",
+    instanceIds
+  );
 
   const instanceMap = new Map((instances || []).map((i) => [i.id, i]));
 
@@ -76,7 +84,7 @@ async function processReminders() {
     const title = `⏰ Recordatorio${name ? ` para ${name}` : ""}`;
     const description = `Tu turno es ${dateDisplay}. ¿Confirmás?`;
 
-    const buttons: ButtonItem[] = [
+    const buttons = [
       { type: "reply", displayText: "✅ Confirmar", id: `confirm_${appt.id}` },
       { type: "reply", displayText: "❌ Cancelar", id: `cancel_${appt.id}` },
     ];
@@ -93,10 +101,7 @@ async function processReminders() {
       1500,
     );
 
-    await supabase
-      .from("appointments")
-      .update({ reminder_24h_sent: true })
-      .eq("id", appt.id);
+    await query("UPDATE appointments SET reminder_24h_sent = true WHERE id = ?", [appt.id]);
 
     if (result.ok) { processed++; }
     else { failed++; }
@@ -107,23 +112,25 @@ async function processReminders() {
 
 /** Preview upcoming reminders for a specific instance */
 async function previewReminders(instanceId: string) {
-  const supabase = await createServerClient();
   const now = new Date();
   const in7days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const { data: appointments, error } = await supabase
-    .from("appointments")
-    .select("id, customer_phone, customer_name, appointment_date, appointment_time, status, reminder_24h_sent")
-    .eq("instance_id", instanceId)
-    .in("status", ["pending", "confirmed"])
-    .gte("appointment_date", now.toISOString().slice(0, 10))
-    .lte("appointment_date", in7days.toISOString().slice(0, 10))
-    .order("appointment_date", { ascending: true })
-    .order("appointment_time", { ascending: true });
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
+  const [{ rows: appointments }] = await query<{
+    id: string;
+    customer_phone: string;
+    customer_name: string | null;
+    appointment_date: string;
+    appointment_time: string;
+    status: string;
+    reminder_24h_sent: boolean;
+  }>(
+    `SELECT id, customer_phone, customer_name, appointment_date, appointment_time, status, reminder_24h_sent
+     FROM appointments
+     WHERE instance_id = ? AND status IN ('pending','confirmed')
+       AND appointment_date >= ? AND appointment_date <= ?
+     ORDER BY appointment_date ASC, appointment_time ASC`,
+    [instanceId, now.toISOString().slice(0, 10), in7days.toISOString().slice(0, 10)]
+  );
 
   return NextResponse.json({ status: "success", data: appointments });
 }

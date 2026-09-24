@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { Instance, Profile } from "@/lib/supabase/types";
-import { CheckIcon, LoaderIcon, PlusIcon, TrashIcon, XIcon, MessageCircleIcon, ArrowRightIcon } from "@/components/icons";
+import type { Instance, Profile } from "../../lib/db/types";
+import { CheckIcon, LoaderIcon, PlusIcon, TrashIcon, XIcon, MessageCircleIcon, ArrowRightIcon } from "../components/icons";
 
 interface Props {
   instances: Instance[];

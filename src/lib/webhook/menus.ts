@@ -1,8 +1,9 @@
-import { sendTextMessage, sendButtonMessage } from "@/lib/evolution-multi";
-import type { ButtonItem } from "@/lib/evolution-multi";
-import type { MenuConfig } from "@/lib/supabase/types";
+import { sendTextMessage, sendButtonMessage } from "../lib/evolution-multi";
+import type { ButtonItem } from "../lib/evolution-multi";
+import type { MenuConfig } from "../../lib/db/types";
 import type { WebhookContext } from "./context";
-import { isValidUUID } from "@/lib/validation";
+import { query } from "../db";
+import { isValidUUID } from "../lib/validation";
 import { buildCatalogMenus } from "./catalog";
 
 // Button id used to signal "go back to the parent menu".
@@ -120,12 +121,11 @@ export async function handleMenuTextReply(ctx: WebhookContext) {
   if (!option) return null;
 
   if (option.target_id) {
-    const { data: target } = await supabase
-      .from("auto_responses")
-      .select("id, response_text, response_type, menu_config, user_id")
-      .eq("id", option.target_id)
-      .eq("is_active", true)
-      .single();
+    const [{ rows: targets }] = await query<{ id: string; response_text: string; response_type: string; menu_config: any; user_id: string }>(
+      "SELECT id, response_text, response_type, menu_config, user_id FROM auto_responses WHERE id = ? AND is_active = true",
+      [option.target_id]
+    );
+    const target = targets?.[0];
 
     if (target) {
       let ok = false;
@@ -140,28 +140,31 @@ export async function handleMenuTextReply(ctx: WebhookContext) {
           instance.instance_name, phoneNumber, target.response_text, 1500,
         );
         ok = r.ok;
+      }          try {
+            await query(
+              "INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
+              [
+                String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+                instance.id,
+                target.id,
+                target.user_id,
+                remoteJid,
+                effectiveText,
+                `[botón: ${effectiveText}]`,
+              ]
+            );
+          } catch { /* non-critical */ }
+          return ok ? { status: "success", matched: `[botón: ${effectiveText}]` } : null;
+        }
       }
-      try {
-        await supabase.from("response_logs").insert({
-          instance_id: instance.id,
-          auto_response_id: target.id,
-          user_id: target.user_id,
-          incoming_phone: remoteJid,
-          incoming_message: effectiveText,
-          matched_keyword: `[botón: ${effectiveText}]`,
-        });
-      } catch { /* non-critical */ }
-      return ok ? { status: "success", matched: `[botón: ${effectiveText}]` } : null;
-    }
-  }
 
-  // No target: reply with the option text itself
-  await sendTextMessage(
-    instance.evolution_api_url, instance.evolution_api_key,
-    instance.instance_name, phoneNumber, option.text, 1500,
-  );
-  return { status: "success", matched: `[botón: ${effectiveText}]` };
-}
+      // No target: reply with the option text itself
+      await sendTextMessage(
+        instance.evolution_api_url, instance.evolution_api_key,
+        instance.instance_name, phoneNumber, option.text, 1500,
+      );
+      return { status: "success", matched: `[botón: ${effectiveText}]` };
+    }
 
 /**
  * Handle button/list tap responses from interactive menus.
@@ -200,27 +203,26 @@ export async function handleMenuTap(ctx: WebhookContext) {
   if (orderMatch) {
     const itemId = orderMatch[1];
     if (isValidUUID(itemId)) {
-      const { data: item } = await supabase
-        .from("catalog_items")
-        .select("*")
-        .eq("id", itemId)
-        .eq("active", true)
-        .single();
+      const [{ rows: items }] = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
+        "SELECT id, label, price_cents, active FROM catalog_items WHERE id = ? AND active = true",
+        [itemId]
+      );
+      const item = items?.[0];
       if (item) {
-        const { data: order } = await supabase
-          .from("orders")
-          .insert({
-            instance_id: instance.id,
-            customer_phone: phoneNumber,
-            customer_name: ctx.pushName || null,
-            catalog_item_id: item.id,
-            option_label: item.label,
-            price_cents: item.price_cents,
-            status: "pending",
-          })
-          .select("*")
-          .single();
-        if (order) {
+        const [{ insertId }] = await query(
+          "INSERT INTO orders (id, instance_id, user_id, customer_phone, customer_name, catalog_item_id, option_label, price_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
+          [
+            String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+            instance.id,
+            null,
+            phoneNumber,
+            ctx.pushName || null,
+            item.id,
+            item.label,
+            item.price_cents,
+          ]
+        );
+        if (insertId) {
           await sendTextMessage(
             instance.evolution_api_url, instance.evolution_api_key,
             instance.instance_name, phoneNumber,
@@ -239,7 +241,7 @@ export async function handleMenuTap(ctx: WebhookContext) {
     );
     return { status: "success", matched: "[order failed]" };
   }
-
+  
   const autoResponses = ctx.autoResponses;
   if (!autoResponses) return null;
 
@@ -265,12 +267,11 @@ export async function handleMenuTap(ctx: WebhookContext) {
 
     if (tappedBtn) {
       if (tappedBtn.target_id) {
-        const { data: target } = await supabase
-          .from("auto_responses")
-          .select("id, response_text, response_type, menu_config, user_id")
-          .eq("id", tappedBtn.target_id)
-          .eq("is_active", true)
-          .single();
+        const [{ rows: targets }] = await query<{ id: string; response_text: string; response_type: string; menu_config: any; user_id: string }>(
+          "SELECT id, response_text, response_type, menu_config, user_id FROM auto_responses WHERE id = ? AND is_active = true",
+          [tappedBtn.target_id]
+        );
+        const target = targets?.[0];
 
         if (target) {
           let sendOk = false;
@@ -289,14 +290,18 @@ export async function handleMenuTap(ctx: WebhookContext) {
           }
 
           try {
-            await supabase.from("response_logs").insert({
-              instance_id: instance.id,
-              auto_response_id: target.id,
-              user_id: target.user_id,
-              incoming_phone: remoteJid,
-              incoming_message: effectiveText,
-              matched_keyword: `[botón: ${effectiveText}]`,
-            });
+            await query(
+              "INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
+              [
+                String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+                instance.id,
+                target.id,
+                target.user_id,
+                remoteJid,
+                effectiveText,
+                `[botón: ${effectiveText}]`,
+              ]
+            );
           } catch { /* non-critical */ }
 
           if (sendOk) {

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin/auth";
-import { rateLimitResponse } from "@/lib/rate-limit";
-import { validateEvolutionUrl } from "@/lib/validation";
-import { testEvolutionConnection } from "@/lib/evolution-multi";
+import { requireAdmin } from "../lib/admin/auth";
+import { rateLimitResponse } from "../lib/rate-limit";
+import { validateEvolutionUrl } from "../lib/validation";
+import { testEvolutionConnection } from "../lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 

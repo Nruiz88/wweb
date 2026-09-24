@@ -7,44 +7,33 @@ export function safeErrorMessage(error: unknown): string {
   const err = error as { code?: string; message?: string } | null;
   if (err) {
     console.error("[api-error]", { code: err.code, message: err.message });
-    // Si es tabla/columna faltante (migración no aplicada), informar claramente
-    if (err.code === "42P01") return "Tabla no encontrada — la migración de DB aún no se aplicó (ejecutá `supabase db push`)";
+    if (err.code === "42P01") return "Tabla no encontrada — la migración de DB aún no se aplicó";
     if (err.code === "42703") return "Columna no encontrada — verificación de esquema necesaria";
-    // Para errores de restricción/permisos, algo concreto
-    if (err.message?.includes("violates") || err.message?.includes("constraint")) return "Datos inválidos — revisá los campos";
+    if (err.message?.includes("violates") || err.message?.includes("constraint")) {
+      return "Datos inválidos — revisá los campos";
+    }
   }
-  return "An unexpected error occurred";
+  return "Ocurrió un error inesperado";
 }
 
-/**
- * Verify a user has access to an instance (owner or assigned via user_instances).
- * Centralized to avoid IDOR across API routes.
+/** Verify a user has access to an instance (owner or assigned via user_instances).
+ * Uses MariaDB queries directly (no Supabase).
  */
-export async function verifyUserAccess(
-  supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createServerClient>>,
-  userId: string,
-  instanceId: string,
-): Promise<boolean> {
+export async function verifyUserAccess(userId: string, instanceId: string): Promise<boolean> {
+  const { db } = await import("./db");
   // Owner: admin of the instance
-  const { data: adminInstance } = await supabase
-    .from("instances")
-    .select("id")
-    .eq("id", instanceId)
-    .eq("admin_id", userId)
-    .single();
-  if (adminInstance) return true;
+  const [instRows] = await db.query(
+    "SELECT 1 FROM instances WHERE id = ? AND admin_id = ? LIMIT 1",
+    [instanceId, userId]
+  );
+  if (instRows.length > 0) return true;
 
-  // Assigned user via user_instances (only if subscription is active; pending users blocked)
-  const { data: assignment } = await supabase
-    .from("user_instances")
-    .select("id")
-    .eq("instance_id", instanceId)
-    .eq("user_id", userId)
-    .single();
-  if (assignment) {
-    const { data: sub } = await supabase.from("subscriptions").select("status").eq("user_id", userId).single();
-    if (sub && sub.status === "pending") return false;
-    return true;
-  }
+  // Assigned user via user_instances
+  const [assignmentRows] = await db.query(
+    "SELECT 1 FROM user_instances WHERE instance_id = ? AND user_id = ? LIMIT 1",
+    [instanceId, userId]
+  );
+  if (assignmentRows.length > 0) return true;
+
   return false;
 }
