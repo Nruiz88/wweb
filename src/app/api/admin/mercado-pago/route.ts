@@ -88,10 +88,10 @@ export async function PATCH(request: Request) {
           `INSERT INTO plan_config (plan_type, amount_pesos, label, description, max_instances, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, NOW(), NOW())
            ON DUPLICATE KEY UPDATE
-             amount_pesos = VALUES(amount_pesos),
-             label = VALUES(label),
-             description = VALUES(description),
-             max_instances = VALUES(max_instances),
+             amount_pesos = COALESCE(VALUES(amount_pesos), amount_pesos),
+             label = COALESCE(VALUES(label), label),
+             description = COALESCE(VALUES(description), description),
+             max_instances = COALESCE(VALUES(max_instances), max_instances),
              updated_at = NOW()`,
           [
             p.plan_type,
