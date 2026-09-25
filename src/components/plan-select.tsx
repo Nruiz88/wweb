@@ -57,7 +57,7 @@ export default function PlanSelect() {
         <div className="grid md:grid-cols-2 gap-6">
           {plans.map((p) => {
             const isSelected = selected === p.plan_type;
-            const price = p.amount_pesos === 0 ? "Gratis" : `$${(p.amount_pesos / 100).toFixed(0)}`;
+            const price = p.amount_pesos === 0 ? "Gratis" : `$${Math.round(p.amount_pesos).toLocaleString("es-AR")}`;
             return (
               <button
                 key={p.plan_type}

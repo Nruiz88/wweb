@@ -27,14 +27,22 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  const logs = await query<any>(
-    `SELECT *, auto_responses(keyword, regex_pattern, response_text) 
-     FROM response_logs 
-     WHERE instance_id = ? 
-     ORDER BY sent_at DESC 
+  // JOIN con auto_responses para exponer el objeto anidado que espera la UI
+  // (antes usaba sintaxis PostgREST `auto_responses(...)` que MariaDB no soporta).
+  const rows = await query<any>(
+    `SELECT rl.*, ar.response_text AS ar_response_text
+     FROM response_logs rl
+     LEFT JOIN auto_responses ar ON ar.id = rl.auto_response_id
+     WHERE rl.instance_id = ?
+     ORDER BY rl.sent_at DESC
      LIMIT ? OFFSET ?`,
     [instanceId, limit, offset]
   );
+  const logs = (Array.isArray(rows) ? rows : []).map((l: any) => ({
+    ...l,
+    auto_responses: l.ar_response_text != null ? { response_text: l.ar_response_text } : null,
+    ar_response_text: undefined,
+  }));
 
   // Get total count
   const countRows = await query<{ count: number }>(

@@ -149,68 +149,9 @@ async function activatePlan(
     console.error("[mp] subscription upsert error:", message);
   }
 
-  // Optional: increment plan counter
-  try {
-    await query(
-      "UPDATE profiles SET plan_type = ?, subscription_status = 'active', upgraded_at = NOW() WHERE id = ?",
-      [planType, externalReference]
-    );
-  } catch {
-    // Profiles may not exist in this flow — non-critical
-  }
-
-  // Assign/link instance via RPC
-  try {
-    const assignments = await selectOne<{ user_id: string }>(
-      "SELECT user_id FROM user_instances WHERE user_id = ? LIMIT 1",
-      [externalReference]
-    );
-    if (assignments?.length) {
-      await query(
-        "CALL assign_instance_for_user(?)",
-        [externalReference]
-      );
-    }
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "RPC assign_instance_for_user failed";
-    console.error("[mp] assign RPC error:", message);
-  }
+  // Nota: la suscripción ya quedó activa vía el upsert de arriba. La asignación
+  // de instancias se hace desde el panel admin (o el usuario crea la suya con el
+  // gating de plan). El SP assign_instance_for_user no existe en MariaDB.
 
   return { paymentId: insertId, status: "approved" };
-}
-
-// Manual activation endpoint (used by dashboard / orders flow).
-export async function POSTActivation(request: Request) {
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const { external_reference, payment_id } = body as { external_reference?: string; payment_id?: string };
-
-  if (!external_reference) {
-    return NextResponse.json({ status: "error", error: "external_reference required" }, { status: 400 });
-  }
-
-  const existing = await selectOne<{ id: string; status: string }>(
-    "SELECT id, status FROM payments WHERE external_id = ? OR mp_payment_id = ? LIMIT 1",
-    [external_reference, payment_id]
-  );
-  if (existing.length > 0 && existing[0].status === "approved") {
-    return NextResponse.json({ status: "success", already_approved: true });
-  }
-
-  await activatePlan(payment_id || "", external_reference, { status: "paid" } as any, {
-    access_token: "",
-    public_key: "",
-  });
-
-  return NextResponse.json({ status: "success" });
 }

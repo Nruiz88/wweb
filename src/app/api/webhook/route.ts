@@ -28,14 +28,16 @@ interface WebhookPayload {
   };
 }
 
+// query() ya devuelve el array de filas directamente (mysql2). Antes se hacía
+// `const [{ rows }]` que devolvía undefined.rows y crasheaba cada webhook.
 async function select<T = any>(sql: string, params: any[] = []): Promise<T[]> {
-  const [{ rows }] = await query<T>(sql, params);
-  return rows || [];
+  const rows = await query<T>(sql, params);
+  return Array.isArray(rows) ? rows : [];
 }
 
 async function update(sql: string, params: any[] = []): Promise<{ affectedRows: number }> {
-  const [{ affectedRows }] = await query<{ affectedRows: number }>(sql, params);
-  return { affectedRows };
+  const res = await query<{ affectedRows: number }>(sql, params);
+  return { affectedRows: res?.affectedRows ?? 0 };
 }
 
 export async function POST(request: Request) {

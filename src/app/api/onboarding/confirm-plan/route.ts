@@ -42,17 +42,9 @@ export async function POST(request: Request) {
       );
 
       // Assign instance if missing
-      const assignments = await query<{ id: string }>(
-        "SELECT id FROM user_instances WHERE user_id = ? LIMIT 1",
-        [session.userId]
-      );
-      if (!assignments.length) {
-        try {
-          await query("CALL assign_instance_for_user(?)", [session.userId]);
-        } catch (rpcErr: unknown) {
-          console.error("[onboarding] assign_instance_for_user RPC failed:", rpcErr instanceof Error ? rpcErr.message : String(rpcErr));
-        }
-      }
+      // Nota: la asignación de instancias se hace desde el panel admin; el usuario
+      // también puede crear la suya propia (limitada por el gating de su plan).
+      // El SP assign_instance_for_user nunca existió en MariaDB — se elimina la llamada.
 
       return NextResponse.json({ status: "success", data: { plan: "starter", activated: true } });
     }
