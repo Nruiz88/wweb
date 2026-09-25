@@ -37,7 +37,7 @@ interface ServerCapacity {
 }
 
 interface PlansPayload {
-  plan_distribution: { starter: number; pro: number; community: number };
+  plan_distribution: { starter: number; pro: number };
   active_subscriptions: number;
   total_addons: number;
   users: { id: string; email: string | null; full_name: string | null; role: string; created_at: string; plan: string; status: string; max_instances: number; addons: number; used_instances: number }[];

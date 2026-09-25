@@ -70,7 +70,7 @@ export default function AdminMP() {
   const data = mp?.data;
   const plans = (data?.plans || []).map((p: MPPlanRow) => ({
     plan_type: p.plan_type,
-    label: p.plan_type === "starter" ? "Starter" : p.plan_type === "pro" ? "Pro" : p.plan_type === "community" ? "Community" : "Plan",
+    label: p.plan_type === "starter" ? "Starter" : p.plan_type === "pro" ? "Pro" : "Plan",
     amount_cents: p.amount_cents,
     description: p.description,
     max_instances: p.max_instances,

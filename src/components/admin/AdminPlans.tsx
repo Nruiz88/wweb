@@ -9,7 +9,7 @@ interface PlanUser {
 }
 
 interface PlansPayload {
-  plan_distribution: { starter: number; pro: number; community: number };
+  plan_distribution: { starter: number; pro: number };
   active_subscriptions: number;
   total_addons: number;
   users: PlanUser[];
@@ -18,7 +18,6 @@ interface PlansPayload {
 const PLAN_META: Record<string, { label: string; accent: string; features: string[] }> = {
   starter: { label: "Starter", accent: "#53bdeb", features: ["1 bot", "Keywords"] },
   pro: { label: "Pro", accent: "#00a884", features: ["1 bot base", "Horarios", "Regex"] },
-  community: { label: "Community", accent: "#e6a44e", features: ["1 bot base", "Moderación", "Broadcasts"] },
 };
 
 export default function AdminPlans({ plans, onRefresh }: { plans: PlansPayload; onRefresh: () => void }) {
@@ -71,7 +70,7 @@ export default function AdminPlans({ plans, onRefresh }: { plans: PlansPayload; 
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {(["starter", "pro", "community"] as const).map((key) => {
+        {(["starter", "pro"] as const).map((key) => {
           const meta = PLAN_META[key];
           const count = plans.plan_distribution[key] ?? 0;
           const total = Object.values(plans.plan_distribution).reduce((a, b) => a + b, 0) || 1;
@@ -140,7 +139,6 @@ export default function AdminPlans({ plans, onRefresh }: { plans: PlansPayload; 
                       >
                         <option value="starter">Starter</option>
                         <option value="pro">Pro</option>
-                        <option value="community">Community</option>
                       </select>
                     ) : (
                       <span className="text-[10px] text-wa-text-secondary/30">—</span>

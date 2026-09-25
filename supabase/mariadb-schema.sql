@@ -235,7 +235,7 @@ CREATE INDEX idx_payments_user_status ON payments(user_id, status);
 
 -- 14. Plan Config (precios base por plan)
 CREATE TABLE IF NOT EXISTS plan_config (
-  plan_type VARCHAR(20) PRIMARY KEY CHECK (plan_type IN ('starter','pro','community')),
+  plan_type VARCHAR(20) PRIMARY KEY CHECK (plan_type IN ('starter','pro')),
   amount_cents INT NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
   label VARCHAR(255) NOT NULL DEFAULT '',
   description TEXT,
@@ -299,8 +299,7 @@ CREATE INDEX idx_webhook_logs_created_at ON webhook_logs(created_at DESC);
 INSERT IGNORE INTO plan_config (plan_type, amount_cents, label, description, max_instances)
 VALUES
   ('starter', 0, 'Starter', 'Para pymes pequeñas', 1),
-  ('pro', 15000, 'Pro', 'Para negocios en crecimiento', 3),
-  ('community', 20000, 'Community', 'Para grupos y audiencia grande', 5);
+  ('pro', 15000, 'Pro', 'Para negocios en crecimiento', 3);
 
 -- ============================================
 -- Stored procedure: asigna una instancia libre al usuario.
