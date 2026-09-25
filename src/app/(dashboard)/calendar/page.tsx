@@ -238,10 +238,10 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+    <div className="flex h-full flex-col bg-gradient-to-b from-wa-panel via-wa-panel to-wa-header/40">
       {/* Read-only banner */}
       {!planLoading && plan && !isAdmin && (
-        <div className="mx-4 mt-4 flex items-center gap-2 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2.5 text-xs font-medium text-sky-300">
+        <div className="mx-4 mt-4 flex items-center gap-2 rounded-xl border border-[#53bdeb]/30 bg-[#53bdeb]/10 px-4 py-2.5 text-xs font-medium text-[#53bdeb]">
           <Shield className="h-3.5 w-3.5 shrink-0" />
           Modo solo lectura — upgradeá a <strong>Pro</strong> para editar horarios y gestionar turnos
         </div>
@@ -251,19 +251,19 @@ export default function CalendarPage() {
       <div className="px-4 sm:px-6 pt-4 pb-4">
         <div className="flex items-center gap-4">
           <div className="relative">
-            <div className="absolute inset-0 bg-cyan-500/20 blur-xl rounded-2xl" />
-            <div className="relative h-12 w-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-cyan-600 flex items-center justify-center text-slate-950 shadow-lg shadow-cyan-500/25">
+            <div className="absolute inset-0 bg-[#00a884]/25 blur-xl rounded-2xl" />
+            <div className="relative h-12 w-12 rounded-2xl bg-gradient-to-br from-[#00a884] to-[#25d366] flex items-center justify-center text-white shadow-lg shadow-[#00a884]/25">
               <Calendar className="h-6 w-6" strokeWidth={2.5} />
             </div>
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-extrabold tracking-tight text-slate-100">{isConfigMode ? "Horarios del negocio" : "Calendario"}</h1>
-            <p className="text-xs text-slate-400 mt-0.5">{isConfigMode ? "Configurá días, horarios y duración por turno" : `${appointments.length} turno${appointments.length !== 1 ? "s" : ""} esta semana`}</p>
+            <h1 className="text-2xl font-extrabold tracking-tight text-wa-text">{isConfigMode ? "Horarios del negocio" : "Calendario"}</h1>
+            <p className="text-xs text-wa-text-secondary/60 mt-0.5">{isConfigMode ? "Configurá días, horarios y duración por turno" : `${appointments.length} turno${appointments.length !== 1 ? "s" : ""} esta semana`}</p>
           </div>
           {isConfigMode ? (
-            <Button variant="ghost" onClick={() => routerNav.push("/calendar")} className="text-slate-300">Ver turnos</Button>
+            <Button variant="ghost" onClick={() => routerNav.push("/calendar")} className="text-wa-text-secondary">Ver turnos</Button>
           ) : (
-            <Button variant="ghost" onClick={() => routerNav.push("/calendar?config=1")} className="text-slate-300 h-9 rounded-xl gap-1.5 border border-white/[0.08] hover:bg-white/[0.05]"><Clock className="h-4 w-4" />Horarios</Button>
+            <Button variant="ghost" onClick={() => routerNav.push("/calendar?config=1")} className="text-wa-text-secondary h-9 rounded-xl gap-1.5 border border-white/10 hover:bg-white/5"><Clock className="h-4 w-4" />Horarios</Button>
           )}
         </div>
       </div>
@@ -271,7 +271,7 @@ export default function CalendarPage() {
       {/* Feedback */}
       <AnimatePresence>
         {feedback && (
-          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className={cn("mx-4 sm:mx-6 mb-3 flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium", feedback.kind === "success" ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-300" : "border-rose-400/30 bg-rose-500/10 text-rose-300")}>
+          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className={cn("mx-4 sm:mx-6 mb-3 flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium", feedback.kind === "success" ? "border-[#00a884]/30 bg-[#00a884]/10 text-[#00a884]" : "border-red-500/30 bg-red-500/10 text-red-400")}>
             {feedback.kind === "success" ? <Check className="h-3.5 w-3.5 shrink-0" /> : <X className="h-3.5 w-3.5 shrink-0" />}
             {feedback.message}
           </motion.div>
@@ -280,11 +280,11 @@ export default function CalendarPage() {
 
       {isConfigMode ? (
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6">
-          <div className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-md shadow-xl shadow-black/20 overflow-hidden">
-            <div className="px-4 py-3 bg-white/[0.03] border-b border-white/[0.06] flex items-center gap-2">
-              <Clock className="h-4 w-4 text-cyan-400" />
-              <span className="text-sm font-semibold text-slate-100">Horarios y duración por turno</span>
-              <span className="ml-auto text-[10px] font-bold text-cyan-400 px-2 py-0.5 rounded-full bg-cyan-400/10 border border-cyan-400/20">{activeHoursCount} activos</span>
+          <div className="rounded-2xl border border-white/5 bg-gradient-to-b from-wa-header/70 to-transparent shadow-lg shadow-black/10 overflow-hidden">
+            <div className="px-4 py-3 bg-white/[0.03] border-b border-white/5 flex items-center gap-2">
+              <Clock className="h-4 w-4 text-[#00a884]" />
+              <span className="text-sm font-semibold text-wa-text">Horarios y duración por turno</span>
+              <span className="ml-auto text-[10px] font-bold text-[#00a884] px-2 py-0.5 rounded-full bg-[#00a884]/10 border border-[#00a884]/20">{activeHoursCount} activos</span>
             </div>
             <div className="p-4 space-y-3">
               <form onSubmit={onSubmitHours} className="space-y-3">
@@ -292,21 +292,21 @@ export default function CalendarPage() {
                   const errStart = hoursForm.formState.errors.schedule?.[idx]?.start;
                   const errEnd = hoursForm.formState.errors.schedule?.[idx]?.end;
                   return (
-                    <div key={h.day} className={cn("flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 rounded-xl border px-3 sm:px-4 py-3", h.active ? "border-cyan-400/20 bg-cyan-500/5" : "border-white/[0.06] bg-white/[0.02] opacity-60")}>
-                      <button type="button" onClick={() => hoursForm.setValue(`schedule.${idx}.active`, !h.active, { shouldValidate: true })} className={cn("relative h-6 w-11 shrink-0 rounded-full", h.active ? "bg-cyan-400" : "bg-slate-600")}><span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", h.active ? "translate-x-[22px]" : "translate-x-0.5")} /></button>
-                      <span className="w-8 sm:w-10 shrink-0 text-xs font-semibold text-slate-300">{DAYS_ES[h.day]}</span>
-                      <div className="flex min-w-0 flex-1 flex-col gap-1"><Input type="time" {...hoursForm.register(`schedule.${idx}.start`)} disabled={!h.active} className={cn("h-8 min-w-0 text-xs bg-white/[0.04] border-white/[0.08] text-slate-200", errStart && "border-rose-400/50")} />{errStart && <span className="text-[10px] text-rose-400">{errStart.message}</span>}</div>
-                      <span className="text-slate-500 shrink-0 text-xs">a</span>
-                      <div className="flex min-w-0 flex-1 flex-col gap-1"><Input type="time" {...hoursForm.register(`schedule.${idx}.end`)} disabled={!h.active} className={cn("h-8 min-w-0 text-xs bg-white/[0.04] border-white/[0.08] text-slate-200", errEnd && "border-rose-400/50")} />{errEnd && <span className="text-[10px] text-rose-400">{errEnd.message}</span>}</div>
-                      <select value={h.duration} onChange={(e) => hoursForm.setValue(`schedule.${idx}.duration`, Number(e.target.value), { shouldValidate: true })} disabled={!h.active} className="flex h-8 shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.04] px-2 text-xs text-slate-200">
+                    <div key={h.day} className={cn("flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 rounded-xl border px-3 sm:px-4 py-3", h.active ? "border-[#00a884]/20 bg-[#00a884]/5" : "border-white/[0.06] bg-white/[0.02] opacity-60")}>
+                      <button type="button" onClick={() => hoursForm.setValue(`schedule.${idx}.active`, !h.active, { shouldValidate: true })} className={cn("relative h-6 w-11 shrink-0 rounded-full", h.active ? "bg-[#00a884]" : "bg-white/20")}><span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", h.active ? "translate-x-[22px]" : "translate-x-0.5")} /></button>
+                      <span className="w-8 sm:w-10 shrink-0 text-xs font-semibold text-wa-text-secondary">{DAYS_ES[h.day]}</span>
+                      <div className="flex min-w-0 flex-1 flex-col gap-1"><Input type="time" {...hoursForm.register(`schedule.${idx}.start`)} disabled={!h.active} className={cn("h-8 min-w-0 text-xs bg-white/[0.04] border-white/[0.08] text-wa-text", errStart && "border-red-400/50")} />{errStart && <span className="text-[10px] text-red-400">{errStart.message}</span>}</div>
+                      <span className="text-wa-text-secondary/50 shrink-0 text-xs">a</span>
+                      <div className="flex min-w-0 flex-1 flex-col gap-1"><Input type="time" {...hoursForm.register(`schedule.${idx}.end`)} disabled={!h.active} className={cn("h-8 min-w-0 text-xs bg-white/[0.04] border-white/[0.08] text-wa-text", errEnd && "border-red-400/50")} />{errEnd && <span className="text-[10px] text-red-400">{errEnd.message}</span>}</div>
+                      <select value={h.duration} onChange={(e) => hoursForm.setValue(`schedule.${idx}.duration`, Number(e.target.value), { shouldValidate: true })} disabled={!h.active} className="flex h-8 shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.04] px-2 text-xs text-wa-text">
                         <option value={30}>30 min</option><option value={45}>45 min</option><option value={60}>1 hora</option><option value={90}>1.5 h</option><option value={120}>2 h</option>
                       </select>
                     </div>
                   );
                 })}
                 <div className="flex gap-3 pt-2">
-                  <Button type="button" variant="outline" onClick={() => routerNav.push("/calendar")} className="flex-1 border-white/[0.08] text-slate-300">Cancelar</Button>
-                  <Button type="submit" disabled={savingHours} className="flex-1 gap-2 bg-gradient-to-r from-cyan-400 to-cyan-500 hover:from-cyan-300 hover:to-cyan-400 text-slate-950 font-semibold shadow-lg shadow-cyan-500/20">{savingHours ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Guardar</Button>
+                  <Button type="button" variant="outline" onClick={() => routerNav.push("/calendar")} className="flex-1 border-white/10 text-wa-text-secondary">Cancelar</Button>
+                  <Button type="submit" disabled={savingHours} className="flex-1 gap-2 bg-gradient-to-r from-[#00a884] to-[#25d366] hover:from-[#00a884] hover:to-[#25d366] text-white font-semibold shadow-lg shadow-[#00a884]/20">{savingHours ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Guardar</Button>
                 </div>
               </form>
             </div>
@@ -317,7 +317,7 @@ export default function CalendarPage() {
           {/* Status filter */}
           <div className="mx-4 sm:mx-6 mb-3 flex gap-1 bg-white/[0.03] border border-white/[0.06] rounded-xl p-0.5">
             {["all", "pending", "confirmed", "canceled", "completed"].map((s) => (
-              <button key={s} onClick={() => setStatusFilter(s)} className={cn("px-2.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all flex items-center gap-1", statusFilter === s ? "bg-gradient-to-br from-cyan-400/20 to-violet-400/20 text-cyan-300 border border-cyan-400/30 shadow-sm" : "text-slate-500 hover:text-slate-300")}>
+              <button key={s} onClick={() => setStatusFilter(s)} className={cn("px-2.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all flex items-center gap-1", statusFilter === s ? "bg-[#00a884]/15 text-[#00a884] border border-[#00a884]/30 shadow-sm" : "text-wa-text-secondary/60 hover:text-wa-text")}>
                 {s === "all" ? "Todas" : STATUS_META[s]?.label || s}
                 {s !== "all" && <span className="opacity-60 text-[10px]">{appointments.filter(a => a.status === s).length}</span>}
               </button>
@@ -327,24 +327,24 @@ export default function CalendarPage() {
           {/* Content */}
           <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6">
             {!instanceId ? (
-              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
-                <Calendar className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-                <p className="text-sm text-slate-400">Espera a tener una instancia asignada</p>
+              <div className="rounded-2xl border border-white/5 bg-gradient-to-br from-wa-header to-wa-header/80 p-12 text-center">
+                <Calendar className="h-10 w-10 text-wa-text-secondary/30 mx-auto mb-3" />
+                <p className="text-sm text-wa-text-secondary/60">Espera a tener una instancia asignada</p>
               </div>
             ) : loading ? (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {[0, 1, 2].map(i => <Skeleton key={i} className="h-32 rounded-2xl bg-white/[0.03]" />)}
               </div>
             ) : appointments.length === 0 ? (
-              <div className="rounded-2xl border-2 border-dashed border-white/[0.06] bg-white/[0.01] p-12 text-center">
+              <div className="rounded-2xl border-2 border-dashed border-white/5 bg-white/[0.01] p-12 text-center">
                 <div className="relative inline-block mb-3">
-                  <div className="absolute inset-0 bg-cyan-500/20 blur-2xl rounded-full" />
-                  <div className="relative h-16 w-16 rounded-2xl bg-cyan-500/10 flex items-center justify-center border border-cyan-400/20">
-                    <Calendar className="h-8 w-8 text-cyan-400" />
+                  <div className="absolute inset-0 bg-[#00a884]/20 blur-2xl rounded-full" />
+                  <div className="relative h-16 w-16 rounded-2xl bg-[#00a884]/10 flex items-center justify-center border border-[#00a884]/20">
+                    <Calendar className="h-8 w-8 text-[#00a884]" />
                   </div>
                 </div>
-                <p className="text-base font-semibold text-slate-300">Sin turnos esta semana</p>
-                <p className="text-xs text-slate-500 mt-1">Los turnos aparecerán cuando los clientes agenden vía WhatsApp</p>
+                <p className="text-base font-semibold text-wa-text">Sin turnos esta semana</p>
+                <p className="text-xs text-wa-text-secondary/50 mt-1">Los turnos aparecerán cuando los clientes agenden vía WhatsApp</p>
               </div>
             ) : (
               <div className="space-y-6">
@@ -353,41 +353,41 @@ export default function CalendarPage() {
                   const isToday = date === todayInBusinessTimezone();
                   return (
                     <div key={date}>
-                      <div className={cn("mb-3 flex items-center gap-2", isToday ? "text-cyan-400" : "")}>
-                        <span className={cn("text-xs font-semibold", isToday ? "text-cyan-400" : "text-slate-500")}>{formatDate(date)}</span>
-                        {isToday && <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-cyan-400/10 text-cyan-400 border border-cyan-400/20">HOY</span>}
-                        <span className="text-[11px] text-slate-600">{dayAppts.length} turno{dayAppts.length !== 1 ? "s" : ""}</span>
+                      <div className={cn("mb-3 flex items-center gap-2", isToday ? "text-[#00a884]" : "")}>
+                        <span className={cn("text-xs font-semibold", isToday ? "text-[#00a884]" : "text-wa-text-secondary/50")}>{formatDate(date)}</span>
+                        {isToday && <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-[#00a884]/10 text-[#00a884] border border-[#00a884]/20">HOY</span>}
+                        <span className="text-[11px] text-wa-text-secondary/40">{dayAppts.length} turno{dayAppts.length !== 1 ? "s" : ""}</span>
                       </div>
                       <motion.div initial="hidden" animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.06 } } }} className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         {dayAppts.map((appt) => {
                           const meta = STATUS_META[appt.status] || STATUS_META.pending;
                           return (
                             <motion.div key={appt.id} variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }} transition={{ duration: 0.3, ease: "easeOut" }}>
-                              <div className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.04] to-transparent backdrop-blur-md shadow-xl shadow-black/20 hover:border-white/[0.12] transition-all h-full">
+                              <div className="rounded-2xl border border-white/5 bg-gradient-to-b from-wa-header/70 to-transparent shadow-lg shadow-black/10 hover:border-white/10 transition-all h-full">
                                 <div className="p-3 flex flex-col h-full">
                                   <div className="flex items-center justify-between gap-2 mb-2">
-                                    <div className="h-8 w-14 rounded-lg bg-cyan-400/10 text-cyan-400 flex items-center justify-center border border-cyan-400/20">
+                                    <div className="h-8 w-14 rounded-lg bg-[#00a884]/10 text-[#00a884] flex items-center justify-center border border-[#00a884]/20">
                                       <span className="text-[11px] font-bold">{formatTime(appt.appointment_time)}</span>
                                     </div>
                                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border" style={{ backgroundColor: `${meta.accent}15`, color: meta.accent, borderColor: `${meta.accent}30` }}>{meta.label}</span>
                                   </div>
-                                  <p className="text-sm font-semibold truncate text-slate-100">{appt.customer_name || (appt.customer_phone ? `+${appt.customer_phone}` : "Turno sin datos")}</p>
-                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                  <p className="text-sm font-semibold truncate text-wa-text">{appt.customer_name || (appt.customer_phone ? `+${appt.customer_phone}` : "Turno sin datos")}</p>
+                                  <p className="text-[11px] text-wa-text-secondary/60 mt-0.5">
                                     {appt.customer_phone ? (
-                                      <a href={waLink(appt.customer_phone) || "#"} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline font-medium">💬 {appt.customer_phone}</a>
+                                      <a href={waLink(appt.customer_phone) || "#"} target="_blank" rel="noopener noreferrer" className="text-[#53bdeb] hover:underline font-medium">💬 {appt.customer_phone}</a>
                                     ) : "sin teléfono"}
                                     {appt.duration_min && ` · ${appt.duration_min} min`}
                                   </p>
                                   <Separator className="my-2.5 bg-white/[0.06]" />
                                   <div className="flex gap-1.5 mt-auto">
                                     {appt.status === "pending" && canEdit && (
-                                      <Button size="sm" variant="outline" onClick={() => void handleStatusChange(appt.id, "confirmed")} className="flex-1 text-[11px] border-emerald-400/30 text-emerald-400 hover:bg-emerald-400/10">Confirmar</Button>
+                                      <Button size="sm" variant="outline" onClick={() => void handleStatusChange(appt.id, "confirmed")} className="flex-1 text-[11px] border-[#00a884]/30 text-[#00a884] hover:bg-[#00a884]/10">Confirmar</Button>
                                     )}
                                     {appt.status !== "canceled" && appt.status !== "completed" && canEdit && (
-                                      <Button size="sm" variant="outline" onClick={() => void handleStatusChange(appt.id, "canceled")} className="flex-1 text-[11px] border-white/[0.08] text-slate-400 hover:text-rose-400 hover:border-rose-400/30">Cancelar</Button>
+                                      <Button size="sm" variant="outline" onClick={() => void handleStatusChange(appt.id, "canceled")} className="flex-1 text-[11px] border-white/[0.08] text-wa-text-secondary/60 hover:text-red-400 hover:border-red-400/30">Cancelar</Button>
                                     )}
                                     {(appt.status === "canceled" || appt.status === "completed") && canEdit && (
-                                      <Button size="sm" variant="outline" onClick={() => void handleDeleteAppt(appt.id)} className="flex-1 text-[11px] border-rose-400/30 text-rose-400 hover:bg-rose-400/10"><Trash2 className="h-3 w-3" />Borrar</Button>
+                                      <Button size="sm" variant="outline" onClick={() => void handleDeleteAppt(appt.id)} className="flex-1 text-[11px] border-red-500/30 text-red-400 hover:bg-red-500/10"><Trash2 className="h-3 w-3" />Borrar</Button>
                                     )}
                                   </div>
                                 </div>
@@ -409,26 +409,26 @@ export default function CalendarPage() {
       <AnimatePresence>
         {showHoursForm && !isConfigMode && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4 backdrop-blur-md md:flex" onClick={() => setShowHoursForm(false)}>
-            <motion.div initial={{ opacity: 0, y: 16, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.97 }} transition={{ duration: 0.2 }} onClick={(e) => e.stopPropagation()} className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col rounded-2xl border border-white/[0.06] bg-gradient-to-br from-slate-900 to-slate-950 shadow-2xl shadow-black/50">
+            <motion.div initial={{ opacity: 0, y: 16, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.97 }} transition={{ duration: 0.2 }} onClick={(e) => e.stopPropagation()} className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col rounded-2xl border border-white/[0.06] bg-gradient-to-br from-wa-header to-wa-panel shadow-2xl shadow-black/50">
               <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
-                <p className="text-base font-semibold text-slate-100">Horarios del negocio</p>
-                <Button variant="ghost" size="icon" onClick={() => setShowHoursForm(false)} className="h-8 w-8 text-slate-400"><X className="h-4 w-4" /></Button>
+                <p className="text-base font-semibold text-wa-text">Horarios del negocio</p>
+                <Button variant="ghost" size="icon" onClick={() => setShowHoursForm(false)} className="h-8 w-8 text-wa-text-secondary/60"><X className="h-4 w-4" /></Button>
               </div>
               <form onSubmit={onSubmitHours} className="flex flex-1 flex-col overflow-hidden">
                 <div className="flex-1 overflow-y-auto p-4 space-y-2">
                   {watchedSchedule?.map((h, idx) => (
-                    <div key={h.day} className="flex flex-wrap sm:flex-nowrap items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
-                      <button type="button" onClick={() => hoursForm.setValue(`schedule.${idx}.active`, !h.active)} className={cn("relative h-6 w-11 shrink-0 rounded-full", h.active ? "bg-cyan-400" : "bg-slate-600")}><span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", h.active ? "translate-x-[22px]" : "translate-x-0.5")} /></button>
-                      <span className="w-8 sm:w-10 shrink-0 text-xs font-semibold text-slate-300">{DAYS_ES[h.day]}</span>
-                      <Input type="time" {...hoursForm.register(`schedule.${idx}.start`)} disabled={!h.active} className="h-8 min-w-0 text-xs flex-1 bg-white/[0.04] border-white/[0.08] text-slate-200" />
-                      <span className="text-xs text-slate-500">a</span>
-                      <Input type="time" {...hoursForm.register(`schedule.${idx}.end`)} disabled={!h.active} className="h-8 min-w-0 text-xs flex-1 bg-white/[0.04] border-white/[0.08] text-slate-200" />
+                    <div key={h.day} className="flex flex-wrap sm:flex-nowrap items-center gap-2 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-3">
+                      <button type="button" onClick={() => hoursForm.setValue(`schedule.${idx}.active`, !h.active)} className={cn("relative h-6 w-11 shrink-0 rounded-full", h.active ? "bg-[#00a884]" : "bg-white/20")}><span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", h.active ? "translate-x-[22px]" : "translate-x-0.5")} /></button>
+                      <span className="w-8 sm:w-10 shrink-0 text-xs font-semibold text-wa-text-secondary">{DAYS_ES[h.day]}</span>
+                      <Input type="time" {...hoursForm.register(`schedule.${idx}.start`)} disabled={!h.active} className="h-8 min-w-0 text-xs flex-1 bg-white/[0.04] border-white/[0.08] text-wa-text" />
+                      <span className="text-xs text-wa-text-secondary/50">a</span>
+                      <Input type="time" {...hoursForm.register(`schedule.${idx}.end`)} disabled={!h.active} className="h-8 min-w-0 text-xs flex-1 bg-white/[0.04] border-white/[0.08] text-wa-text" />
                     </div>
                   ))}
                 </div>
                 <div className="flex gap-3 border-t border-white/[0.06] p-4">
-                  <Button type="button" variant="ghost" onClick={() => setShowHoursForm(false)} className="flex-1 text-slate-300">Cancelar</Button>
-                  <Button type="submit" disabled={savingHours} className="flex-1 bg-gradient-to-r from-cyan-400 to-cyan-500 text-slate-950 font-semibold">{savingHours ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Guardar</Button>
+                  <Button type="button" variant="ghost" onClick={() => setShowHoursForm(false)} className="flex-1 text-wa-text-secondary">Cancelar</Button>
+                  <Button type="submit" disabled={savingHours} className="flex-1 bg-gradient-to-r from-[#00a884] to-[#25d366] text-white font-semibold">{savingHours ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Guardar</Button>
                 </div>
               </form>
             </motion.div>

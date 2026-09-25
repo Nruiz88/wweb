@@ -52,7 +52,7 @@ function SortableItem({ item, editing, label, price, onStartEdit, onSave, onCanc
       className={cn(
         "group flex items-center gap-2 px-2.5 py-2 rounded-xl transition-all",
         !item.active && "opacity-50",
-        isDragging && "bg-cyan-500/10 shadow-xl shadow-cyan-500/20 z-20 ring-1 ring-cyan-400/40",
+        isDragging && "bg-[#00a884]/10 shadow-xl shadow-[#00a884]/20 z-20 ring-1 ring-[#00a884]/40",
         !isDragging && colors.surface.cardHover,
         "bg-white/[0.02]"
       )}
@@ -60,7 +60,7 @@ function SortableItem({ item, editing, label, price, onStartEdit, onSave, onCanc
       <button
         type="button"
         {...attributes} {...listeners}
-        className="text-slate-500 hover:text-cyan-400 cursor-grab active:cursor-grabbing shrink-0 transition-colors"
+        className="text-wa-text-secondary/40 hover:text-[#00a884] cursor-grab active:cursor-grabbing shrink-0 transition-colors"
         aria-label="Arrastrar para reordenar"
       >
         <GripVertical className="h-4 w-4" />
@@ -73,10 +73,10 @@ function SortableItem({ item, editing, label, price, onStartEdit, onSave, onCanc
           </div>
         ) : (
           <div>
-            <p className="text-sm font-medium truncate text-slate-200">{item.label}</p>
+            <p className="text-sm font-medium truncate text-wa-text">{item.label}</p>
             <div className="flex items-center gap-1.5 text-[10px]">
-              <span className="font-bold text-cyan-400">${(item.price_cents / 100).toFixed(2)}</span>
-              {!item.active && <span className="text-rose-400">· Pausado</span>}
+              <span className="font-bold text-[#00a884]">${(item.price_cents / 100).toFixed(2)}</span>
+              {!item.active && <span className="text-[#e6a44e]">· Pausado</span>}
             </div>
           </div>
         )}
@@ -84,14 +84,14 @@ function SortableItem({ item, editing, label, price, onStartEdit, onSave, onCanc
       <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
         {isEditing ? (
           <>
-            <Button onClick={onSave} size="icon" className="h-7 w-7 bg-emerald-500 hover:bg-emerald-400 text-slate-950" title="Guardar"><Check className="h-3.5 w-3.5" /></Button>
-            <Button variant="ghost" size="icon" onClick={onCancel} className="h-7 w-7 text-slate-400 hover:text-slate-100" title="Cancelar"><X className="h-3.5 w-3.5" /></Button>
+            <Button onClick={onSave} size="icon" className="h-7 w-7 bg-[#00a884] hover:bg-[#25d366] text-white" title="Guardar"><Check className="h-3.5 w-3.5" /></Button>
+            <Button variant="ghost" size="icon" onClick={onCancel} className="h-7 w-7 text-wa-text-secondary/60 hover:text-wa-text" title="Cancelar"><X className="h-3.5 w-3.5" /></Button>
           </>
         ) : (
           <>
-            <Button size="icon" variant="ghost" onClick={() => onStartEdit(item)} className="h-7 w-7 text-slate-400 hover:text-cyan-400" title="Editar"><Edit2 className="h-3.5 w-3.5" /></Button>
-            <Button size="icon" variant="ghost" onClick={() => onToggle(item.id)} className="h-7 w-7 text-slate-400 hover:text-emerald-400" title={item.active ? "Pausar" : "Activar"}>{item.active ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-rose-400" onClick={() => onDelete(item.id)} title="Eliminar"><Trash2 className="h-3.5 w-3.5" /></Button>
+            <Button size="icon" variant="ghost" onClick={() => onStartEdit(item)} className="h-7 w-7 text-wa-text-secondary/60 hover:text-[#00a884]" title="Editar"><Edit2 className="h-3.5 w-3.5" /></Button>
+            <Button size="icon" variant="ghost" onClick={() => onToggle(item.id)} className="h-7 w-7 text-wa-text-secondary/60 hover:text-[#00a884]" title={item.active ? "Pausar" : "Activar"}>{item.active ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}</Button>
+            <Button size="icon" variant="ghost" className="h-7 w-7 text-wa-text-secondary/60 hover:text-red-400" onClick={() => onDelete(item.id)} title="Eliminar"><Trash2 className="h-3.5 w-3.5" /></Button>
           </>
         )}
       </div>
@@ -199,22 +199,22 @@ export default function CatalogPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+    <div className="flex h-full flex-col bg-gradient-to-b from-wa-panel via-wa-panel to-wa-header/40">
       {/* Header */}
       <div className="px-4 sm:px-6 pt-6 pb-4">
         <div className="flex items-center gap-4">
           <div className="relative">
-            <div className="absolute inset-0 bg-cyan-500/20 blur-xl rounded-2xl" />
-            <div className="relative h-12 w-12 rounded-2xl bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center text-slate-950 shadow-lg shadow-cyan-500/30">
+            <div className="absolute inset-0 bg-[#00a884]/25 blur-xl rounded-2xl" />
+            <div className="relative h-12 w-12 rounded-2xl bg-gradient-to-br from-[#00a884] to-[#25d366] flex items-center justify-center text-white shadow-lg shadow-[#00a884]/25">
               <ShoppingBag className="h-6 w-6" strokeWidth={2.5} />
             </div>
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-extrabold tracking-tight text-slate-100">Catálogo</h1>
-            <p className="text-xs text-slate-400 mt-0.5">Productos que el bot ofrece cuando escriben <span className="text-cyan-400 font-semibold">&quot;pedido&quot;</span></p>
+            <h1 className="text-2xl font-extrabold tracking-tight text-wa-text">Catálogo</h1>
+            <p className="text-xs text-wa-text-secondary/60 mt-0.5">Productos que el bot ofrece cuando escriben <span className="text-[#00a884] font-semibold">&quot;pedido&quot;</span></p>
           </div>
           {!showNew && !editing && (
-            <Button onClick={() => setShowNew(true)} className="h-10 rounded-xl gap-1.5 bg-gradient-to-r from-cyan-400 to-cyan-500 hover:from-cyan-300 hover:to-cyan-400 text-slate-950 font-semibold shadow-lg shadow-cyan-500/20 transition-all hover:shadow-cyan-400/40">
+            <Button onClick={() => setShowNew(true)} className="h-10 rounded-xl gap-1.5 bg-gradient-to-r from-[#00a884] to-[#25d366] hover:from-[#00a884] hover:to-[#25d366] text-white font-semibold shadow-lg shadow-[#00a884]/25 transition-all hover:shadow-[#00a884]/40">
               <Plus className="h-4 w-4" strokeWidth={2.5} />Nuevo
             </Button>
           )}
@@ -223,29 +223,29 @@ export default function CatalogPage() {
 
       {/* Stats + Filtros */}
       <div className="px-4 sm:px-6 pb-3 grid grid-cols-3 gap-2 sm:gap-3">
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 sm:p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Activos</p>
-          <p className="text-xl sm:text-2xl font-extrabold text-emerald-400 mt-1">{totalActive}</p>
+        <div className="rounded-2xl border border-white/5 bg-gradient-to-br from-wa-header to-wa-header/80 p-3 sm:p-4 shadow-lg shadow-black/10">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-wa-text-secondary/50">Activos</p>
+          <p className="text-xl sm:text-2xl font-extrabold text-[#00a884] mt-1">{totalActive}</p>
         </div>
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 sm:p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Pausados</p>
-          <p className="text-xl sm:text-2xl font-extrabold text-rose-400 mt-1">{items.length - totalActive}</p>
+        <div className="rounded-2xl border border-white/5 bg-gradient-to-br from-wa-header to-wa-header/80 p-3 sm:p-4 shadow-lg shadow-black/10">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-wa-text-secondary/50">Pausados</p>
+          <p className="text-xl sm:text-2xl font-extrabold text-[#e6a44e] mt-1">{items.length - totalActive}</p>
         </div>
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 sm:p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Categorías</p>
-          <p className="text-xl sm:text-2xl font-extrabold text-cyan-400 mt-1">{existingCategories.length || 1}</p>
+        <div className="rounded-2xl border border-white/5 bg-gradient-to-br from-wa-header to-wa-header/80 p-3 sm:p-4 shadow-lg shadow-black/10">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-wa-text-secondary/50">Categorías</p>
+          <p className="text-xl sm:text-2xl font-extrabold text-[#53bdeb] mt-1">{existingCategories.length || 1}</p>
         </div>
       </div>
 
       {/* Filtros + Buscar */}
       <div className="px-4 sm:px-6 pb-3 flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto o categoría..." className="pl-9 h-9 text-sm bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-500 focus:border-cyan-400/40 focus:ring-cyan-400/20" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-wa-text-secondary/40" />
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto o categoría..." className="pl-9 h-9 text-sm bg-white/[0.04] border-white/[0.08] text-wa-text placeholder:text-wa-text-secondary/30 focus:border-[#00a884]/50 focus:ring-[#00a884]/20" />
         </div>
         <div className="flex gap-1 bg-white/[0.03] border border-white/[0.06] p-0.5 rounded-xl">
           {(["all", "active", "inactive"] as const).map(f => (
-            <button key={f} type="button" onClick={() => setFilter(f)} className={cn("px-2.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all", filter === f ? "bg-gradient-to-br from-cyan-400/20 to-cyan-500/10 text-cyan-300 shadow-sm border border-cyan-400/30" : "text-slate-500 hover:text-slate-300")}>
+            <button key={f} type="button" onClick={() => setFilter(f)} className={cn("px-2.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all", filter === f ? "bg-[#00a884]/15 text-[#00a884] shadow-sm border border-[#00a884]/30" : "text-wa-text-secondary/60 hover:text-wa-text")}>
               {f === "all" ? "Todos" : f === "active" ? "Activos" : "Pausados"}
             </button>
           ))}
@@ -257,25 +257,25 @@ export default function CatalogPage() {
         {(showNew || editing) && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
             <div className="px-4 sm:px-6 pb-3">
-              <div className="rounded-2xl border-2 border-cyan-400/30 bg-gradient-to-br from-cyan-500/[0.04] to-transparent p-4">
+              <div className="rounded-2xl border-2 border-[#00a884]/30 bg-gradient-to-br from-[#00a884]/[0.04] to-transparent p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-cyan-400" />
-                    <p className="text-sm font-semibold text-slate-100">{editing ? "Editar producto" : "Nuevo producto"}</p>
+                    <Sparkles className="h-4 w-4 text-[#00a884]" />
+                    <p className="text-sm font-semibold text-wa-text">{editing ? "Editar producto" : "Nuevo producto"}</p>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={reset} className="h-7 w-7 text-slate-400 hover:text-slate-100"><X className="h-3.5 w-3.5" /></Button>
+                  <Button variant="ghost" size="icon" onClick={reset} className="h-7 w-7 text-wa-text-secondary/60 hover:text-wa-text"><X className="h-3.5 w-3.5" /></Button>
                 </div>
                 <div className="grid grid-cols-2 gap-2 mb-2">
-                  <Input placeholder="Nombre" value={label} onChange={e => setLabel(e.target.value)} className="h-9 text-sm bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-500" />
-                  <Input placeholder="Precio" type="number" step="0.01" value={price} onChange={e => setPrice(e.target.value)} className="h-9 text-sm bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-500" />
+                  <Input placeholder="Nombre" value={label} onChange={e => setLabel(e.target.value)} className="h-9 text-sm bg-white/[0.04] border-white/[0.08] text-wa-text placeholder:text-wa-text-secondary/30" />
+                  <Input placeholder="Precio" type="number" step="0.01" value={price} onChange={e => setPrice(e.target.value)} className="h-9 text-sm bg-white/[0.04] border-white/[0.08] text-wa-text placeholder:text-wa-text-secondary/30" />
                 </div>
                 <div className="flex gap-2 items-center">
-                  <Input placeholder="Categoría" value={category} onChange={e => setCategory(e.target.value)} className="h-9 text-sm flex-1 bg-white/[0.04] border-white/[0.08] text-slate-200 placeholder:text-slate-500" />
-                  <Button onClick={handleSave} size="sm" className="h-9 text-xs gap-1.5 bg-gradient-to-r from-emerald-400 to-emerald-500 hover:from-emerald-300 hover:to-emerald-400 text-slate-950 font-semibold"><Check className="h-3.5 w-3.5" strokeWidth={2.5} />Guardar</Button>
+                  <Input placeholder="Categoría" value={category} onChange={e => setCategory(e.target.value)} className="h-9 text-sm flex-1 bg-white/[0.04] border-white/[0.08] text-wa-text placeholder:text-wa-text-secondary/30" />
+                  <Button onClick={handleSave} size="sm" className="h-9 text-xs gap-1.5 bg-gradient-to-r from-[#00a884] to-[#25d366] hover:from-[#00a884] hover:to-[#25d366] text-white font-semibold"><Check className="h-3.5 w-3.5" strokeWidth={2.5} />Guardar</Button>
                 </div>
                 {existingCategories.length > 0 && !category && (
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {existingCategories.map(c => <button key={c} type="button" onClick={() => setCategory(c)} className="text-[10px] px-2 py-0.5 rounded-full border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] text-slate-300">{c}</button>)}
+                    {existingCategories.map(c => <button key={c} type="button" onClick={() => setCategory(c)} className="text-[10px] px-2 py-0.5 rounded-full border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] text-wa-text-secondary">{c}</button>)}
                   </div>
                 )}
               </div>
@@ -289,16 +289,16 @@ export default function CatalogPage() {
         {confirmDelete && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
             <div className="px-4 sm:px-6 pb-3">
-              <div className="rounded-2xl border-2 border-rose-400/30 bg-gradient-to-br from-rose-500/[0.06] to-transparent p-4 flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-rose-500/10 flex items-center justify-center shrink-0">
-                  <Trash2 className="h-5 w-5 text-rose-400" />
+              <div className="rounded-2xl border-2 border-red-500/30 bg-gradient-to-br from-red-500/[0.06] to-transparent p-4 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-red-500/10 flex items-center justify-center shrink-0">
+                  <Trash2 className="h-5 w-5 text-[#e6a44e]" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-slate-100">¿Eliminar producto?</p>
-                  <p className="text-xs text-slate-400">Esta acción no se puede deshacer</p>
+                  <p className="text-sm font-semibold text-wa-text">¿Eliminar producto?</p>
+                  <p className="text-xs text-wa-text-secondary/60">Esta acción no se puede deshacer</p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(null)} className="h-8 text-xs text-slate-300">Cancelar</Button>
-                <Button size="sm" className="h-8 text-xs bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-white font-semibold" onClick={async () => { await fetch(`/api/catalog?id=${confirmDelete}`, { method: "DELETE" }); setConfirmDelete(null); load(); }}>Eliminar</Button>
+                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(null)} className="h-8 text-xs text-wa-text-secondary">Cancelar</Button>
+                <Button size="sm" className="h-8 text-xs bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 text-white font-semibold" onClick={async () => { await fetch(`/api/catalog?id=${confirmDelete}`, { method: "DELETE" }); setConfirmDelete(null); load(); }}>Eliminar</Button>
               </div>
             </div>
           </motion.div>
@@ -310,20 +310,20 @@ export default function CatalogPage() {
         {loading ? (
           <div className={layout.grid}>{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-32 rounded-2xl bg-white/[0.04]" />)}</div>
         ) : groups.length === 0 ? (
-          <div className="rounded-2xl border-2 border-dashed border-white/[0.08] p-12 text-center">
-            <Package className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-            <p className="text-sm text-slate-400">{search || filter !== "all" ? "Sin resultados" : "Empezá agregando tu primer producto"}</p>
+          <div className="rounded-2xl border-2 border-dashed border-white/5 p-12 text-center">
+            <Package className="h-10 w-10 text-wa-text-secondary/30 mx-auto mb-3" />
+            <p className="text-sm text-wa-text-secondary/60">{search || filter !== "all" ? "Sin resultados" : "Empezá agregando tu primer producto"}</p>
           </div>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <div className={layout.grid}>
               {groups.map(g => (
-                <div key={g.name} className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.04] to-white/[0.01] backdrop-blur-sm overflow-hidden flex flex-col shadow-xl shadow-black/20">
-                  <div className="flex items-center gap-2 px-3 py-3 bg-white/[0.04] border-b border-white/[0.06] cursor-pointer select-none" onClick={() => setCollapsed(prev => { const next = new Set(prev); if (next.has(g.name)) next.delete(g.name); else next.add(g.name); return next; })}>
-                    <ChevronRight className={`h-4 w-4 text-cyan-400 transition-transform duration-200 ${g.expanded ? "rotate-90" : ""}`} />
-                    <Tag className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                    <span className="text-sm font-semibold truncate text-slate-100">{g.name}</span>
-                    <span className="ml-auto text-[10px] font-bold text-slate-300 px-2 py-0.5 rounded-full bg-white/[0.06] border border-white/[0.06]">{g.items.length}</span>
+                <div key={g.name} className="rounded-2xl border border-white/5 bg-gradient-to-b from-wa-header/70 to-transparent overflow-hidden flex flex-col shadow-lg shadow-black/10">
+                  <div className="flex items-center gap-2 px-3 py-3 bg-white/[0.03] border-b border-white/5 cursor-pointer select-none" onClick={() => setCollapsed(prev => { const next = new Set(prev); if (next.has(g.name)) next.delete(g.name); else next.add(g.name); return next; })}>
+                    <ChevronRight className={`h-4 w-4 text-[#00a884] transition-transform duration-200 ${g.expanded ? "rotate-90" : ""}`} />
+                    <Tag className="h-3.5 w-3.5 text-wa-text-secondary/40 shrink-0" />
+                    <span className="text-sm font-semibold truncate text-wa-text">{g.name}</span>
+                    <span className="ml-auto text-[10px] font-bold text-wa-text-secondary px-2 py-0.5 rounded-full bg-white/[0.06] border border-white/[0.06]">{g.items.length}</span>
                   </div>
                   {g.expanded && (
                     <SortableContext items={g.items.map(it => it.id)} strategy={verticalListSortingStrategy} id={g.name}>
@@ -344,7 +344,7 @@ export default function CatalogPage() {
                             onPriceChange={setPrice}
                           />
                         ))}
-                        {g.items.length === 0 && <p className="text-xs text-slate-500 text-center py-4">Sin productos</p>}
+                        {g.items.length === 0 && <p className="text-xs text-wa-text-secondary/40 text-center py-4">Sin productos</p>}
                       </div>
                     </SortableContext>
                   )}
