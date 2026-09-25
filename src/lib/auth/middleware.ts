@@ -21,6 +21,15 @@ export async function middleware(request: NextRequest) {
     return null;
   }
 
+  // Rutas 100% públicas (sin redirección aunque haya sesión):
+  // - /agendar: página pública de reservas que comparten los negocios.
+  // - Imágenes de metadata generadas por Next (OG/Twitter/icons): las deben
+  //   poder descargar los crawlers sin sesión.
+  const PUBLIC_PATHS = ["/agendar", "/opengraph-image", "/twitter-image", "/apple-icon", "/icon"];
+  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    return null;
+  }
+
   const session = await getUserSession();
 
   // El dashboard / (auth) reqiere sesión
