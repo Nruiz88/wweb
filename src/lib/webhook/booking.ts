@@ -2,6 +2,7 @@ import { sendTextMessage, sendButtonMessage } from "@/lib/evolution-multi";
 import type { ButtonItem } from "@/lib/evolution-multi";
 import type { WebhookContext } from "./context";
 import { slugify } from "@/lib/slug";
+import { query } from "@/lib/db";
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -368,7 +369,10 @@ export async function handleAppointmentConfirm(ctx: WebhookContext): Promise<{ s
   // Authorization: only confirm/cancel appointments belonging to this instance
   if (appt.instance_id !== instance.id) return null;
 
-  await supabase.from("appointments").update({ status: newStatus }).eq("id", apptId).eq("instance_id", instance.id);
+  await query(
+    "UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ? AND instance_id = ?",
+    [newStatus, apptId, instance.id]
+  );
 
   const dateStr = formatDateStr(appt.appointment_date);
   const [h, m] = appt.appointment_time.split(":");

@@ -20,16 +20,16 @@ export function safeErrorMessage(error: unknown): string {
  * Uses MariaDB queries directly (no Supabase).
  */
 export async function verifyUserAccess(userId: string, instanceId: string): Promise<boolean> {
-  const { db } = await import("./db");
+  const { query } = await import("./db");
   // Owner: admin of the instance
-  const [instRows] = await db.query(
+  const instRows = await query(
     "SELECT 1 FROM instances WHERE id = ? AND admin_id = ? LIMIT 1",
     [instanceId, userId]
   );
   if (instRows.length > 0) return true;
 
   // Assigned user via user_instances
-  const [assignmentRows] = await db.query(
+  const assignmentRows = await query(
     "SELECT 1 FROM user_instances WHERE instance_id = ? AND user_id = ? LIMIT 1",
     [instanceId, userId]
   );

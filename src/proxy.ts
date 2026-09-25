@@ -63,14 +63,14 @@ export async function proxy(request: NextRequest) {
 
   // Si no es admin, el usuario solo puede usar sus instancias asignadas
   if (session.role !== "admin") {
-    const { db } = await import("./lib/db");
-    const rows = await db.query(
+    const { query } = await import("./lib/db");
+    const rows = await query(
       "SELECT id FROM user_instances ui JOIN instances i ON ui.instance_id = i.id WHERE ui.user_id = ? LIMIT 1",
       [session.userId]
     );
-    if (!rows.length) {
-      const redirectUrl = new URL("/dashboard", request.url);
-      return withSecurityHeaders(NextResponse.redirect(redirectUrl));
+    // Sin instancias asignadas solo puede navegar el dashboard (evita loop de redirección)
+    if (!rows.length && pathname !== "/dashboard") {
+      return withSecurityHeaders(NextResponse.redirect(new URL("/dashboard", request.url)));
     }
   }
 
