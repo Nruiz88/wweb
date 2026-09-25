@@ -9,6 +9,7 @@ import {
   ChatReminderDemo,
 } from "./LandingChats";
 import { StepQRCode, StepConfig, StepActive } from "./illustrations";
+import CookieNotice from "./CookieNotice";
 import { getLandingFaqs } from "@/lib/faq";
 import type { PublicPlan } from "@/lib/plans";
 
@@ -573,6 +574,9 @@ export default function Landing({
           </a>
         </nav>
       </footer>
+
+      {/* Aviso de cookies (solo informativo: no usamos tracking) */}
+      <CookieNotice />
     </div>
   );
 }
