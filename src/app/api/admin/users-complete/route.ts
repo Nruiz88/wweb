@@ -15,8 +15,8 @@ export async function GET() {
   const subs = await query<{ user_id: string; plan_type: string; status: string; max_instances: number; paid_until: string | null; purchased_at: string | null }>(
     "SELECT user_id, plan_type, status, max_instances, paid_until, purchased_at FROM subscriptions"
   );
-  const payments = await query<{ user_id: string; status: string; amount_cents: number; created_at: string }>(
-    "SELECT user_id, status, amount_cents, created_at FROM payments ORDER BY created_at DESC"
+  const payments = await query<{ user_id: string; status: string; amount_pesos: number; created_at: string }>(
+    "SELECT user_id, status, amount_pesos, created_at FROM payments ORDER BY created_at DESC"
   );
   const assignments = await query<{ user_id: string; instance_id: string }>(
     "SELECT user_id, instance_id FROM user_instances"
@@ -45,7 +45,7 @@ export async function GET() {
       max_instances: s?.max_instances || 0,
       paid_until: s?.paid_until || null,
       purchased_at: s?.purchased_at || null,
-      latest_payment_amount: p?.amount_cents || 0,
+      latest_payment_amount: p?.amount_pesos || 0,
       latest_payment_status: p?.status || "pending",
       assigned: assignedSet.has(u.id),
     };

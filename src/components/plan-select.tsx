@@ -8,7 +8,7 @@ import { toast } from "sonner";
 interface PlanOption {
   plan_type: string;
   label: string;
-  amount_cents: number;
+  amount_pesos: number;
   description: string;
 }
 
@@ -21,12 +21,12 @@ export default function PlanSelect() {
     fetch("/api/admin/mercado-pago").then(r => r.json()).then(d => {
       if (d.data?.plans) setPlans(d.data.plans);
       else setPlans([
-        { plan_type: "starter", label: "Starter", amount_cents: 0, description: "Bot básico, keywords y menú" },
-        { plan_type: "pro", label: "Pro", amount_cents: 15000, description: "Calendario, turnos, regex y bot base" },
+        { plan_type: "starter", label: "Starter", amount_pesos: 0, description: "Bot básico, keywords y menú" },
+        { plan_type: "pro", label: "Pro", amount_pesos: 15000, description: "Calendario, turnos, regex y bot base" },
       ]);
     }).catch(() => setPlans([
-      { plan_type: "starter", label: "Starter", amount_cents: 0, description: "Bot básico, keywords y menú" },
-      { plan_type: "pro", label: "Pro", amount_cents: 15000, description: "Calendario, turnos, regex y bot base" },
+      { plan_type: "starter", label: "Starter", amount_pesos: 0, description: "Bot básico, keywords y menú" },
+      { plan_type: "pro", label: "Pro", amount_pesos: 15000, description: "Calendario, turnos, regex y bot base" },
     ]));
   }, []);
 
@@ -57,7 +57,7 @@ export default function PlanSelect() {
         <div className="grid md:grid-cols-2 gap-6">
           {plans.map((p) => {
             const isSelected = selected === p.plan_type;
-            const price = p.amount_cents === 0 ? "Gratis" : `$${(p.amount_cents / 100).toFixed(0)}`;
+            const price = p.amount_pesos === 0 ? "Gratis" : `$${(p.amount_pesos / 100).toFixed(0)}`;
             return (
               <button
                 key={p.plan_type}
@@ -83,7 +83,7 @@ export default function PlanSelect() {
 
                 <div className="mb-4">
                   <span className="text-3xl font-black text-foreground tracking-tight">{price}</span>
-                  {p.amount_cents > 0 && <span className="text-sm text-muted-foreground"> / mes</span>}
+                  {p.amount_pesos > 0 && <span className="text-sm text-muted-foreground"> / mes</span>}
                 </div>
 
                 <p className="text-sm text-muted-foreground leading-relaxed mb-4">{p.description}</p>

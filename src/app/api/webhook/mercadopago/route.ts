@@ -114,21 +114,21 @@ async function activatePlan(
   if (!existing.length || existing[0].status === "approved") return;
 
   const planType = String(mpPayment.collection_id || "pro");
-  const planConfig = await selectOne<{ amount_cents: number; label: string }>(
-    "SELECT amount_cents, label FROM plan_config WHERE plan_type = ? LIMIT 1",
+  const planConfig = await selectOne<{ amount_pesos: number; label: string }>(
+    "SELECT amount_pesos, label FROM plan_config WHERE plan_type = ? LIMIT 1",
     [planType]
   );
   const planLabel = planConfig?.[0]?.label || planType;
 
   // Record payment
   const { insertId } = await query(
-    "INSERT INTO payments (id, user_id, external_id, mp_payment_id, amount_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'approved', NOW(), NOW())",
+    "INSERT INTO payments (id, user_id, external_id, mp_payment_id, amount_pesos, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'approved', NOW(), NOW())",
     [
       String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
       externalReference,
       externalReference,
       paymentId,
-      planConfig?.[0]?.amount_cents || 0,
+      planConfig?.[0]?.amount_pesos || 0,
     ]
   );
 

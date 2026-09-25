@@ -216,7 +216,7 @@ CREATE TABLE IF NOT EXISTS mercado_pago_config (
   access_token TEXT,
   public_key TEXT,
   webhook_secret TEXT,
-  addon_price_cents INT NOT NULL DEFAULT 0,
+  addon_price_pesos INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE
@@ -228,7 +228,7 @@ CREATE TABLE IF NOT EXISTS payments (
   user_id VARCHAR(36),
   external_id VARCHAR(255) NOT NULL UNIQUE,
   mp_payment_id VARCHAR(255) NULL,
-  amount_cents INT NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
+  amount_pesos INT NOT NULL DEFAULT 0 CHECK (amount_pesos >= 0),
   status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','cancelled')),
   plan_activated BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -242,7 +242,7 @@ CREATE INDEX idx_payments_user_status ON payments(user_id, status);
 -- 14. Plan Config (precios base por plan)
 CREATE TABLE IF NOT EXISTS plan_config (
   plan_type VARCHAR(20) PRIMARY KEY CHECK (plan_type IN ('starter','pro')),
-  amount_cents INT NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
+  amount_pesos INT NOT NULL DEFAULT 0 CHECK (amount_pesos >= 0),
   label VARCHAR(255) NOT NULL DEFAULT '',
   description TEXT,
   max_instances INT NOT NULL DEFAULT 1 CHECK (max_instances >= 1),
@@ -302,10 +302,10 @@ CREATE INDEX idx_webhook_logs_created_at ON webhook_logs(created_at DESC);
 -- Estado inicial: registro de plan_config + sin usuarios
 -- (En prod, el primer admin se crea por invitación o manual)
 -- ============================================
-INSERT IGNORE INTO plan_config (plan_type, amount_cents, label, description, max_instances)
+INSERT IGNORE INTO plan_config (plan_type, amount_pesos, label, description, max_instances)
 VALUES
   ('starter', 0, 'Starter', 'Para pymes pequeñas', 1),
-  ('pro', 15000, 'Pro', 'Para negocios en crecimiento', 3);
+  ('pro', 150, 'Pro', 'Para negocios en crecimiento', 3);
 
 -- ============================================
 -- Stored procedure: asigna una instancia libre al usuario.

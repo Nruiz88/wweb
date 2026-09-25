@@ -186,7 +186,7 @@ export interface Payment {
   id: string;
   user_id: string | null;
   external_id: string;
-  amount_cents: number;
+  amount_pesos: number;
   status: "pending" | "approved" | "rejected" | "cancelled";
   plan_activated: boolean;
   created_at: string;
@@ -195,7 +195,7 @@ export interface Payment {
 
 export interface PlanConfig {
   plan_type: PlanType;
-  amount_cents: number;
+  amount_pesos: number;
   label: string;
   description: string | null;
   max_instances: number;

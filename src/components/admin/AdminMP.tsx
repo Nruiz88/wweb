@@ -2,26 +2,23 @@
 import { useState, useEffect } from "react";
 import { CreditCard, Key, DollarSign, Save, X, Edit3, Shield, Bot } from "lucide-react";
 
-// Convención del proyecto: la DB guarda CENTAVOS (amount_cents).
-// El admin muestra y edita en PESOS. Al guardar se multiplica x100.
-const toPesos = (cents: number) => Math.round((cents ?? 0) / 100);
-const toCents = (pesos: number) => Math.round((Number(pesos) || 0) * 100);
+// Convención del proyecto: los precios se guardan y editan en PESOS ARGENTINOS enteros (sin centavos).
+// Cada plan se edita y se guarda por separado.
 const fmt = (pesos: number) => `$${Number(pesos || 0).toLocaleString("es-AR")}`;
 
 interface MPPlanRow {
   plan_type: string;
-  amount_cents: number;
+  amount_pesos: number;
   label?: string;
   description?: string;
   max_instances?: number;
-  addon_price_cents?: number;
 }
 
 interface MPConfigRow {
   access_token?: string | null;
   public_key?: string | null;
   webhook_secret?: string | null;
-  addon_price_cents?: number | null;
+  addon_price_pesos?: number | null;
 }
 
 interface MPPayload {
@@ -40,9 +37,9 @@ export default function AdminMP() {
     fetch("/api/admin/mercado-pago").then(r => r.json()).then(d => {
       setMp(d);
       const init: Record<string, number> = {};
-      (d?.data?.plans || []).forEach((p: MPPlanRow) => { init[p.plan_type] = toPesos(p.amount_cents ?? 0); });
+      (d?.data?.plans || []).forEach((p: MPPlanRow) => { init[p.plan_type] = Math.round(p.amount_pesos ?? 0); });
       setPrices(init);
-      setAddonPrice(toPesos(d?.data?.mp_config?.addon_price_cents ?? 0));
+      setAddonPrice(Math.round(d?.data?.mp_config?.addon_price_pesos ?? 0));
       const conf = d?.data?.mp_config;
       if (conf) setMpKeys({ access_token: conf.access_token || "", public_key: conf.public_key || "", webhook_secret: conf.webhook_secret || "" });
     }).catch(() => { /* panel keeps defaults; retry on next mount/save */ });
@@ -51,27 +48,43 @@ export default function AdminMP() {
   useEffect(() => { load(); }, []);
 
   async function save() {
-    const plans = Object.entries(prices).map(([plan_type, pesos]) => ({ plan_type, amount_cents: toCents(pesos) }));
-    await fetch("/api/admin/mercado-pago", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        plans,
-        addon_price_cents: toCents(addonPrice),
-        access_token: mpKeys.access_token,
-        public_key: mpKeys.public_key,
-        webhook_secret: mpKeys.webhook_secret,
-      }),
-    });
-    load();
-    setEditMode(false);
+    setSaving(true);
+    setFeedback(null);
+    try {
+      // Guarda TODOS los planes con sus valores actuales (cada uno por separado)
+      const plans = Object.entries(prices).map(([plan_type, pesos]) => ({ plan_type, amount_pesos: Math.round(Number(pesos) || 0) }));
+      const res = await fetch("/api/admin/mercado-pago", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plans,
+          addon_price_pesos: Math.round(Number(addonPrice) || 0),
+          access_token: mpKeys.access_token,
+          public_key: mpKeys.public_key,
+          webhook_secret: mpKeys.webhook_secret,
+        }),
+      });
+      const payload = await res.json();
+      if (payload.status === "success") {
+        setFeedback({ kind: "success", message: "Planes y configuración guardados" });
+        load();
+        setEditMode(false);
+      } else {
+        setFeedback({ kind: "error", message: payload.error || "Error al guardar" });
+      }
+    } catch {
+      setFeedback({ kind: "error", message: "Error de red" });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setFeedback(null), 3000);
+    }
   }
 
   const data = mp?.data;
   const plans = (data?.plans || []).map((p: MPPlanRow) => ({
     plan_type: p.plan_type,
     label: p.plan_type === "starter" ? "Starter" : p.plan_type === "pro" ? "Pro" : "Plan",
-    amount_cents: p.amount_cents,
+    amount_pesos: p.amount_pesos,
     description: p.description,
     max_instances: p.max_instances,
   }));
@@ -124,12 +137,12 @@ export default function AdminMP() {
                       type="number"
                       min={0}
                       className="w-28 h-8 text-sm font-extrabold text-right rounded-xl border border-white/10 bg-white/5 px-2 text-wa-text focus:border-[#00a884]/50 focus:outline-none focus:ring-2 focus:ring-[#00a884]/20 transition-all"
-                      value={prices[plan.plan_type] ?? toPesos(plan.amount_cents)}
+                      value={prices[plan.plan_type] ?? Math.round(plan.amount_pesos)}
                       onChange={e => setPrices({ ...prices, [plan.plan_type]: Number(e.target.value) })}
                     />
                   </div>
                 ) : (
-                  <span className="text-lg font-extrabold text-[#00a884]">{fmt(toPesos(plan.amount_cents))}</span>
+                  <span className="text-lg font-extrabold text-[#00a884]">{fmt(plan.amount_pesos)}</span>
                 )}
               </div>
               <p className="text-[11px] text-wa-text-secondary/50 mb-3 leading-relaxed">{plan.description}</p>

@@ -11,8 +11,8 @@ export async function GET() {
   const subs = await query<{ user_id: string; plan_type: string; status: string; max_instances: number; paid_until: string | null; purchased_at: string | null }>(
     "SELECT user_id, plan_type, status, max_instances, paid_until, purchased_at FROM subscriptions"
   );
-  const payments = await query<{ user_id: string; status: string; amount_cents: number; created_at: string }>(
-    "SELECT user_id, status, amount_cents, created_at FROM payments"
+  const payments = await query<{ user_id: string; status: string; amount_pesos: number; created_at: string }>(
+    "SELECT user_id, status, amount_pesos, created_at FROM payments"
   );
   const addons = await query<{ user_id: string; quantity: number; status: string }>(
     "SELECT user_id, quantity, status FROM instance_addons"
@@ -50,7 +50,7 @@ export async function GET() {
       max_instances: (sub?.max_instances || 0) + addonCount,
       paid_until: sub?.paid_until || null,
       purchased_at: sub?.purchased_at || null,
-      latest_payment_amount: latestPay?.amount_cents || 0,
+      latest_payment_amount: latestPay?.amount_pesos || 0,
       latest_payment_status: latestPay?.status || "pending",
       addons: addonCount,
     };
