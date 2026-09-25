@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     if (/\s/.test(password)) return NextResponse.json({ status: "error", error: "Sin espacios" }, { status: 400 });
 
     const pool = mysql.createPool({
-      uri: "mysql://mariadb:Z6kla6HsbuTZJbyP8b4m6QUAfYgaYOzHNv4yDYQcYZax1QxKmzjQg3NhLsBQitBo@w3uymvdjpzxod6zqajtdkoom:3306/default",
+      uri: "mysql://root:Z6kla6HsbuTZJbyP8b4m6QUAfYgaYOzHNv4yDYQcYZax1QxKmzjQg3NhLsBQitBo@w3uymvdjpzxod6zqajtdkoom:3306/default",
       connectionLimit: 1,
     });
 
