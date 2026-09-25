@@ -136,10 +136,15 @@ export default function AutoResponsesPage() {
                   <Button variant={responseType === "text" ? "outline" : "default"} size="sm" onClick={() => setResponseType("text")} className="h-8 text-xs">Texto</Button>
                   <Button variant={responseType === "menu" ? "outline" : "default"} size="sm" onClick={() => setResponseType("menu")} className="h-8 text-xs">Menú</Button>
                 </div>
-                {responseType === "menu" && <div className="p-2 bg-cyan-500/[0.06] rounded-xl text-xs text-cyan-200 mb-2">Configura el menú en <a href="/menus" className="underline hover:text-cyan-300">Menús interactivos</a></div>}
+                {responseType === "menu" && (
+                  <div className="p-2.5 bg-cyan-500/[0.06] rounded-xl text-xs text-cyan-200 mb-2 flex items-center justify-between gap-2">
+                    <span>Los menús se crean con sus botones en <b>Menús interactivos</b> y se disparan solos al escribir su palabra clave.</span>
+                    <a href="/menus" className="shrink-0 px-2.5 py-1 rounded-lg bg-cyan-500/15 border border-cyan-400/25 text-cyan-200 font-semibold hover:bg-cyan-500/25 transition-colors">Ir a Menús</a>
+                  </div>
+                )}
                 <div className="flex justify-end gap-2">
                   <Button variant="ghost" size="sm" onClick={resetForm} className="h-8 text-xs text-slate-300">Cancelar</Button>
-                  <Button onClick={onSubmit} size="sm" className="h-8 text-xs bg-gradient-to-r from-emerald-400 to-emerald-500 hover:from-emerald-300 hover:to-emerald-400 text-slate-950 font-semibold">Guardar</Button>
+                  <Button onClick={onSubmit} disabled={responseType === "menu" && !(editing?.menu_config as { buttons?: unknown[] } | null | undefined)?.buttons?.length} size="sm" className="h-8 text-xs bg-gradient-to-r from-emerald-400 to-emerald-500 hover:from-emerald-300 hover:to-emerald-400 text-slate-950 font-semibold disabled:opacity-40 disabled:cursor-not-allowed">Guardar</Button>
                 </div>
               </div>
             </div>
