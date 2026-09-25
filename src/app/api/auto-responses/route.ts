@@ -53,18 +53,21 @@ export async function POST(request: Request) {
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const { instanceId, keyword, regexPattern, responseText, responseMediaUrl, responseType, menuConfig, isActive, priority, schedule } = body as {
-    instanceId?: string;
-    keyword?: string;
-    regexPattern?: string;
-    responseText?: string;
-    responseMediaUrl?: string;
-    responseType?: string;
-    menuConfig?: any;
-    isActive?: boolean;
-    priority?: number;
-    schedule?: { from?: string; to?: string };
+  // La UI envía snake_case (response_text); aceptamos también camelCase (responseText).
+  const raw = body as Record<string, unknown>;
+  const norm = {
+    instanceId: (raw.instanceId as string) ?? (raw.instance_id as string),
+    keyword: raw.keyword as string | undefined,
+    regexPattern: (raw.regexPattern as string) ?? (raw.regex_pattern as string),
+    responseText: (raw.responseText as string) ?? (raw.response_text as string),
+    responseMediaUrl: (raw.responseMediaUrl as string) ?? (raw.response_media_url as string),
+    responseType: (raw.responseType as string) ?? (raw.response_type as string),
+    menuConfig: (raw.menuConfig as any) ?? (raw.menu_config as any),
+    isActive: (raw.isActive as boolean) ?? (raw.is_active as boolean),
+    priority: raw.priority as number | undefined,
+    schedule: raw.schedule as { from?: string; to?: string } | undefined,
   };
+  const { instanceId, keyword, regexPattern, responseText, responseMediaUrl, responseType, menuConfig, isActive, priority, schedule } = norm;
 
   if (!instanceId) {
     return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
@@ -79,7 +82,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "menuConfig with at least 1 button is required for menu responses" }, { status: 400 });
   }
 
-  if (responseType !== "menu" && !responseText) {
+  if ((responseType ?? "text") !== "menu" && !responseText?.trim()) {
     return NextResponse.json({ status: "error", error: "responseText is required for text responses" }, { status: 400 });
   }
 
@@ -99,6 +102,15 @@ export async function POST(request: Request) {
 
 // PUT: Update auto-response
 export async function PUT(request: Request) {
+  return updateAutoResponse(request);
+}
+
+// La UI usa PATCH (edición y toggle activo) — mismo handler que PUT.
+export async function PATCH(request: Request) {
+  return updateAutoResponse(request);
+}
+
+async function updateAutoResponse(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
@@ -110,18 +122,21 @@ export async function PUT(request: Request) {
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const { id, keyword, regexPattern, responseText, responseMediaUrl, responseType, menuConfig, isActive, priority, schedule } = body as {
-    id?: string;
-    keyword?: string;
-    regexPattern?: string;
-    responseText?: string;
-    responseMediaUrl?: string;
-    responseType?: string;
-    menuConfig?: any;
-    isActive?: boolean;
-    priority?: number;
-    schedule?: { from?: string; to?: string };
+  const rawU = body as Record<string, unknown>;
+  const { id, keyword, regexPattern, responseText, responseMediaUrl, responseType, menuConfig, isActive, priority, schedule } = {
+    id: rawU.id as string | undefined,
+    keyword: (rawU.keyword as string) ?? undefined,
+    regexPattern: (rawU.regexPattern as string) ?? (rawU.regex_pattern as string | undefined),
+    responseText: (rawU.responseText as string) ?? (rawU.response_text as string | undefined),
+    responseMediaUrl: (rawU.responseMediaUrl as string) ?? (rawU.response_media_url as string | undefined),
+    responseType: (rawU.responseType as string) ?? (rawU.response_type as string | undefined),
+    menuConfig: (rawU.menuConfig as any) ?? (rawU.menu_config as any),
+    isActive: (rawU.isActive as boolean) ?? (rawU.is_active as boolean | undefined),
+    priority: rawU.priority as number | undefined,
+    schedule: rawU.schedule as { from?: string; to?: string } | undefined,
   };
+  // El toggle de la UI manda { id, active } — mapear a isActive.
+  const isActiveFinal = isActive ?? (rawU.active as boolean | undefined);
 
   if (!id) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
@@ -148,7 +163,7 @@ export async function PUT(request: Request) {
   if (responseMediaUrl !== undefined) updates.response_media_url = responseMediaUrl;
   if (responseType !== undefined) updates.response_type = responseType;
   if (menuConfig !== undefined) updates.menu_config = menuConfig;
-  if (isActive !== undefined) updates.is_active = isActive;
+  if (isActiveFinal !== undefined) updates.is_active = isActiveFinal;
   if (priority !== undefined) updates.priority = priority;
   if (schedule !== undefined) updates.schedule = schedule;
 
