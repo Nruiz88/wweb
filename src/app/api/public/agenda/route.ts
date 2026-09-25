@@ -3,6 +3,7 @@ import { query } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { slugify } from "@/lib/slug";
 import { BUSINESS_TIMEZONE, todayInBusinessTimezone, timeInBusinessTimezone } from "@/lib/timezone";
+import { requireProFeature, planForbiddenResponse } from "@/lib/plan-gating";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
   let profile: { id: string; role: string } | null = null;
 
   if (userEmail) {
-    const [{ rows }] = await query<{ id: string; role: string }>(
+    const rows = await query<{ id: string; role: string }>(
       "SELECT id, role FROM profiles WHERE email = ? LIMIT 1",
       [userEmail]
     );
@@ -80,6 +81,13 @@ export async function GET(request: Request) {
 
   if (instanceIds.length === 0) {
     return NextResponse.json({ status: "success", data: { instances: [] } });
+  }
+
+  // Gating por plan: la agenda pública es feature Pro (owner siempre pasa).
+  const planInfo = await requireProFeature(profile.id, instanceIds[0], "calendar");
+  if (!planInfo) {
+    const forbidden = planForbiddenResponse("calendar");
+    return NextResponse.json(forbidden.body, { status: forbidden.status });
   }
 
   const instances = await query<{ id: string; instance_name: string; status: string }>(

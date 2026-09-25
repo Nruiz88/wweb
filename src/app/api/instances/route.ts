@@ -4,6 +4,7 @@ import { query, select } from "@/lib/db";
 import { getConnectionState, testEvolutionConnection } from "@/lib/evolution-multi";
 import { validateEvolutionUrl, sanitizeString } from "@/lib/validation";
 import { safeErrorMessage } from "@/lib/api-helpers";
+import { checkInstanceLimit } from "@/lib/plan-gating";
 
 export const dynamic = "force-dynamic";
 
@@ -127,6 +128,16 @@ export async function POST(request: Request) {
   }
 
   const normalizedUrl = urlCheck.normalized || evolutionApiUrl.trim();
+
+  // Gating por plan: límite de instancias según suscripción activa + add-ons.
+  const limit = await checkInstanceLimit(session.userId);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { status: "error", error: limit.reason, code: limit.code, used: limit.used, max: limit.max },
+      { status: 403 }
+   );
+  }
+
   const serverCheck = await testEvolutionConnection(normalizedUrl, evolutionApiKey);
   if (!serverCheck.ok) {
     const hint = serverCheck.status === 401 || serverCheck.status === 403 ? " (API key global de Evolution inválida)" : serverCheck.status === 404 ? " (URL mal)" : "";

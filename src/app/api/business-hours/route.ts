@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { verifyUserAccess, safeErrorMessage } from "@/lib/api-helpers";
+import { requireProFeature, planForbiddenResponse } from "@/lib/plan-gating";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,13 @@ export async function POST(request: Request) {
   const hasAccess = await verifyUserAccess(session.userId, instanceId);
   if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+  }
+
+  // Gating por plan: configurar horarios de atención es feature Pro (owner siempre pasa).
+  const planInfo = await requireProFeature(session.userId, instanceId, "calendar");
+  if (!planInfo) {
+    const forbidden = planForbiddenResponse("calendar");
+    return NextResponse.json(forbidden.body, { status: forbidden.status });
   }
 
   const results = [];

@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
+import { requireProFeature, planForbiddenResponse } from "@/lib/plan-gating";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,13 @@ export async function POST(request: Request) {
   const hasAccess = await verifyUserAccess(session.userId, instanceId);
   if (!hasAccess) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+  }
+
+  // Gating por plan: crear turnos es feature Pro (el owner de la instancia siempre pasa).
+  const planInfo = await requireProFeature(session.userId, instanceId, "appointments");
+  if (!planInfo) {
+    const forbidden = planForbiddenResponse("appointments");
+    return NextResponse.json(forbidden.body, { status: forbidden.status });
   }
 
   const conflicts = await query<{ id: string }>(

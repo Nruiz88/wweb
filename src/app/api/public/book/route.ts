@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { slugify } from "@/lib/slug";
+import { requireProFeature, planForbiddenResponse } from "@/lib/plan-gating";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
   let profile: { id: string; role: string } | null = null;
 
   if (userEmail) {
-    const [{ rows }] = await query<{ id: string; role: string }>(
+    const rows = await query<{ id: string; role: string }>(
       "SELECT id, role FROM profiles WHERE email = ? LIMIT 1",
       [userEmail.trim().toLowerCase()]
     );
@@ -85,6 +86,13 @@ export async function POST(request: Request) {
 
   if (!owns) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+  }
+
+  // Gating por plan: reservar por link público es feature Pro (owner siempre pasa).
+  const planInfo = await requireProFeature(profile.id, instanceId, "appointments");
+  if (!planInfo) {
+    const forbidden = planForbiddenResponse("appointments");
+    return NextResponse.json(forbidden.body, { status: forbidden.status });
   }
 
   // Validate the day has active business hours.
