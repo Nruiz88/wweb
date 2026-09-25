@@ -9,6 +9,7 @@ import {
   ChatReminderDemo,
 } from "./LandingChats";
 import { StepQRCode, StepConfig, StepActive } from "./illustrations";
+import { getLandingFaqs } from "@/lib/faq";
 import type { PublicPlan } from "@/lib/plans";
 
 // ─── Precios por defecto (solo si el server no pudo leer la DB) ─────────
@@ -509,31 +510,10 @@ export default function Landing({
           </div>
 
           <div className="mx-auto max-w-3xl space-y-6">
-            {[
-              {
-                q: "¿Qué pasa si empiezo con Starter y necesito turnos después?",
-                a: "Podés subir a Pro cuando quieras desde tu panel: se desbloquean calendario, recordatorios y catálogo sin volver a configurar nada.",
-              },
-              {
-                q: "¿Qué es el 'link público para agendar'?",
-                a: "Es una página que te da Boti (bot.panel-niconqn.duckdns.org/agendar?business=tu-negocio) donde tus clientes eligen día y hora solos, sin escribirte. Ideal para ponerla en el bio de Instagram.",
-              },
-              {
-                q: "¿Cuántos números de WhatsApp puedo conectar?",
-                a: `Depende del plan: ${starter.label} incluye ${starter.max_instances} bot y ${pro.label} incluye ${pro.max_instances}. Si necesitás más, sumá bots extra por ${formatArs(safeAddonPrice)} al mes cada uno.`,
-              },
-              {
-                q: "¿Necesito saber de programación?",
-                a: "No. Todo se configura desde un panel simple: escribís las respuestas como si fuera un chat y listo.",
-              },
-              {
-                q: "¿Cómo pago y cómo cancelo?",
-                a: "Con Mercado Pago, en pesos argentinos. Podés cancelar cuando quieras desde tu panel: el servicio sigue activo hasta el fin del mes ya pagado.",
-              },
-            ].map((item) => (
-              <div key={item.q} className="ld-card-panel rounded-2xl p-6">
-                <h4 className="mb-3 text-lg font-bold">{item.q}</h4>
-                <p className="text-text-secondary">{item.a}</p>
+            {getLandingFaqs(safePlans, safeAddonPrice).map((item) => (
+              <div key={item.question} className="ld-card-panel rounded-2xl p-6">
+                <h4 className="mb-3 text-lg font-bold">{item.question}</h4>
+                <p className="text-text-secondary">{item.answer}</p>
               </div>
             ))}
           </div>

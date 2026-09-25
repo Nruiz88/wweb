@@ -1,4 +1,5 @@
 import { query } from "./db";
+import { formatArs } from "./format";
 
 // Convención: precios en PESOS ARGENTINOS ENTEROS (sin centavos), leídos de plan_config.
 // Fallbacks = valores actuales en producción (se usan solo si la DB no responde).
@@ -83,7 +84,5 @@ export async function getPublicPlans(): Promise<PlansData> {
   }
 }
 
-/** Formatea un precio entero en pesos argentinos: 18000 → "$18.000". */
-export function formatArs(amount: number): string {
-  return `$${Math.round(amount).toLocaleString("es-AR")}`;
-}
+// formatArs vive en ./format (módulo puro, seguro para el bundle de cliente).
+export { formatArs };

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getPublicPlans } from "@/lib/plans";
+import { buildLandingJsonLd } from "@/lib/schema-org";
 import Landing from "@/components/Landing";
 
 // Render dinámico: los precios se leen de plan_config en cada request
@@ -17,5 +18,19 @@ export const metadata: Metadata = {
 
 export default async function HomePage() {
   const { plans, addon_price_pesos } = await getPublicPlans();
-  return <Landing plans={plans} addonPrice={addon_price_pesos} />;
+  const jsonLd = buildLandingJsonLd(plans, addon_price_pesos);
+
+  return (
+    <>
+      {/* Datos estructurados schema.org (Organization, Product, WebSite, FAQPage) */}
+      {jsonLd.map((obj, i) => (
+        <script
+          key={i}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(obj).replace(/</g, "\\u003c") }}
+        />
+      ))}
+      <Landing plans={plans} addonPrice={addon_price_pesos} />
+    </>
+  );
 }

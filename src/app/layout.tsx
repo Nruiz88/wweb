@@ -30,6 +30,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://bot.panel-niconqn.duckdns.org"),
   title: {
     default: "Boti - Tu asistente de WhatsApp",
     template: "%s | Boti",
@@ -54,13 +55,13 @@ export const metadata: Metadata = {
     siteName: "Boti",
     title: "Boti - Tu asistente de WhatsApp",
     description:
-      "Responde automáticamente tus clientes por WhatsApp, 24/7. Sin saber de código, en 2 minutos.",
+      "Responde solo, agenda turnos y toma pedidos por WhatsApp, 24/7. Sin saber de código, en 2 minutos.",
   },
   twitter: {
     card: "summary_large_image",
     title: "Boti - Tu asistente de WhatsApp",
     description:
-      "Responde automáticamente tus clientes por WhatsApp, 24/7.",
+      "Responde solo, agenda turnos y toma pedidos por WhatsApp, 24/7.",
   },
   robots: {
     index: true,
