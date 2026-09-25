@@ -2,18 +2,44 @@ import mysql from "mysql2/promise";
 import { v4 as uuidv4 } from "uuid";
 
 // La connection string se lee de la variable de entorno MARIADB_URL.
-// En prod la va a proveer Coolify. En local puedes definirla en .env.
-const dbUrl = process.env.MARIADB_URL || process.env.DATABASE_URL;
-const poolUrl = dbUrl && (dbUrl.startsWith("mysql://") || dbUrl.startsWith("mysql:"))
-  ? (dbUrl.startsWith("mysql:") ? "mysql://" + dbUrl.slice(6) : dbUrl)
-  : null;
-const pool = poolUrl
+// En prod la provee Coolify. Se parsea manualmente para no depender del
+// parser de `uri` de mysql2 (no fiable dentro del bundle de Turbopack).
+function parseDbUrl(url: string) {
+  try {
+    const u = new URL(url.trim());
+    const database = u.pathname.replace(/^\//, "") || "default";
+    return {
+      host: u.hostname,
+      port: Number(u.port) || 3306,
+      user: decodeURIComponent(u.username),
+      password: decodeURIComponent(u.password),
+      database,
+    };
+  } catch {
+    return null;
+  }
+}
+
+const dbUrl = process.env.MARIADB_URL || process.env.DATABASE_URL || "";
+const parsed = dbUrl ? parseDbUrl(dbUrl) : null;
+
+const pool = parsed
   ? mysql.createPool({
-      uri: poolUrl,
+      host: parsed.host,
+      port: parsed.port,
+      user: parsed.user,
+      password: parsed.password,
+      database: parsed.database,
       waitForConnections: true,
       connectionLimit: 10,
     })
   : null as any;
+
+if (parsed) {
+  console.log(`[db] pool → host=${parsed.host} db=${parsed.database} user=${parsed.user}`);
+} else {
+  console.error("[db] MARIADB_URL no definida o inválida — pool no inicializado");
+}
 
 export { pool };
 

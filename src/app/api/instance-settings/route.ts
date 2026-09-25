@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   }
 
   // Verify access
-  const [{ rows: inst }] = await query<{ id: string; admin_id: string; welcome_message: string | null; outside_hours_message: string | null }>(
+  const inst = await query<{ id: string; admin_id: string; welcome_message: string | null; outside_hours_message: string | null }>(
     "SELECT id, admin_id, welcome_message, outside_hours_message FROM instances WHERE id = ? LIMIT 1",
     [instanceId]
   );
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
   }
   const isAdmin = inst[0].admin_id === session.userId;
   if (!isAdmin) {
-    const [{ rows: assigned }] = await query<{ id: string }>(
+    const assigned = await query<{ id: string }>(
       "SELECT id FROM user_instances WHERE instance_id = ? AND user_id = ? LIMIT 1",
       [instanceId, session.userId]
     );
@@ -66,7 +66,7 @@ export async function PUT(request: Request) {
   }
 
   // Verify admin access
-  const [{ rows: inst }] = await query<{ id: string; admin_id: string }>(
+  const inst = await query<{ id: string; admin_id: string }>(
     "SELECT id, admin_id FROM instances WHERE id = ? LIMIT 1",
     [instanceId]
   );

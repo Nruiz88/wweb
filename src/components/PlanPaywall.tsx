@@ -1,6 +1,6 @@
 "use client";
 
-import type { PlanType } from "../../lib/db/types";
+import type { PlanType } from "@/lib/db/types";
 import { ShieldIcon, ArrowRightIcon } from "../components/icons";
 
 const PLAN_META: Record<string, { label: string; color: string; price: string }> = {

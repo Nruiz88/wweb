@@ -14,11 +14,11 @@ export async function GET() {
   const daysAgo = new Date(now.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
   daysAgo.setHours(0, 0, 0, 0);
 
-  const [{ rows: logs }] = await query<{ sent_at: string }>(
+  const logs = await query<{ sent_at: string }>(
     "SELECT sent_at FROM response_logs WHERE sent_at >= ?",
     [daysAgo.toISOString()]
   );
-  const [{ rows: newUsers }] = await query<{ created_at: string }>(
+  const newUsers = await query<{ created_at: string }>(
     "SELECT created_at FROM profiles WHERE created_at >= ?",
     [daysAgo.toISOString()]
   );
@@ -47,7 +47,7 @@ export async function GET() {
   }
 
   const weekAgo = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
-  const [{ rows: kwLogs }] = await query<{ matched_keyword: string }>(
+  const kwLogs = await query<{ matched_keyword: string }>(
     "SELECT matched_keyword FROM response_logs WHERE sent_at >= ?",
     [weekAgo]
   );

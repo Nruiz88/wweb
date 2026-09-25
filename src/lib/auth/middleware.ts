@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { getUserSession } from "..";
+import { getUserSession } from "../auth";
 
 const SAFE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".woff", ".ttf", ".woff2", ".otf", ".mp4", ".webm", ".mp3", ".ogg", ".wav", ".json", ".css", ".js", ".map"]);
 

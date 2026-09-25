@@ -16,7 +16,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ status: "error", error: "userId y quantity requeridos" }, { status: 400 });
   }
 
-  const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15);
+  const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15));
   await query(
     `INSERT INTO instance_addons (id, user_id, quantity, status, created_at, updated_at)
      VALUES (?, ?, ?, 'active', NOW(), NOW())

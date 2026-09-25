@@ -8,16 +8,16 @@ export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
-  const [{ rows: subs }] = await query<{ user_id: string; plan_type: string; status: string; max_instances: number; paid_until: string | null; purchased_at: string | null }>(
+  const subs = await query<{ user_id: string; plan_type: string; status: string; max_instances: number; paid_until: string | null; purchased_at: string | null }>(
     "SELECT user_id, plan_type, status, max_instances, paid_until, purchased_at FROM subscriptions"
   );
-  const [{ rows: payments }] = await query<{ user_id: string; status: string; amount_cents: number; created_at: string }>(
+  const payments = await query<{ user_id: string; status: string; amount_cents: number; created_at: string }>(
     "SELECT user_id, status, amount_cents, created_at FROM payments"
   );
-  const [{ rows: addons }] = await query<{ user_id: string; quantity: number; status: string }>(
+  const addons = await query<{ user_id: string; quantity: number; status: string }>(
     "SELECT user_id, quantity, status FROM instance_addons"
   );
-  const [{ rows: profiles }] = await query<{ id: string; email: string; full_name: string; role: string; created_at: string }>(
+  const profiles = await query<{ id: string; email: string; full_name: string; role: string; created_at: string }>(
     "SELECT id, email, full_name, role, created_at FROM profiles"
   );
 

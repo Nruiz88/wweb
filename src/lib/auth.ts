@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { pool, query } from "./db";
 
 const JWT_SECRET = process.env.JWT_SECRET || "wweb-secret-dev-change-me";
-const COOKIE_NAME = "wweb_session";
+export const COOKIE_NAME = "wweb_session";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 días
 
 export type AuthError =

@@ -11,7 +11,7 @@ export async function GET() {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const [{ rows: profiles }] = await query<{ onboarding_completed: boolean }>(
+  const profiles = await query<{ onboarding_completed: boolean }>(
     "SELECT onboarding_completed FROM profiles WHERE id = ? LIMIT 1",
     [session.userId]
   );

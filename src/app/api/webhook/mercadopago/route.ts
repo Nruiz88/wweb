@@ -4,7 +4,7 @@ import { getSession } from "@/lib/auth/server";
 
 export const dynamic = "force-dynamic";
 
-function selectOne<T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> {
+async function selectOne<T>(sql: string, params?: unknown[]): Promise<T[]> {
   return query<T>(sql, params);
 }
 
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   const externalReference = String((data?.external_reference as string) || "");
 
   // ── Idempotency: skip if already approved ───────────────────────────────
-  const [{ rows: existing }] = await selectOne<{ id: string; status: string; updated_at: string }>(
+  const existing = await selectOne<{ id: string; status: string; updated_at: string }>(
     "SELECT id, status FROM payments WHERE external_id = ? OR mp_payment_id = ? LIMIT 1",
     [externalReference, paymentId]
   );
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   }
 
   // ── Mercado Pago config ────────────────────────────────────────────────
-  const [{ rows: mpConfig }] = await selectOne<{ access_token: string | null; public_key: string | null }>(
+  const mpConfig = await selectOne<{ access_token: string | null; public_key: string | null }>(
     "SELECT access_token, public_key FROM mercado_pago_config ORDER BY updated_at DESC LIMIT 1"
   );
   if (!mpConfig?.length || !mpConfig[0].access_token) {
@@ -107,24 +107,24 @@ async function activatePlan(
 
   if (status !== "paid" && status !== "approved") return;
 
-  const [{ rows: existing }] = await selectOne<{ id: string; status: string }>(
+  const existing = await selectOne<{ id: string; status: string }>(
     "SELECT id, status FROM payments WHERE external_id = ? OR mp_payment_id = ? LIMIT 1",
     [externalReference, paymentId]
   );
   if (!existing.length || existing[0].status === "approved") return;
 
   const planType = String(mpPayment.collection_id || "pro");
-  const [{ rows: planConfig }] = await selectOne<{ amount_cents: number; label: string }>(
+  const planConfig = await selectOne<{ amount_cents: number; label: string }>(
     "SELECT amount_cents, label FROM plan_config WHERE plan_type = ? LIMIT 1",
     [planType]
   );
   const planLabel = planConfig?.[0]?.label || planType;
 
   // Record payment
-  const [{ insertId }] = await query(
+  const { insertId } = await query(
     "INSERT INTO payments (id, user_id, external_id, mp_payment_id, amount_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'approved', NOW(), NOW())",
     [
-      String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+      String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
       externalReference,
       externalReference,
       paymentId,
@@ -142,7 +142,7 @@ async function activatePlan(
          status = VALUES(status),
          max_instances = VALUES(max_instances),
          updated_at = NOW()`,
-      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), externalReference, planType]
+      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), externalReference, planType]
     );
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "subscription upsert failed";
@@ -161,7 +161,7 @@ async function activatePlan(
 
   // Assign/link instance via RPC
   try {
-    const [{ rows: assignments }] = await selectOne<{ user_id: string }>(
+    const assignments = await selectOne<{ user_id: string }>(
       "SELECT user_id FROM user_instances WHERE user_id = ? LIMIT 1",
       [externalReference]
     );
@@ -199,7 +199,7 @@ export async function POSTActivation(request: Request) {
     return NextResponse.json({ status: "error", error: "external_reference required" }, { status: 400 });
   }
 
-  const [{ rows: existing }] = await selectOne<{ id: string; status: string }>(
+  const existing = await selectOne<{ id: string; status: string }>(
     "SELECT id, status FROM payments WHERE external_id = ? OR mp_payment_id = ? LIMIT 1",
     [external_reference, payment_id]
   );

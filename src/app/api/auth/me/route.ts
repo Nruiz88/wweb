@@ -9,7 +9,7 @@ export async function GET() {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const [{ rows: profile }] = await query<{ role: string; full_name: string | null }>(
+  const profile = await query<{ role: string; full_name: string | null }>(
     "SELECT role, full_name FROM profiles WHERE id = ? LIMIT 1",
     [session.userId]
   );

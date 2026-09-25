@@ -25,7 +25,7 @@ export async function GET() {
       query("SELECT COUNT(*) as count FROM response_logs WHERE sent_at >= ?", [oneDayAgo]),
     ]);
 
-    const [{ rows: recentKeywords }] = await query<{ matched_keyword: string }>(
+    const recentKeywords = await query<{ matched_keyword: string }>(
       "SELECT matched_keyword FROM response_logs WHERE sent_at >= ? LIMIT 500",
       [sevenDaysAgo]
     );

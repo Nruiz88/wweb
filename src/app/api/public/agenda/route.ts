@@ -50,7 +50,7 @@ export async function GET(request: Request) {
   }
 
   if (!profile && businessSlug) {
-    const [{ rows: all }] = await query<{ id: string; role: string; business_name: string | null; email: string | null }>(
+    const all = await query<{ id: string; role: string; business_name: string | null; email: string | null }>(
       "SELECT id, role, business_name, email FROM profiles"
     );
     profile =
@@ -68,10 +68,10 @@ export async function GET(request: Request) {
   // Resolve the user's instances: admin → own, user → assigned
   let instanceIds: string[] = [];
   if (profile.role === "admin") {
-    const [{ rows: own }] = await query<{ id: string }>("SELECT id FROM instances WHERE admin_id = ?", [profile.id]);
+    const own = await query<{ id: string }>("SELECT id FROM instances WHERE admin_id = ?", [profile.id]);
     instanceIds = (own || []).map((i) => i.id);
   } else {
-    const [{ rows: assigned }] = await query<{ instance_id: string }>(
+    const assigned = await query<{ instance_id: string }>(
       "SELECT instance_id FROM user_instances WHERE user_id = ?",
       [profile.id]
     );
@@ -82,17 +82,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "success", data: { instances: [] } });
   }
 
-  const [{ rows: instances }] = await query<{ id: string; instance_name: string; status: string }>(
+  const instances = await query<{ id: string; instance_name: string; status: string }>(
     "SELECT id, instance_name, status FROM instances WHERE id IN (" + instanceIds.map(() => "?").join(", ") + ")",
     instanceIds
   );
 
-  const [{ rows: hoursAll }] = await query<{ instance_id: string; day_of_week: number; start_time: string; end_time: string; slot_duration_min: number }>(
+  const hoursAll = await query<{ instance_id: string; day_of_week: number; start_time: string; end_time: string; slot_duration_min: number }>(
     "SELECT instance_id, day_of_week, start_time, end_time, slot_duration_min FROM business_hours WHERE instance_id IN (" + instanceIds.map(() => "?").join(", ") + ") AND is_active = true",
     instanceIds
   );
 
-  const [{ rows: bookedAll }] = await query<{ instance_id: string; appointment_date: string; appointment_time: string }>(
+  const bookedAll = await query<{ instance_id: string; appointment_date: string; appointment_time: string }>(
     "SELECT instance_id, appointment_date, appointment_time FROM appointments WHERE instance_id IN (" + instanceIds.map(() => "?").join(", ") + ") AND status IN ('pending','confirmed')",
     instanceIds
   );

@@ -1,4 +1,4 @@
-import type { PlanType } from "../../lib/db/types";
+import type { PlanType } from "./db/types";
 
 export function hasAccessToFeature(planType: PlanType, feature: string): boolean {
   const features: Record<PlanType, string[]> = {

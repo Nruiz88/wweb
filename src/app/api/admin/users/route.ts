@@ -10,7 +10,7 @@ export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
-  const [{ rows: users }] = await query<{ id: string; email: string; full_name: string; role: string; created_at: string }>(
+  const users = await query<{ id: string; email: string; full_name: string; role: string; created_at: string }>(
     "SELECT id, email, full_name, role, created_at FROM profiles ORDER BY created_at DESC"
   );
 

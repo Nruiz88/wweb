@@ -1,4 +1,5 @@
 import { query } from "../db";
+import { sendTextMessage } from "../evolution-multi";
 import { isWithinSchedule, matchKeyword, matchRegex } from "../webhook-matching";
 import type { WebhookContext } from "./context";
 
@@ -53,7 +54,7 @@ export async function handleAutoReply(ctx: WebhookContext) {
     await query(
       `INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), instance.id, matched.id, matched.user_id, remoteJid, effectiveText, matchedKeyword]
+      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), instance.id, matched.id, matched.user_id, remoteJid, effectiveText, matchedKeyword]
     );
   } catch (logErr) {
     console.error("[webhook] error guardando log", { instance: instanceName, error: logErr });

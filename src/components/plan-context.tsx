@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { PlanType } from "../../lib/db/types";
+import type { PlanType } from "@/lib/db/types";
 
 interface PlanState {
   plan: PlanType | null;

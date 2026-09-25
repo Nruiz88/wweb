@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { query } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import {
   connectInstance,
@@ -47,7 +48,7 @@ interface ResolvedInstance {
 }
 
 async function resolveInstance(userId: string, selectedInstanceId?: string | null): Promise<ResolvedInstance | null> {
-  const [{ rows: instances }] = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
+  const instances = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
     `SELECT id, instance_name, evolution_api_url, evolution_api_key, status FROM instances WHERE admin_id = ? ${selectedInstanceId ? "AND id = ?" : ""} ORDER BY created_at DESC LIMIT 1`,
     selectedInstanceId ? [userId, selectedInstanceId] : [userId]
   );
@@ -61,13 +62,13 @@ async function resolveInstance(userId: string, selectedInstanceId?: string | nul
     };
   }
 
-  const [{ rows: assignment }] = await query<{ instance_id: string }>(
+  const assignment = await query<{ instance_id: string }>(
     "SELECT instance_id FROM user_instances WHERE user_id = ? LIMIT 1",
     [userId]
   );
   if (!assignment?.length) return null;
 
-  const [{ rows: inst }] = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
+  const inst = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
     "SELECT id, instance_name, evolution_api_url, evolution_api_key, status FROM instances WHERE id = ? LIMIT 1",
     [assignment[0].instance_id]
   );

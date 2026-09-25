@@ -1,4 +1,5 @@
 import { query } from "../db";
+import { localDateStr, localTimeMinutes, formatDateStr } from "../db/types";
 import type { WebhookContext } from "./context";
 import { sendTextMessage, sendButtonMessage } from "../evolution-multi";
 import { slugify } from "../slug";
@@ -23,7 +24,7 @@ export async function handleSlotSelect(ctx: WebhookContext): Promise<{ status: s
   const slotDate = parts.slice(0, lastUnderscore);
   const slotTime = parts.slice(lastUnderscore + 1);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(slotDate) || !/^\d{2}:\d{2}$/.test(slotTime)) return null;
-  const [{ rows: conflict }] = await query<{ id: string }>(
+  const conflict = await query<{ id: string }>(
     "SELECT id FROM appointments WHERE instance_id = ? AND appointment_date = ? AND appointment_time = ? AND status IN ('pending','confirmed') LIMIT 1",
     [instance.id, slotDate, slotTime]
   );
@@ -31,9 +32,9 @@ export async function handleSlotSelect(ctx: WebhookContext): Promise<{ status: s
     await sendText(ctx, '❌ Ese horario ya fue tomado. Escribí "turno" para ver otros disponibles.', 1500);
     return { status: "success", matched: "turno ocupado" };
   }
-  const [{ insertId }] = await query(
+  const { insertId } = await query(
     "INSERT INTO appointments (id, instance_id, customer_phone, customer_name, appointment_date, appointment_time, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'confirmed', NOW(), NOW())",
-    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), instance.id, remoteJid, pushName || null, slotDate, slotTime]
+    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), instance.id, remoteJid, pushName || null, slotDate, slotTime]
   );
   if (insertId) {
     const dateStr = formatDateStr(slotDate);
@@ -51,7 +52,7 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
   if (!/^\d{4}-\d{2}-\d{2}$/.test(slotDate)) return null;
   const dateObj = new Date(slotDate + "T12:00:00");
   const dayOfWeek = dateObj.getDay();
-  const [{ rows: hours }] = await query<{ start_time: string; end_time: string; slot_duration_min: number }>(
+  const hours = await query<{ start_time: string; end_time: string; slot_duration_min: number }>(
     "SELECT start_time, end_time, slot_duration_min FROM business_hours WHERE instance_id = ? AND day_of_week = ? AND is_active = true LIMIT 1",
     [instance.id, dayOfWeek]
   );
@@ -64,7 +65,7 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
   const dur = hours[0].slot_duration_min;
   const startMin = sh * 60 + sm;
   const endMin = eh * 60 + em;
-  const [{ rows: booked }] = await query<{ appointment_time: string }>(
+  const booked = await query<{ appointment_time: string }>(
     "SELECT appointment_time FROM appointments WHERE instance_id = ? AND appointment_date = ? AND status IN ('pending','confirmed')",
     [instance.id, slotDate]
   );

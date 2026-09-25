@@ -2,6 +2,7 @@ import { query } from "../db";
 import type { WebhookContext } from "./context";
 import { sendTextMessage, sendButtonMessage } from "../evolution-multi";
 import { generateSlots } from "./booking-utils";
+import { formatDateStr } from "../db/types";
 
 async function sendText(ctx: WebhookContext, text: string, delay?: number) {
   return sendTextMessage(ctx.instance.evolution_api_url, ctx.instance.evolution_api_key, ctx.instance.instance_name, ctx.phoneNumber, text, delay);
@@ -22,10 +23,10 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
     return null;
   }
   if (index < 1 || index > 30) return null;
-  const [{ rows: pending }] = await query<{ date: string }>("SELECT date FROM pending WHERE instance_id = ? AND phone = ? LIMIT 1", [instance.id, remoteJid]);
+  const pending = await query<{ date: string }>("SELECT date FROM pending WHERE instance_id = ? AND phone = ? LIMIT 1", [instance.id, remoteJid]);
   const date = pending?.[0]?.date;
   if (!date) return null;
-  const [{ rows: hours }] = await query<{ start_time: string; end_time: string; slot_duration_min: number }>(
+  const hours = await query<{ start_time: string; end_time: string; slot_duration_min: number }>(
     "SELECT start_time, end_time, slot_duration_min FROM business_hours WHERE instance_id = ? AND is_active = true LIMIT 1",
     [instance.id]
   );
@@ -36,7 +37,7 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
     await sendText(ctx, "❌ Ese número no corresponde a un horario. Escribí 'turno' para empezar de nuevo.", 1500);
     return { status: "success", matched: "turno num inválido" };
   }
-  const [{ rows: conflict }] = await query<{ id: string }>(
+  const conflict = await query<{ id: string }>(
     "SELECT id FROM appointments WHERE instance_id = ? AND appointment_date = ? AND appointment_time = ? AND status IN ('pending','confirmed') LIMIT 1",
     [instance.id, date, chosen]
   );
@@ -44,9 +45,9 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
     await sendText(ctx, '❌ Ese horario ya fue tomado. Escribí "turno" para ver otros disponibles.', 1500);
     return { status: "success", matched: "turno ocupado" };
   }
-  const [{ insertId }] = await query(
+  const { insertId } = await query(
     "INSERT INTO appointments (id, instance_id, customer_phone, customer_name, appointment_date, appointment_time, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'confirmed', NOW(), NOW())",
-    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), instance.id, remoteJid, pushName || null, date, chosen]
+    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), instance.id, remoteJid, pushName || null, date, chosen]
   );
   if (insertId) {
     const { rows: pending } = await query("DELETE FROM pending WHERE instance_id = ? AND phone = ?", [instance.id, remoteJid]);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin/auth";
 import { setWebhook } from "@/lib/evolution-multi";
+import { query } from "@/lib/db";
 import { safeErrorMessage } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
   const webhookUrl = appUrl.replace(/\/$/, "") + "/api/webhook";
   const secret = process.env.WEBHOOK_SECRET;
 
-  const [{ rows: instances }] = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string }>(
+  const instances = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string }>(
     "SELECT id, instance_name, evolution_api_url, evolution_api_key FROM instances"
   );
 

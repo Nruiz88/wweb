@@ -9,10 +9,10 @@ export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
-  const [{ rows: mpConfig }] = await query<{ id: string; public_key: string | null; access_token: string | null; webhook_secret: string | null; addon_price_cents: number; created_at: string; updated_at: string }>(
+  const mpConfig = await query<{ id: string; public_key: string | null; access_token: string | null; webhook_secret: string | null; addon_price_cents: number; created_at: string; updated_at: string }>(
     "SELECT id, public_key, access_token, webhook_secret, addon_price_cents, created_at, updated_at FROM mercado_pago_config ORDER BY updated_at DESC LIMIT 1"
   );
-  const [{ rows: plans }] = await query<{ plan_type: string; amount_cents: number; label: string; description: string | null; max_instances: number; addon_price_cents: number }>(
+  const plans = await query<{ plan_type: string; amount_cents: number; label: string; description: string | null; max_instances: number; addon_price_cents: number }>(
     "SELECT plan_type, amount_cents, label, description, max_instances, addon_price_cents FROM plan_config ORDER BY plan_type ASC"
   );
 

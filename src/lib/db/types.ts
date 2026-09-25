@@ -2,6 +2,32 @@
 // These replace ../../lib/db/types — the application uses only these types.
 
 export type PlanType = "pending" | "starter" | "pro";
+
+export interface MenuConfig {
+  id?: string;
+  title: string;
+  description: string;
+  footer?: string;
+  buttons: Array<{ id: string; text: string; target_id: string | null }>;
+}
+
+// ── Booking date/time helpers (shared by webhook handlers) ───────────────
+export const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+export const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+export function localDateStr(now: Date): string {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+export function localTimeMinutes(now: Date): number {
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+export function formatDateStr(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
 export type UserRole = "admin" | "user";
 export type InstanceStatus = "open" | "close" | "connecting" | "qrcode";
 export type AddonStatus = "active" | "canceled";

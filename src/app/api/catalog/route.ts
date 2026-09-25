@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const hasAccess = await verifyUserAccess(session.userId, instanceId);
   if (!hasAccess) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
 
-  const [{ rows: items }] = await query<{ id: string; instance_id: string; label: string; description: string | null; price_cents: number; active: boolean; sort_order: number; category: string | null; created_at: string; updated_at: string }>(
+  const items = await query<{ id: string; instance_id: string; label: string; description: string | null; price_cents: number; active: boolean; sort_order: number; category: string | null; created_at: string; updated_at: string }>(
     "SELECT id, instance_id, label, description, price_cents, active, sort_order, category, created_at, updated_at FROM catalog_items WHERE instance_id = ? ORDER BY sort_order ASC",
     [instanceId]
   );
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
   if (!hasAccess) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
 
   const id = Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15);
-  const [{ insertId }] = await query(
+  const { insertId } = await query(
     "INSERT INTO catalog_items (id, instance_id, label, description, price_cents, active, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
     [id, instanceId, cleanLabel, description ? String(description).trim() : null, Math.round(price), active ?? true, Number(sort_order) || 0]
   );
@@ -76,7 +76,7 @@ export async function PATCH(request: Request) {
 
   if (typeof id !== "string" || !isValidUUID(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
 
-  const [{ rows: existing }] = await query<{ instance_id: string }>(
+  const existing = await query<{ instance_id: string }>(
     "SELECT instance_id FROM catalog_items WHERE id = ? LIMIT 1",
     [id]
   );
@@ -110,7 +110,7 @@ export async function DELETE(request: Request) {
   const id = new URL(request.url).searchParams.get("id");
   if (!id || !isValidUUID(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
 
-  const [{ rows: existing }] = await query<{ instance_id: string }>(
+  const existing = await query<{ instance_id: string }>(
     "SELECT instance_id FROM catalog_items WHERE id = ? LIMIT 1",
     [id]
   );

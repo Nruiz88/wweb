@@ -95,7 +95,7 @@ export async function syncCatalogMenus(
   if (menus.length === 0) return null;
 
   // Remove old catalog menus for this instance
-  const [{ rows: old }] = await query<{ id: string }>(
+  const old = await query<{ id: string }>(
     "SELECT id FROM auto_responses WHERE instance_id = ? AND response_type = 'menu' AND keyword LIKE ?",
     [instanceId, `catalog_menu_%`]
   );
@@ -106,7 +106,7 @@ export async function syncCatalogMenus(
   // Insert each page as auto_response with keyword catalog_menu_pN
   for (let i = 0; i < menus.length; i++) {
     const menu = menus[i];
-    const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15);
+    const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15));
     await query(
       `INSERT INTO auto_responses (id, instance_id, user_id, response_type, keyword, menu_config, is_active, priority, created_at, updated_at)
        VALUES (?, ?, ?, 'menu', ?, ?, true, 10, NOW(), NOW())`,
@@ -127,7 +127,7 @@ export async function handleCatalogIntent(ctx: WebhookContext): Promise<{ status
   // Only respond to explicit catalog triggers (not booking words)
   if (!["pedido", "catálogo", "quiero", "menu", "catalogo"].includes(trigger)) return null;
 
-  const [{ rows: items }] = await query<{ id: string; label: string; description: string | null; price_cents: number; active: boolean; sort_order: number; category: string | null }>(
+  const items = await query<{ id: string; label: string; description: string | null; price_cents: number; active: boolean; sort_order: number; category: string | null }>(
     "SELECT id, label, description, price_cents, active, sort_order, category FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
     [instance.id]
   );
@@ -158,7 +158,8 @@ export async function handleCatalogIntent(ctx: WebhookContext): Promise<{ status
  * Handle selection of a catalog item → creates order and confirms.
  */
 export async function handleOrderSelect(ctx: WebhookContext, itemId: string): Promise<{ status: string; matched: string } | null> {
-  const [{ rows: items }] = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
+  const { instance, phoneNumber } = ctx;
+  const items = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
     "SELECT id, label, price_cents, active FROM catalog_items WHERE id = ? AND active = true",
     [itemId]
   );
@@ -175,10 +176,10 @@ export async function handleOrderSelect(ctx: WebhookContext, itemId: string): Pr
   }
 
   // Create order
-  const [{ insertId }] = await query(
+  const { insertId } = await query(
     "INSERT INTO orders (id, instance_id, user_id, customer_phone, customer_name, catalog_item_id, option_label, price_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
     [
-      String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+      String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
       instance.id,
       null,
       phoneNumber,

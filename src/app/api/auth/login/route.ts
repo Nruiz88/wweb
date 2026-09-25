@@ -1,7 +1,6 @@
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { login as doLogin, getUserByEmail } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { getUserByEmail, verifyPassword, signToken, COOKIE_NAME } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,10 +14,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const [user] = await query(
-      "SELECT id, email, password_hash FROM profiles WHERE email = ?",
-      [email]
-    );
+    const user = await getUserByEmail(email.trim().toLowerCase());
 
     if (!user || !user.password_hash) {
       return new Response(
@@ -27,19 +23,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await doLogin(email, password);
-    if (result.status !== 200) {
+    const valid = await verifyPassword(password, user.password_hash);
+    if (!valid) {
       return new Response(
-        JSON.stringify({ status: "error", error: result.message }),
-        { status: result.status, headers: { "Content-Type": "application/json" } }
+        JSON.stringify({ status: "error", error: "Usuario o contraseña inválidos" }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
       );
     }
 
+    const token = signToken(user.id);
+
     const cookieStore = await cookies();
-    cookieStore.set(COOKIE_NAME, result.token!, {
+    cookieStore.set(COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax" as const,
+      sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 24 * 30,
     });
@@ -55,4 +53,4 @@ export async function POST(request: NextRequest) {
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
-}
+}

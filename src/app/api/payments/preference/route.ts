@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   if (!session) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
 
   // Get MP config from DB
-  const [{ rows: mpConfig }] = await query<{ access_token: string | null; public_key: string | null }>(
+  const mpConfig = await query<{ access_token: string | null; public_key: string | null }>(
     "SELECT access_token, public_key FROM mercado_pago_config ORDER BY updated_at DESC LIMIT 1"
   );
   if (!mpConfig?.length || !mpConfig[0].access_token) {
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   const finalPlanType = (plan_type || "pro");
 
   if (!finalAmountCents) {
-    const [{ rows: planConfig }] = await query<{ amount_cents: number; label: string }>(
+    const planConfig = await query<{ amount_cents: number; label: string }>(
       "SELECT amount_cents, label FROM plan_config WHERE plan_type = ? LIMIT 1",
       [finalPlanType]
     );
@@ -72,9 +72,9 @@ export async function POST(request: Request) {
     }
 
     // Record pending payment
-    const [{ insertId }] = await query(
+    const { insertId } = await query(
       "INSERT INTO payments (id, user_id, external_id, amount_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', NOW(), NOW())",
-      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), session.userId, String(mpData.id || `mp_${Date.now()}`), finalAmountCents]
+      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), session.userId, String(mpData.id || `mp_${Date.now()}`), finalAmountCents]
     );
 
     return NextResponse.json({

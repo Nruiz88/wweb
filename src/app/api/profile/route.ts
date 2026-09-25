@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const lite = searchParams.get("lite") === "1";
   const includeUpcoming = searchParams.get("include") === "upcoming";
   if (lite) {
-    const [{ rows: subs }] = await query<{ plan_type: string; status: string }>(
+    const subs = await query<{ plan_type: string; status: string }>(
       "SELECT plan_type, status FROM subscriptions WHERE user_id = ? LIMIT 1",
       [session.userId]
     );
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     });
   }
 
-  const [{ rows: profile }] = await query<{ id: string; email: string; full_name: string; role: string; business_name: string | null; phone: string | null; address: string | null; created_at: string }>(
+  const profile = await query<{ id: string; email: string; full_name: string; role: string; business_name: string | null; phone: string | null; address: string | null; created_at: string }>(
     "SELECT id, email, full_name, role, business_name, phone, address, created_at FROM profiles WHERE id = ?",
     [session.userId]
   );
@@ -39,20 +39,20 @@ export async function GET(request: Request) {
   }
   const profileData = profile[0];
 
-  const [{ rows: subs }] = await query<{ plan_type: string; status: string; max_instances: number; updated_at: string }>(
+  const subs = await query<{ plan_type: string; status: string; max_instances: number; updated_at: string }>(
     "SELECT plan_type, status, max_instances, updated_at FROM subscriptions WHERE user_id = ? LIMIT 1",
     [session.userId]
   );
   const sub = subs?.[0];
 
-  const [{ rows: used }] = await query<{ id: string }>(
+  const used = await query<{ id: string }>(
     "SELECT id FROM user_instances WHERE user_id = ?",
     [session.userId]
   );
   const usedInstances = used.length;
 
   let addonCount = 0;
-  const [{ rows: addons }] = await query<{ id: string }>(
+  const addons = await query<{ id: string }>(
     "SELECT id FROM instance_addons WHERE user_id = ? AND status = 'active'",
     [session.userId]
   );
@@ -60,12 +60,12 @@ export async function GET(request: Request) {
 
   let upcoming: Array<{ date: string; time: string; name: string | null }> = [];
   if (includeUpcoming) {
-    const [{ rows: own }] = await query<{ id: string }>(
+    const own = await query<{ id: string }>(
       "SELECT id FROM instances WHERE admin_id = ?",
       [session.userId]
     );
     const ownIds = own.map((i) => i.id);
-    const [{ rows: assigned }] = await query<{ instance_id: string }>(
+    const assigned = await query<{ instance_id: string }>(
       "SELECT instance_id FROM user_instances WHERE user_id = ?",
       [session.userId]
     );
@@ -75,7 +75,7 @@ export async function GET(request: Request) {
       const now = new Date();
       const from = now.toISOString().slice(0, 10);
       const to = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      const [{ rows: appts }] = await query<{ status: string; appointment_date: string; appointment_time: string; customer_name: string | null }>(
+      const appts = await query<{ status: string; appointment_date: string; appointment_time: string; customer_name: string | null }>(
         "SELECT status, appointment_date, appointment_time, customer_name FROM appointments WHERE instance_id IN (" + ids.map(() => "?").join(", ") + ") AND appointment_date >= ? AND appointment_date <= ? AND status IN ('pending','confirmed') ORDER BY appointment_date ASC, appointment_time ASC LIMIT 25",
         [...ids, from, to]
       );
@@ -119,10 +119,10 @@ export async function PUT(request: Request) {
 
   const { full_name, business_name, phone, address } = body as { full_name?: string; business_name?: string; phone?: string; address?: string };
 
-  const [{ insertId }] = await query(
+  const { insertId } = await query(
     "UPDATE profiles SET full_name = ?, business_name = ?, phone = ?, address = ? WHERE id = ?",
     [sanitizeString(full_name, 200), sanitizeString(business_name, 200), sanitizeString(phone, 20), sanitizeString(address, 500), session.userId]
   );
 
-  return NextResponse.json({ status: "success", data: { id: insertId, ...profileData } });
+  return NextResponse.json({ status: "success", data: { id: session.userId } });
 }

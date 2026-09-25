@@ -53,7 +53,7 @@ export async function POST(request: Request) {
 
   if (!profile && business) {
     const slug = business.trim().toLowerCase();
-    const [{ rows: all }] = await query<{ id: string; role: string; business_name: string | null; email: string | null }>(
+    const all = await query<{ id: string; role: string; business_name: string | null; email: string | null }>(
       "SELECT id, role, business_name, email FROM profiles"
     );
     profile =
@@ -70,13 +70,13 @@ export async function POST(request: Request) {
 
   let owns = false;
   if (profile.role === "admin") {
-    const [{ rows: inst }] = await query<{ id: string }>(
+    const inst = await query<{ id: string }>(
       "SELECT id FROM instances WHERE id = ? AND admin_id = ?",
       [instanceId, profile.id]
     );
     owns = inst.length > 0;
   } else {
-    const [{ rows: assigned }] = await query<{ id: string }>(
+    const assigned = await query<{ id: string }>(
       "SELECT id FROM user_instances WHERE instance_id = ? AND user_id = ?",
       [instanceId, profile.id]
     );
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
   const dateObj = new Date(appointmentDate + "T12:00:00");
   const dayOfWeek = dateObj.getDay();
 
-  const [{ rows: hours }] = await query<{ id: string }>(
+  const hours = await query<{ id: string }>(
     "SELECT id FROM business_hours WHERE instance_id = ? AND day_of_week = ? AND is_active = true",
     [instanceId, dayOfWeek]
   );
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
   }
 
   // Check conflict (pending or confirmed).
-  const [{ rows: conflict }] = await query<{ id: string }>(
+  const conflict = await query<{ id: string }>(
     "SELECT id FROM appointments WHERE instance_id = ? AND appointment_date = ? AND appointment_time = ? AND status IN ('pending','confirmed') LIMIT 1",
     [instanceId, appointmentDate, appointmentTime]
   );
@@ -113,10 +113,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const [{ insertId }] = await query(
+  const { insertId } = await query(
     "INSERT INTO appointments (id, instance_id, customer_name, customer_phone, appointment_date, appointment_time, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
     [
-      String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+      String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
       instanceId,
       customerName || null,
       customerPhone ? String(customerPhone).trim().replace(/\D/g, "") || null : null,

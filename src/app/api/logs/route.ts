@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  const [{ rows: logs }] = await query<any>(
+  const logs = await query<any>(
     `SELECT *, auto_responses(keyword, regex_pattern, response_text) 
      FROM response_logs 
      WHERE instance_id = ? 
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
   );
 
   // Get total count
-  const [{ rows: countRows }] = await query<{ count: number }>(
+  const countRows = await query<{ count: number }>(
     "SELECT COUNT(*) as count FROM response_logs WHERE instance_id = ?",
     [instanceId]
   );

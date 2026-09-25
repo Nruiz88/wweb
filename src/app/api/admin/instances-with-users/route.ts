@@ -26,7 +26,7 @@ export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
-  const [{ rows: instances }] = await query<{ id: string; instance_name: string; status: string; evolution_api_url: string }>(
+  const instances = await query<{ id: string; instance_name: string; status: string; evolution_api_url: string }>(
     "SELECT id, instance_name, status, evolution_api_url FROM instances WHERE admin_id = ? ORDER BY created_at DESC",
     [auth.user.id]
   );
@@ -37,7 +37,7 @@ export async function GET() {
 
   const instanceIds = instances.map((i) => i.id);
 
-  const [{ rows: assignments }] = await query<{ instance_id: string; user_id: string }>(
+  const assignments = await query<{ instance_id: string; user_id: string }>(
     "SELECT instance_id, user_id FROM user_instances WHERE instance_id IN (" + instanceIds.map(() => "?").join(", ") + ")",
     instanceIds
   );
@@ -46,7 +46,7 @@ export async function GET() {
 
   const usersById = new Map();
   if (userIds.length > 0) {
-    const [{ rows: profiles }] = await query<{ id: string; email: string; full_name: string }>(
+    const profiles = await query<{ id: string; email: string; full_name: string }>(
       "SELECT id, email, full_name FROM profiles WHERE id IN (" + userIds.map(() => "?").join(", ") + ")",
       userIds
     );

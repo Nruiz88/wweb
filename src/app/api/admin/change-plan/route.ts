@@ -29,7 +29,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid user ID" }, { status: 400 });
   }
 
-  const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15);
+  const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15));
   await query(
     `INSERT INTO subscriptions (id, user_id, plan_type, status, max_instances, paid_until, purchased_at, created_at, updated_at)
      VALUES (?, ?, ?, 'active', 1, NULL, NOW(), NOW(), NOW())

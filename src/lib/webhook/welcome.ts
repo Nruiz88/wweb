@@ -12,7 +12,7 @@ export async function handleWelcome(ctx: WebhookContext) {
   if (!instance.welcome_message) return null;
 
   // Check if this phone already has a log (first-time writer)
-  const [{ rows: existingLogs }] = await query<{ id: string }>(
+  const existingLogs = await query<{ id: string }>(
     "SELECT id FROM response_logs WHERE instance_id = ? AND incoming_phone = ? LIMIT 1",
     [instance.id, remoteJid]
   );
@@ -28,7 +28,7 @@ export async function handleWelcome(ctx: WebhookContext) {
     await query(
       `INSERT INTO response_logs (id, instance_id, user_id, incoming_phone, incoming_message, matched_keyword, created_at)
        VALUES (?, ?, NULL, ?, ?, 'bienvenida', NOW())`,
-      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), instance.id, remoteJid, effectiveText]
+      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), instance.id, remoteJid, effectiveText]
     );
   } catch { /* non-critical */ }
 

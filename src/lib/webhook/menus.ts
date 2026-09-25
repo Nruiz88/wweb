@@ -121,7 +121,7 @@ export async function handleMenuTextReply(ctx: WebhookContext) {
   if (!option) return null;
 
   if (option.target_id) {
-    const [{ rows: targets }] = await query<{ id: string; response_text: string; response_type: string; menu_config: any; user_id: string }>(
+    const targets = await query<{ id: string; response_text: string; response_type: string; menu_config: any; user_id: string }>(
       "SELECT id, response_text, response_type, menu_config, user_id FROM auto_responses WHERE id = ? AND is_active = true",
       [option.target_id]
     );
@@ -144,7 +144,7 @@ export async function handleMenuTextReply(ctx: WebhookContext) {
             await query(
               "INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
               [
-                String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+                String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
                 instance.id,
                 target.id,
                 target.user_id,
@@ -203,16 +203,16 @@ export async function handleMenuTap(ctx: WebhookContext) {
   if (orderMatch) {
     const itemId = orderMatch[1];
     if (isValidUUID(itemId)) {
-      const [{ rows: items }] = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
+      const items = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
         "SELECT id, label, price_cents, active FROM catalog_items WHERE id = ? AND active = true",
         [itemId]
       );
       const item = items?.[0];
       if (item) {
-        const [{ insertId }] = await query(
+        const { insertId } = await query(
           "INSERT INTO orders (id, instance_id, user_id, customer_phone, customer_name, catalog_item_id, option_label, price_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
           [
-            String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+            String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
             instance.id,
             null,
             phoneNumber,
@@ -229,7 +229,7 @@ export async function handleMenuTap(ctx: WebhookContext) {
             `✅ *Pedido registrado*\n\n📦 ${item.label}\n💰 $${(item.price_cents / 100).toFixed(2)}\n\nTu pedido fue cargado 🚀`,
             1500,
           );
-          return { status: "success", matched: `[pedido creado ${order.id}]` };
+          return { status: "success", matched: `[pedido creado ${item.id}]` };
         }
       }
     }
@@ -267,7 +267,7 @@ export async function handleMenuTap(ctx: WebhookContext) {
 
     if (tappedBtn) {
       if (tappedBtn.target_id) {
-        const [{ rows: targets }] = await query<{ id: string; response_text: string; response_type: string; menu_config: any; user_id: string }>(
+        const targets = await query<{ id: string; response_text: string; response_type: string; menu_config: any; user_id: string }>(
           "SELECT id, response_text, response_type, menu_config, user_id FROM auto_responses WHERE id = ? AND is_active = true",
           [tappedBtn.target_id]
         );
@@ -293,7 +293,7 @@ export async function handleMenuTap(ctx: WebhookContext) {
             await query(
               "INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
               [
-                String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15),
+                String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
                 instance.id,
                 target.id,
                 target.user_id,

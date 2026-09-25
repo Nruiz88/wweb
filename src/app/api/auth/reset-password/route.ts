@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
 
     const trimmedEmail = email.trim().toLowerCase();
 
-    const [rows] = await db.query(
+    const rows = await query(
       "SELECT id FROM profiles WHERE email = ?",
       [trimmedEmail]
     );

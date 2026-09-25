@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  const [{ rows: hours }] = await query<{ id: string; instance_id: string; user_id: string; day_of_week: number; start_time: string; end_time: string; slot_duration_min: number; is_active: boolean; created_at: string }>(
+  const hours = await query<{ id: string; instance_id: string; user_id: string; day_of_week: number; start_time: string; end_time: string; slot_duration_min: number; is_active: boolean; created_at: string }>(
     "SELECT id, instance_id, user_id, day_of_week, start_time, end_time, slot_duration_min, is_active, created_at FROM business_hours WHERE instance_id = ? ORDER BY day_of_week ASC",
     [instanceId]
   );
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
          slot_duration_min = VALUES(slot_duration_min),
          is_active = VALUES(is_active),
          updated_at = NOW()`,
-      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), instanceId, session.userId, day.dayOfWeek, day.startTime, day.endTime, day.slotDurationMin ?? 30, day.isActive ?? true]
+      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), instanceId, session.userId, day.dayOfWeek, day.startTime, day.endTime, day.slotDurationMin ?? 30, day.isActive ?? true]
     );
     results.push(day);
   }

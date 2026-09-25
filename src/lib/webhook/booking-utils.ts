@@ -1,4 +1,5 @@
 import { query } from "../db";
+import { DAYS, MONTHS, localTimeMinutes } from "../db/types";
 import type { WebhookContext } from "./context";
 import { sendTextMessage, sendButtonMessage } from "../evolution-multi";
 
@@ -26,7 +27,7 @@ export async function getAvailableSlots(
   const dateObj = new Date(date + "T12:00:00");
   const dayOfWeek = dateObj.getDay();
 
-  const [{ rows: hours }] = await query<{ start_time: string; end_time: string; slot_duration_min: number }>(
+  const hours = await query<{ start_time: string; end_time: string; slot_duration_min: number }>(
     "SELECT start_time, end_time, slot_duration_min FROM business_hours WHERE instance_id = ? AND day_of_week = ? AND is_active = true LIMIT 1",
     [instance.id, dayOfWeek]
   );
@@ -35,7 +36,7 @@ export async function getAvailableSlots(
 
   const all = generateSlots(hours[0].start_time, hours[0].end_time, hours[0].slot_duration_min);
 
-  const [{ rows: booked }] = await query<{ appointment_time: string }>(
+  const booked = await query<{ appointment_time: string }>(
     "SELECT appointment_time FROM appointments WHERE instance_id = ? AND appointment_date = ? AND status IN ('pending','confirmed')",
     [instance.id, date]
   );

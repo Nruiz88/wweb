@@ -133,9 +133,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: `Servidor no responde: ${serverCheck.message}${hint}` }, { status: 400 });
   }
 
-  const [{ insertId }] = await query(
+  const { insertId } = await query(
     "INSERT INTO instances (id, admin_id, instance_name, evolution_api_url, evolution_api_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'connecting', NOW(), NOW())",
-    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), session.userId, cleanName, normalizedUrl, evolutionApiKey]
+    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), session.userId, cleanName, normalizedUrl, evolutionApiKey]
   );
 
   return NextResponse.json({
@@ -157,7 +157,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const [{ rows: inst }] = await query<{ id: string; admin_id: string }>(
+  const inst = await query<{ id: string; admin_id: string }>(
     "SELECT id, admin_id FROM instances WHERE id = ? LIMIT 1",
     [id]
   );

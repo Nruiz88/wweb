@@ -35,7 +35,7 @@ export async function GET(request: Request) {
   }
 
   sql += " ORDER BY priority DESC";
-  const [{ rows: responses }] = await query(sql, params);
+  const responses = await query(sql, params);
 
   return NextResponse.json({ status: "success", data: responses });
 }
@@ -128,7 +128,7 @@ export async function PUT(request: Request) {
   }
 
   // Verify access
-  const [{ rows: existing }] = await query<{ id: string; instance_id: string }>(
+  const existing = await query<{ id: string; instance_id: string }>(
     "SELECT id, instance_id FROM auto_responses WHERE id = ? LIMIT 1",
     [id]
   );
@@ -176,7 +176,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const [{ rows: existing }] = await query<{ id: string; instance_id: string }>(
+  const existing = await query<{ id: string; instance_id: string }>(
     "SELECT id, instance_id FROM auto_responses WHERE id = ? LIMIT 1",
     [id]
   );

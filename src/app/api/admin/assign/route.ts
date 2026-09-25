@@ -17,13 +17,13 @@ export async function GET(request: Request) {
   const instanceId = searchParams.get("instanceId");
   if (!instanceId) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
 
-  const [{ rows: inst }] = await query<{ id: string; admin_id: string }>(
+  const inst = await query<{ id: string; admin_id: string }>(
     "SELECT id, admin_id FROM instances WHERE id = ? AND admin_id = ? LIMIT 1",
     [instanceId, auth.user.id]
   );
   if (!inst.length) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
 
-  const [{ rows: assignments }] = await query<{ id: string; user_id: string; assigned_at: string; email: string; full_name: string }>(
+  const assignments = await query<{ id: string; user_id: string; assigned_at: string; email: string; full_name: string }>(
     `SELECT ui.id, ui.user_id, ui.assigned_at, p.email, p.full_name
      FROM user_instances ui
      JOIN profiles p ON ui.user_id = p.id
@@ -52,13 +52,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "instanceId and userEmail required" }, { status: 400 });
   }
 
-  const [{ rows: inst }] = await query<{ id: string; admin_id: string }>(
+  const inst = await query<{ id: string; admin_id: string }>(
     "SELECT id, admin_id FROM instances WHERE id = ? AND admin_id = ? LIMIT 1",
     [instanceId, auth.user.id]
   );
   if (!inst.length) return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
 
-  const [{ rows: targetUser }] = await query<{ id: string }>(
+  const targetUser = await query<{ id: string }>(
     "SELECT id FROM profiles WHERE email = ? LIMIT 1",
     [userEmail]
   );
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "User not found with that email" }, { status: 404 });
   }
 
-  const [{ rows: existing }] = await query<{ id: string }>(
+  const existing = await query<{ id: string }>(
     "SELECT id FROM user_instances WHERE user_id = ? AND instance_id = ? LIMIT 1",
     [targetUser[0].id, instanceId]
   );
@@ -74,9 +74,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "User already assigned" }, { status: 409 });
   }
 
-  const [{ insertId }] = await query(
+  const { insertId } = await query(
     "INSERT INTO user_instances (id, user_id, instance_id, assigned_at) VALUES (?, ?, ?, NOW())",
-    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15), targetUser[0].id, instanceId]
+    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), targetUser[0].id, instanceId]
   );
 
   return NextResponse.json({ status: "success", data: { id: insertId, user_id: targetUser[0].id, instance_id: instanceId } });
@@ -93,13 +93,13 @@ export async function DELETE(request: Request) {
   const assignmentId = searchParams.get("id");
   if (!assignmentId) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
 
-  const [{ rows: assignment }] = await query<{ id: string; instance_id: string }>(
+  const assignment = await query<{ id: string; instance_id: string }>(
     "SELECT id, instance_id FROM user_instances WHERE id = ? LIMIT 1",
     [assignmentId]
   );
   if (!assignment.length) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
 
-  const [{ rows: inst }] = await query<{ id: string; admin_id: string }>(
+  const inst = await query<{ id: string; admin_id: string }>(
     "SELECT id, admin_id FROM instances WHERE id = ? AND admin_id = ? LIMIT 1",
     [assignment[0].instance_id, auth.user.id]
   );

@@ -49,7 +49,7 @@ export async function GET(request: Request) {
     params.push(phone);
   }
 
-  const [{ rows: appointments }] = await query<any>(sql, params);
+  const appointments = await query<any>(sql, params);
 
   return NextResponse.json({ status: "success", data: appointments });
 }
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  const [{ rows: conflicts }] = await query<{ id: string }>(
+  const conflicts = await query<{ id: string }>(
     "SELECT id FROM appointments WHERE instance_id = ? AND appointment_date = ? AND appointment_time = ? AND status IN ('pending','confirmed') LIMIT 1",
     [instanceId, appointmentDate, appointmentTime]
   );
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
   }
 
   const id = Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15);
-  const [{ insertId }] = await query(
+  const { insertId } = await query(
     "INSERT INTO appointments (id, instance_id, user_id, customer_phone, customer_name, appointment_date, appointment_time, duration_min, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NOW(), NOW())",
     [id, instanceId, session.userId, customerPhone, customerName || null, appointmentDate, appointmentTime, durationMin ?? 30, notes || null]
   );
@@ -121,7 +121,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const [{ rows: existing }] = await query<{ id: string; instance_id: string }>(
+  const existing = await query<{ id: string; instance_id: string }>(
     "SELECT id, instance_id FROM appointments WHERE id = ? LIMIT 1",
     [id]
   );
@@ -164,7 +164,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const [{ rows: existing }] = await query<{ id: string; instance_id: string }>(
+  const existing = await query<{ id: string; instance_id: string }>(
     "SELECT id, instance_id FROM appointments WHERE id = ? LIMIT 1",
     [id]
   );

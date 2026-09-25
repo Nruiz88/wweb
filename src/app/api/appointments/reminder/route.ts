@@ -26,7 +26,7 @@ async function processReminders() {
   const dateStrNow = now.toISOString().slice(0, 10);
   const dateStr30h = in30h.toISOString().slice(0, 10);
 
-  const [{ rows: appointments }] = await query<{
+  const appointments = await query<{
     id: string;
     instance_id: string;
     customer_phone: string;
@@ -51,7 +51,7 @@ async function processReminders() {
   }
 
   const instanceIds = [...new Set(appointments.map((a) => a.instance_id))];
-  const [{ rows: instances }] = await query<{
+  const instances = await query<{
     id: string;
     instance_name: string;
     evolution_api_url: string;
@@ -115,7 +115,7 @@ async function previewReminders(instanceId: string) {
   const now = new Date();
   const in7days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const [{ rows: appointments }] = await query<{
+  const appointments = await query<{
     id: string;
     customer_phone: string;
     customer_name: string | null;

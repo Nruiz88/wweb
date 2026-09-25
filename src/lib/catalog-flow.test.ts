@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildCatalogMenus } from "./webhook/catalog";
-import type { CatalogItem } from "./supabase/types";
+import type { CatalogItem, MenuConfig } from "@/lib/db/types";
 
 function item(overrides: Partial<CatalogItem>): CatalogItem {
   return {

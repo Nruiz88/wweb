@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   }
 
   // Check current subscription status
-  const [{ rows: subs }] = await query<{ plan_type: string; status: string; max_instances: number }>(
+  const subs = await query<{ plan_type: string; status: string; max_instances: number }>(
     "SELECT plan_type, status, max_instances FROM subscriptions WHERE user_id = ? LIMIT 1",
     [session.userId]
   );
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
 
   if (!sub || sub.status === "pending") {
     if (planType === "starter") {
-      const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15);
+      const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15));
       await query(
         `INSERT INTO subscriptions (id, user_id, plan_type, status, max_instances, paid_until, purchased_at, created_at, updated_at)
          VALUES (?, ?, 'starter', 'active', 1, NULL, NOW(), NOW(), NOW())
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
       );
 
       // Assign instance if missing
-      const [{ rows: assignments }] = await query<{ id: string }>(
+      const assignments = await query<{ id: string }>(
         "SELECT id FROM user_instances WHERE user_id = ? LIMIT 1",
         [session.userId]
       );
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   }
 
   // If already active but wants to change
-  const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15), 15);
+  const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15));
   await query(
     `INSERT INTO subscriptions (id, user_id, plan_type, status, max_instances, paid_until, purchased_at, created_at, updated_at)
      VALUES (?, ?, ?, 'active', 1, NULL, NOW(), NOW(), NOW())
