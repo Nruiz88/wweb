@@ -38,7 +38,7 @@ export async function handleOutsideHours(ctx: WebhookContext) {
       );
       try {
         await query(
-          `INSERT INTO response_logs (id, instance_id, user_id, incoming_phone, incoming_message, matched_keyword, created_at)
+          `INSERT INTO response_logs (id, instance_id, user_id, incoming_phone, incoming_message, matched_keyword, sent_at)
            VALUES (?, ?, NULL, ?, ?, 'fuera de horario', NOW())`,
           [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), instance.id, remoteJid, effectiveText]
         );

@@ -52,7 +52,7 @@ export async function handleAutoReply(ctx: WebhookContext) {
 
   try {
     await query(
-      `INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, created_at)
+      `INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, sent_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
       [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), instance.id, matched.id, matched.user_id, remoteJid, effectiveText, matchedKeyword]
     );
