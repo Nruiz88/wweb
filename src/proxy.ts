@@ -65,7 +65,7 @@ export async function proxy(request: NextRequest) {
   if (session.role !== "admin") {
     const { query } = await import("./lib/db");
     const rows = await query(
-      "SELECT id FROM user_instances ui JOIN instances i ON ui.instance_id = i.id WHERE ui.user_id = ? LIMIT 1",
+      "SELECT ui.id FROM user_instances ui JOIN instances i ON ui.instance_id = i.id WHERE ui.user_id = ? LIMIT 1",
       [session.userId]
     );
     // Sin instancias asignadas solo puede navegar el dashboard (evita loop de redirección)
