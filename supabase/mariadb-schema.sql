@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS instances (
   welcome_message TEXT,
   outside_hours_message TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (admin_id) REFERENCES profiles(id) ON DELETE CASCADE
 );
 
@@ -95,6 +96,7 @@ CREATE TABLE IF NOT EXISTS auto_responses (
   priority INT DEFAULT 0,
   schedule JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE,
   CHECK (keyword IS NOT NULL OR regex_pattern IS NOT NULL)
@@ -133,6 +135,7 @@ CREATE TABLE IF NOT EXISTS business_hours (
   slot_duration_min INT NOT NULL DEFAULT 30 CHECK (slot_duration_min BETWEEN 10 AND 120),
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE,
   UNIQUE KEY unique_instance_day (instance_id, day_of_week)
@@ -195,6 +198,7 @@ CREATE TABLE IF NOT EXISTS orders (
   status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','completed','canceled')),
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   completed_at TIMESTAMP NULL,
   FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE SET NULL,
@@ -212,6 +216,7 @@ CREATE TABLE IF NOT EXISTS mercado_pago_config (
   access_token TEXT,
   public_key TEXT,
   webhook_secret TEXT,
+  addon_price_cents INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE
@@ -222,6 +227,7 @@ CREATE TABLE IF NOT EXISTS payments (
   id VARCHAR(36) PRIMARY KEY,
   user_id VARCHAR(36),
   external_id VARCHAR(255) NOT NULL UNIQUE,
+  mp_payment_id VARCHAR(255) NULL,
   amount_cents INT NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
   status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','cancelled')),
   plan_activated BOOLEAN DEFAULT false,
