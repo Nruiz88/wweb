@@ -3,6 +3,13 @@ import { getUserSession } from "./lib/auth";
 
 const PUBLIC_PATHS = ["/login", "/register", "/reset-password", "/reset-password/confirm", "/privacidad", "/terminos"];
 
+// Rutas 100% públicas: se sirven siempre, sin sesión y sin redirigir
+// a usuarios autenticados (a diferencia de PUBLIC_PATHS).
+// - /agendar: página pública de reservas que los negocios comparten.
+// - Imágenes de metadata de Next (OG/Twitter/icons): las deben poder
+//   descargar los crawlers de redes sociales sin sesión.
+const FULLY_PUBLIC_PATHS = ["/agendar", "/opengraph-image", "/twitter-image", "/apple-icon", "/icon"];
+
 function withSecurityHeaders(response: NextResponse): NextResponse {
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("X-Content-Type-Options", "nosniff");
@@ -38,6 +45,11 @@ export async function proxy(request: NextRequest) {
 
   // API routes: rutas públicas están definidas en cada handler (ver PUBLIC_API)
   if (pathname.startsWith("/api")) {
+    return withSecurityHeaders(NextResponse.next({ request }));
+  }
+
+  // Rutas 100% públicas (no dependen de sesión)
+  if (FULLY_PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
     return withSecurityHeaders(NextResponse.next({ request }));
   }
 
