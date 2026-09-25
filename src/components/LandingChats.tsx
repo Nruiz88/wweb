@@ -212,3 +212,77 @@ export function ChatAppointments() {
     </div>
   );
 }
+
+// ===== Mini chat genérico para las cards de features =====
+function MiniChatShell({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="ld-glass-panel relative flex h-[240px] w-full flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#0b141a] text-[13px] shadow-xl">
+      <div className="ld-chat-bg absolute inset-0 opacity-30" />
+      <div className="relative z-10 flex items-center gap-2 border-b border-white/5 bg-[#202c33] px-3 py-2">
+        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#00a884]">
+          <RobotIcon className="h-3.5 w-3.5 text-white" />
+        </div>
+        <span className="text-xs font-bold text-white">{title}</span>
+      </div>
+      <div className="relative z-10 flex flex-grow flex-col justify-end space-y-2 px-3 py-3">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ===== Chat 3: Keywords =====
+export function ChatKeywords() {
+  return (
+    <MiniChatShell title="Boti · palabras clave">
+      <UserBubble time="22:41">¿Cuánto sale el envío?</UserBubble>
+      <BotBubble time="22:41">
+        <span className="mb-1 inline-block rounded-full bg-[#25d366]/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#25d366]">
+          🔑 detectó: "envío"
+        </span>
+        <br />
+        Envío a CABA $2.500 · GBA $3.500. ¡Gratis en compras de +$15.000! 🚚
+      </BotBubble>
+      <div className="flex flex-wrap gap-1.5 pt-1">
+        {["horario", "precio", "envío", "dirección"].map((k) => (
+          <span key={k} className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-text-secondary">
+            "{k}"
+          </span>
+        ))}
+      </div>
+    </MiniChatShell>
+  );
+}
+
+// ===== Chat 4: Menú interactivo =====
+export function ChatMenuDemo() {
+  return (
+    <MiniChatShell title="Boti · menú interactivo">
+      <BotBubble time="10:12">
+        ¡Hola! 👋 Escribí el número de lo que necesites:
+        <div className="mt-2 divide-y divide-white/5 rounded-lg border border-white/5">
+          <div className="px-2 py-1.5 font-medium text-[#53bdeb]">1 · 🛍️ Ver productos</div>
+          <div className="px-2 py-1.5 font-medium text-[#53bdeb]">2 · 🕒 Horarios</div>
+          <div className="px-2 py-1.5 font-medium text-[#53bdeb]">3 · 👤 Hablar con alguien</div>
+        </div>
+      </BotBubble>
+      <UserBubble time="10:13">1</UserBubble>
+      <BotBubble time="10:13">¡Genial! 🛍️ Te mando el catálogo del día…</BotBubble>
+    </MiniChatShell>
+  );
+}
+
+// ===== Chat 5: Recordatorio de turno =====
+export function ChatReminderDemo() {
+  return (
+    <MiniChatShell title="Boti · recordatorios">
+      <BotBubble time="09:00">
+        ⏰ Recordatorio: mañana a las <b>10:00</b> tenés turno de uñas con Berenice.
+        <div className="mt-2 border-t border-white/5 pt-1.5 text-center font-medium text-[#53bdeb]">Confirmar</div>
+        <div className="mt-1 border-t border-white/5 pt-1.5 text-center font-medium text-[#f43f5e]">Cancelar</div>
+      </BotBubble>
+      <UserBubble time="09:01">Confirmar</UserBubble>
+      <BotBubble time="09:01">¡Listo! Te esperamos mañana 💚</BotBubble>
+    </MiniChatShell>
+  );
+}
