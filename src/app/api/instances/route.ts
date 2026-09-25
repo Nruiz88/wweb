@@ -36,13 +36,13 @@ async function selectInstances(adminId: string | undefined, ids: string[] | unde
   let q: string;
   if (adminId !== undefined) {
     q = `SELECT ${BASE_COLUMNS}, status_checked_at FROM instances WHERE admin_id = ? ORDER BY created_at DESC`;
-    const [{ rows }] = await query<InstanceRow>(q, [adminId]);
+    const rows = await query<InstanceRow>(q, [adminId]);
     return { rows: rows || [], freshCheck: true, error: null };
   }
   if (ids?.length) {
     const placeholders = ids.map(() => "?").join(",");
     q = `SELECT ${BASE_COLUMNS}, status_checked_at FROM instances WHERE id IN (${placeholders}) ORDER BY created_at DESC`;
-    const [{ rows }] = await query<InstanceRow>(q, [...ids]);
+    const rows = await query<InstanceRow>(q, [...ids]);
     return { rows: rows || [], freshCheck: true, error: null };
   }
   return { rows: [], freshCheck: false, error: null };

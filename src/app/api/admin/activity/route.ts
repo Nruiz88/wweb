@@ -36,12 +36,12 @@ export async function GET() {
 
   const idxByDate = new Map(series.map((s, i) => [s.date, i]));
   for (const l of logs) {
-    const date = (l.sent_at as string).slice(0, 10);
+    const date = new Date(l.sent_at as unknown as string).toISOString().slice(0, 10);
     const i = idxByDate.get(date);
     if (i !== undefined) series[i].responses += 1;
   }
   for (const u of newUsers) {
-    const date = (u.created_at as string).slice(0, 10);
+    const date = new Date(u.created_at as unknown as string).toISOString().slice(0, 10);
     const i = idxByDate.get(date);
     if (i !== undefined) series[i].newUsers += 1;
   }
