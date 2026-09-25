@@ -69,9 +69,9 @@ export default function AdminUserManager({ plans, onRefresh }: Props) {
   }
 
   return (
-    <div className="rounded-3xl border border-white/5 bg-gradient-to-br from-wa-header to-wa-header/80 shadow-xl shadow-black/10 overflow-hidden">
+    <div className="rounded-3xl border border-white/5 bg-gradient-to-br from-wa-header to-wa-header/80 shadow-xl shadow-black/10">
       {/* Header */}
-      <div className="p-5 border-b border-white/5 bg-gradient-to-r from-wa-header to-wa-header/60">
+      <div className="p-5 border-b border-white/5 bg-gradient-to-r from-wa-header to-wa-header/60 rounded-t-3xl">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#53bdeb]/20 to-[#53bdeb]/5">
