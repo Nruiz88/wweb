@@ -2,7 +2,6 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabase/client";
 import { LoaderIcon } from "@/components/icons";
 import { Logo } from "@/components/logo";
 
@@ -20,33 +19,38 @@ function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
 
-    if (authError) {
-      setError(authError.message);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Error al iniciar sesión");
+        setLoading(false);
+        return;
+      }
+
+      router.replace(next);
+    } catch {
+      setError("Error de conexión");
       setLoading(false);
-      return;
     }
-
-    // Navigate to intended page; middleware refreshes the session cookies
-    router.replace(next);
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
-        {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3">
           <Logo size="lg" className="mx-auto justify-center" />
           <div className="text-center">
-            <p className="text-sm text-wa-text-secondary">Inicia sesion para continuar</p>
+            <p className="text-sm text-wa-text-secondary">Inicia sesión para continuar</p>
           </div>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           {error && (
             <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
@@ -102,7 +106,7 @@ function LoginForm() {
           </p>
 
           <p className="text-center text-sm text-wa-text-secondary">
-            ¿No tienes cuenta?{" "}
+            ¿No tenés cuenta?{" "}
             <a href="/register" className="text-[#00a884] hover:underline">
               Regístrate
             </a>

@@ -1,51 +1,40 @@
 import { NextResponse } from "next/server";
-import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth";
+import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 // GET: Check if onboarding is completed
 export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("onboarding_completed")
-    .eq("id", user.id)
-    .single();
+  const profiles = await query<{ onboarding_completed: boolean }>(
+    "SELECT onboarding_completed FROM profiles WHERE id = ? LIMIT 1",
+    [session.userId]
+  );
 
-  // If column doesn't exist yet, treat onboarding as not completed
-  if (error) {
-    console.warn("[onboarding] column may not exist yet:", error.message);
-    return NextResponse.json({ status: "success", data: { completed: false } });
-  }
+  const completed = profiles?.[0]?.onboarding_completed ?? false;
 
   return NextResponse.json({
     status: "success",
-    data: { completed: data?.onboarding_completed ?? false },
+    data: { completed },
   });
 }
 
 // PUT: Mark onboarding as completed
 export async function PUT() {
-  const user = await getCurrentUser();
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-  const { error } = await supabase
-    .from("profiles")
-    .update({ onboarding_completed: true })
-    .eq("id", user.id);
-
-  if (error) {
-    // If column doesn't exist, silently succeed (migration pending)
-    console.warn("[onboarding] update failed (column may not exist):", error.message);
-  }
+  await query(
+    "UPDATE profiles SET onboarding_completed = true WHERE id = ?",
+    [session.userId]
+  );
 
   return NextResponse.json({ status: "success" });
 }

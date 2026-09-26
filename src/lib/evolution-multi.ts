@@ -21,15 +21,18 @@ async function evolutionRequest<T>(
   baseUrl: string,
   apiKey: string,
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs = 5000,
 ): Promise<EvolutionResult<T>> {
   const headers = new Headers(options.headers);
   headers.set("apikey", apiKey);
   headers.set("Content-Type", "application/json");
 
-  // Timeout de 5s: evita colgar el request si Railway duerme o no responde
+  // Timeout por defecto 5s (evita colgar el request si Railway duerme).
+  // Operaciones de grupos pueden ser MUCHO más lentas (issue EvolutionAPI#1883:
+  // fetchAllGroups tarda 25s+) → se pasa un timeout mayor explícitamente.
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(`${baseUrl}${path}`, {
@@ -40,12 +43,21 @@ async function evolutionRequest<T>(
     });
 
     const raw = await res.text();
-    const data = raw ? JSON.parse(raw) : null;
+    // Algunos endpoints responden 200/201 con body vacío o no-JSON → no debe
+    // contarse como fallo (el mensaje ya se envió).
+    let data: unknown = null;
+    if (raw) {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = raw;
+      }
+    }
 
     if (!res.ok) {
       const message =
-        data && typeof data.message === "string"
-          ? data.message
+        data && typeof data === "object" && typeof (data as { message?: unknown }).message === "string"
+          ? (data as { message: string }).message
           : `Evolution API respondió con estado ${res.status}`;
       return { ok: false, status: res.status, message };
     }
@@ -56,7 +68,7 @@ async function evolutionRequest<T>(
       return {
         ok: false,
         status: null,
-        message: "Timeout: Evolution API no respondió en 5s",
+        message: `Timeout: Evolution API no respondió en ${timeoutMs}ms`,
       };
     }
     return {
@@ -260,7 +272,8 @@ export async function sendTextMessage(
     {
       method: "POST",
       body: JSON.stringify(payload),
-    }
+    },
+    40000,
   );
 }
 
@@ -305,309 +318,12 @@ export async function sendButtonMessage(
     {
       method: "POST",
       body: JSON.stringify(payload),
-    }
-  );
-}
-
-/** Send an interactive list message (sections with rows). */
-export async function sendListMessage(
-  baseUrl: string,
-  apiKey: string,
-  instanceName: string,
-  number: string,
-  title: string,
-  description: string,
-  buttonText: string,
-  sections: { title: string; rows: { title: string; description?: string; rowId: string }[] }[],
-  footer?: string,
-  delay?: number
-): Promise<EvolutionResult<SendTextResult>> {
-  const payload: Record<string, unknown> = {
-    number,
-    title,
-    description,
-    buttonText,
-    footerText: footer ?? "",
-    sections,
-  };
-  if (typeof delay === "number" && delay >= 0) {
-    payload.delay = delay;
-  }
-
-  return evolutionRequest<SendTextResult>(
-    baseUrl,
-    apiKey,
-    `/message/sendList/${instanceName}`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }
-  );
-}
-
-/** Delete a message for everyone in a chat (group or DM). */
-export async function deleteMessage(
-  baseUrl: string,
-  apiKey: string,
-  instanceName: string,
-  messageId: string,
-  remoteJid: string,
-  fromMe: boolean = false,
-  participant?: string,
-): Promise<EvolutionResult<unknown>> {
-  const payload: Record<string, unknown> = {
-    id: messageId,
-    remoteJid,
-    fromMe,
-  };
-  // Required for group messages: the JID of the participant who sent it.
-  if (participant) payload.participant = participant;
-
-  return evolutionRequest<unknown>(
-    baseUrl,
-    apiKey,
-    `/chat/deleteMessageForEveryone/${instanceName}`,
-    {
-      method: "DELETE",
-      body: JSON.stringify(payload),
-    }
-  );
-}
-
-/** Send a text message to a group. */
-export async function sendGroupMessage(
-  baseUrl: string,
-  apiKey: string,
-  instanceName: string,
-  groupJid: string,
-  text: string,
-  mentions?: string[],
-  delay?: number,
-): Promise<EvolutionResult<SendTextResult>> {
-  const payload: Record<string, unknown> = {
-    number: groupJid,
-    text,
-  };
-  if (mentions && mentions.length > 0) {
-    payload.mentionsEveryOne = mentions.includes("everyone");
-    payload.mentioned = mentions.filter((m) => m !== "everyone");
-  }
-  if (typeof delay === "number" && delay >= 0) {
-    payload.delay = delay;
-  }
-
-  return evolutionRequest<SendTextResult>(
-    baseUrl,
-    apiKey,
-    `/message/sendText/${instanceName}`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }
-  );
-}
-
-/** A group as returned by Evolution's fetchAllGroups. */
-export interface EvolutionGroup {
-  id: string;
-  name: string;
-  /** True if the bot (instance owner) is admin of the group. */
-  isAdmin?: boolean;
-  /** Community id (when the group belongs to a community). */
-  communityId?: string;
-  /** True if this group is a community announcement group. */
-  isCommunity?: boolean;
-}
-
-/**
- * Get the JID of the WhatsApp user logged into the instance.
- * Used to determine if the bot is admin of a group.
- * GET /instance/fetchInstances?instanceName=... → owner / ownerJid.
- * Handles multiple response shapes across Evolution versions.
- */
-export async function fetchInstanceOwnerJid(
-  baseUrl: string,
-  apiKey: string,
-  instanceName: string,
-): Promise<string | null> {
-  const result = await evolutionRequest<unknown>(
-    baseUrl,
-    apiKey,
-    `/instance/fetchInstances?instanceName=${encodeURIComponent(instanceName)}`,
-  );
-  if (!result.ok) return null;
-
-  const data = result.data;
-  if (Array.isArray(data)) {
-    for (const entry of data) {
-      if (!entry || typeof entry !== "object") continue;
-      const obj = entry as Record<string, unknown>;
-      const nested = obj.instance as Record<string, unknown> | undefined;
-      const owner = String(
-        nested?.owner ?? obj.owner ?? nested?.ownerJid ?? obj.ownerJid ?? "",
-      ).trim();
-      if (owner) return owner;
-    }
-    return null;
-  }
-  if (data && typeof data === "object") {
-    const obj = data as Record<string, unknown>;
-    const inst = (obj.instance ?? obj) as Record<string, unknown>;
-    const owner = String(inst.owner ?? inst.ownerJid ?? obj.owner ?? "").trim();
-    return owner || null;
-  }
-  return null;
-}
-
-/** True if a participant entry is an admin of the group. */
-function isParticipantAdmin(p: Record<string, unknown>): boolean {
-  const admin = p.admin;
-  if (typeof admin === "string") {
-    const role = admin.toLowerCase();
-    return role === "admin" || role === "superadmin";
-  }
-  if (typeof admin === "boolean") return admin;
-  return p.isAdmin === true || p.isSuperAdmin === true;
-}
-
-/** Compare two WhatsApp JIDs ignoring the device/@lid suffix when possible. */
-function jidsMatch(a: string, b: string): boolean {
-  if (a === b) return true;
-  const norm = (j: string) =>
-    j.replace("@s.whatsapp.net", "").replace("@lid", "").replace("@g.us", "").replace(/\D/g, "");
-  const na = norm(a);
-  const nb = norm(b);
-  return na.length > 5 && na === nb;
-}
-
-/**
- * Fetch details for a single group (reliable `subject` name).
- * GET /group/findGroupInfos/{instance}?groupJid=... → subject, participants.
- * Used when fetchAllGroups omits the subject for some groups.
- */
-export async function findGroupInfos(
-  baseUrl: string,
-  apiKey: string,
-  instanceName: string,
-  groupJid: string,
-): Promise<EvolutionResult<EvolutionGroup>> {
-  const result = await evolutionRequest<Record<string, unknown>>(
-    baseUrl,
-    apiKey,
-    `/group/findGroupInfos/${instanceName}?groupJid=${encodeURIComponent(groupJid)}`,
-  );
-  if (!result.ok) return result;
-
-  const g = result.data;
-  const id = String(g.id ?? groupJid).trim();
-  const name = String(g.name ?? g.subject ?? "").trim();
-
-  let isAdmin = false;
-  if (Array.isArray(g.participants)) {
-    const participants = g.participants as Array<Record<string, unknown>>;
-    const ownerField = String(g.owner ?? "").trim();
-    const candidate = ownerField
-      ? participants.find((p) => jidsMatch(String(p.id ?? ""), ownerField))
-      : undefined;
-    isAdmin = !!candidate && isParticipantAdmin(candidate);
-  }
-
-  return {
-    ok: true,
-    status: result.status,
-    data: {
-      id,
-      name,
-      isAdmin: isAdmin || undefined,
-      communityId: typeof g.communityId === "string" ? g.communityId : undefined,
-      isCommunity: g.isCommunity === true || undefined,
     },
-  };
-}
-
-/**
- * Fetch all groups the bot is in for an instance.
- * Requires getParticipants=true so we can tell if the bot is admin.
- * Response shape varies across Evolution versions, so we normalize:
- *   - Array of { id, name, subject, participants, ... }
- *   - { groups: [...] }
- *   - Array of strings (JIDs only)
- */
-export async function fetchAllGroups(
-  baseUrl: string,
-  apiKey: string,
-  instanceName: string,
-  ownerJid?: string,
-): Promise<EvolutionResult<EvolutionGroup[]>> {
-  const result = await evolutionRequest<unknown>(
-    baseUrl,
-    apiKey,
-    `/group/fetchAllGroups/${instanceName}?getParticipants=true`,
+    40000,
   );
-
-  if (!result.ok) return result;
-
-  const raw = result.data as
-    | EvolutionGroup[]
-    | { groups?: EvolutionGroup[] }
-    | string[]
-    | null;
-
-  let list: unknown[] = [];
-  if (Array.isArray(raw)) {
-    list = raw;
-  } else if (raw && typeof raw === "object" && Array.isArray((raw as { groups?: unknown[] }).groups)) {
-    list = (raw as { groups: unknown[] }).groups;
-  }
-
-  const groups: EvolutionGroup[] = [];
-  for (const item of list) {
-    if (typeof item === "string") {
-      groups.push({ id: item, name: "" });
-      continue;
-    }
-    if (!item || typeof item !== "object") continue;
-    const g = item as Record<string, unknown>;
-    const id = String(g.id ?? g.jid ?? g.remoteJid ?? "").trim();
-    if (!id) continue;
-
-    const name = String(g.name ?? g.subject ?? "").trim();
-
-    // The bot is admin when a participant matching the instance owner JID
-    // has an admin role. Without ownerJid we fall back to "any admin" only
-    // when the group has exactly the bot (can't be determined reliably) — so
-    // we keep it false unless we can match the owner.
-    let isAdmin = false;
-    if (Array.isArray(g.participants)) {
-      const participants = g.participants as Array<Record<string, unknown>>;
-      if (ownerJid) {
-        const botParticipant = participants.find((p) => {
-          const pid = String(p.id ?? p.jid ?? "");
-          return jidsMatch(pid, ownerJid);
-        });
-        isAdmin = !!botParticipant && isParticipantAdmin(botParticipant);
-      } else {
-        // No owner JID available: Evolution only returns groups the bot belongs
-        // to, so if exactly one participant is the bot admin candidate we can
-        // still detect it via the `owner` field or single-admin groups.
-        const ownerField = String(g.owner ?? "").trim();
-        if (ownerField) {
-          const ownerParticipant = participants.find((p) =>
-            jidsMatch(String(p.id ?? p.jid ?? ""), ownerField),
-          );
-          isAdmin = !!ownerParticipant && isParticipantAdmin(ownerParticipant);
-        }
-      }
-    }
-
-    groups.push({
-      id,
-      name,
-      isAdmin: isAdmin || undefined,
-      communityId: typeof g.communityId === "string" ? g.communityId : undefined,
-      isCommunity: g.isCommunity === true || undefined,
-    });
-  }
-
-  return { ok: true, status: result.status, data: groups };
 }
+
+// --- Group helpers removed (community feature deleted) ---
+// sendListMessage, deleteMessage, sendGroupMessage, EvolutionGroup, fetchInstanceOwnerJid,
+// findGroupInfos, fetchAllGroups, fetchAllChats and helpers were used only for groups.
+// Kept only core: testEvolutionConnection, connectInstance, getConnectionState, logoutInstance, restartInstance, createInstance, setWebhook, sendTextMessage, sendButtonMessage

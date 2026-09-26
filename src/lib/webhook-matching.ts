@@ -1,4 +1,4 @@
-import { isSafeRegex } from "@/lib/regex-guard";
+import { isSafeRegex } from "../lib/regex-guard";
 
 export interface Schedule {
   from?: string;

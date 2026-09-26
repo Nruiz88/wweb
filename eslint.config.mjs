@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Scripts standalone de Node (CommonJS, corren en el server de Evolution / Railway)
+    "scripts/**",
   ]),
 ]);
 

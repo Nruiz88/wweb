@@ -1,10 +1,10 @@
-import type { PlanType } from "@/lib/supabase/types";
+import type { PlanType } from "./db/types";
 
 export function hasAccessToFeature(planType: PlanType, feature: string): boolean {
   const features: Record<PlanType, string[]> = {
+    pending: [],
     starter: ["keywords", "menus"],
     pro: ["keywords", "menus", "calendar", "appointments", "reminders"],
-    community: ["keywords", "menus", "group_moderation", "broadcasts"],
   };
 
   return features[planType]?.includes(feature) ?? false;

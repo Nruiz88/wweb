@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth";
+import { query } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { safeErrorMessage } from "@/lib/api-helpers";
 
@@ -7,39 +8,32 @@ export const dynamic = "force-dynamic";
 
 // GET: Fetch instance settings
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");
-
   if (!instanceId) {
     return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
   }
 
   // Verify access
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("id, admin_id, welcome_message, outside_hours_message")
-    .eq("id", instanceId)
-    .single();
-
-  if (!instance) {
+  const inst = await query<{ id: string; admin_id: string; welcome_message: string | null; outside_hours_message: string | null }>(
+    "SELECT id, admin_id, welcome_message, outside_hours_message FROM instances WHERE id = ? LIMIT 1",
+    [instanceId]
+  );
+  if (!inst.length) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
-
-  const isAdmin = instance.admin_id === user.id;
+  const isAdmin = inst[0].admin_id === session.userId;
   if (!isAdmin) {
-    const { data: assignment } = await supabase
-      .from("user_instances")
-      .select("id")
-      .eq("instance_id", instanceId)
-      .eq("user_id", user.id)
-      .single();
-    if (!assignment) {
+    const assigned = await query<{ id: string }>(
+      "SELECT id FROM user_instances WHERE instance_id = ? AND user_id = ? LIMIT 1",
+      [instanceId, session.userId]
+    );
+    if (!assigned.length) {
       return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
     }
   }
@@ -47,8 +41,8 @@ export async function GET(request: Request) {
   return NextResponse.json({
     status: "success",
     data: {
-      welcomeMessage: instance.welcome_message,
-      outsideHoursMessage: instance.outside_hours_message,
+      welcomeMessage: inst[0].welcome_message,
+      outsideHoursMessage: inst[0].outside_hours_message,
     },
   });
 }
@@ -58,38 +52,25 @@ export async function PUT(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "instance-settings", { maxRequests: 20, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getCurrentUser();
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-
   let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
-  }
+  try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const { instanceId, welcomeMessage, outsideHoursMessage } = (body ?? {}) as {
-    instanceId?: string;
-    welcomeMessage?: string | null;
-    outsideHoursMessage?: string | null;
-  };
-
+  const { instanceId, welcomeMessage, outsideHoursMessage } = body as { instanceId?: string; welcomeMessage?: string | null; outsideHoursMessage?: string | null };
   if (!instanceId) {
     return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
   }
 
   // Verify admin access
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("id, admin_id")
-    .eq("id", instanceId)
-    .single();
-
-  if (!instance || instance.admin_id !== user.id) {
+  const inst = await query<{ id: string; admin_id: string }>(
+    "SELECT id, admin_id FROM instances WHERE id = ? LIMIT 1",
+    [instanceId]
+  );
+  if (!inst.length || inst[0].admin_id !== session.userId) {
     return NextResponse.json({ status: "error", error: "Only instance admin can update settings" }, { status: 403 });
   }
 
@@ -97,14 +78,10 @@ export async function PUT(request: Request) {
   if (welcomeMessage !== undefined) updatePayload.welcome_message = welcomeMessage || null;
   if (outsideHoursMessage !== undefined) updatePayload.outside_hours_message = outsideHoursMessage || null;
 
-  const { error } = await supabase
-    .from("instances")
-    .update(updatePayload)
-    .eq("id", instanceId);
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
+  await query(
+    "UPDATE instances SET welcome_message = ?, outside_hours_message = ? WHERE id = ?",
+    [updatePayload.welcome_message, updatePayload.outside_hours_message, instanceId]
+  );
 
   return NextResponse.json({ status: "success" });
 }

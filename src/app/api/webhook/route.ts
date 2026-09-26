@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
+import { query } from "@/lib/db";
 import { getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { verifyWebhookSignature } from "@/lib/webhook-secret";
 import { extractMessageText, extractButtonText, extractListText, extractRawButtonId } from "@/lib/webhook/extract";
 import { hasPlan, type WebhookContext } from "@/lib/webhook/context";
-import { handleGroupWelcome } from "@/lib/webhook/group-welcome";
-import { handleGroupSpam } from "@/lib/webhook/group-spam";
 import { handleWelcome } from "@/lib/webhook/welcome";
 import { handleOutsideHours } from "@/lib/webhook/outside-hours";
-import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect } from "@/lib/webhook/booking";
-import { handleMenuTap } from "@/lib/webhook/menus";
+import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect, isAgendaActive } from "@/lib/webhook/booking";
+import { handleMenuTap, handleMenuTextReply } from "@/lib/webhook/menus";
 import { handleAutoReply } from "@/lib/webhook/auto-reply";
-import type { PlanType } from "@/lib/supabase/types";
+import { handleCatalogIntent } from "@/lib/webhook/catalog";
+import type { PlanType } from "@/lib/db/types";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +28,17 @@ interface WebhookPayload {
   };
 }
 
-const PLAN_HIERARCHY: PlanType[] = ["starter", "pro", "community"];
+// query() ya devuelve el array de filas directamente (mysql2). Antes se hacía
+// `const [{ rows }]` que devolvía undefined.rows y crasheaba cada webhook.
+async function select<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+  const rows = await query<T>(sql, params);
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function update(sql: string, params: any[] = []): Promise<{ affectedRows: number }> {
+  const res = await query<{ affectedRows: number }>(sql, params);
+  return { affectedRows: res?.affectedRows ?? 0 };
+}
 
 export async function POST(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "webhook", { maxRequests: 100, windowMs: 60_000 });
@@ -50,66 +59,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const supabase = await createServerClient();
-
-  // ============================================================
-  // GROUP-PARTICIPANTS.UPDATE → Community feature + auto-capture
-  // ============================================================
+  // Community features removed — ignore group events and group messages
   if (body.event === "group-participants.update") {
-    const groupJid = body.data?.id;
-    const participantJid = body.data?.participant;
-    const action = body.data?.action;
-
-    if (!groupJid || !participantJid) {
-      return NextResponse.json({ status: "ignored" });
-    }
-
-    // Find instance
-    const { data: instance } = await supabase
-      .from("instances")
-      .select("id, instance_name, evolution_api_url, evolution_api_key")
-      .eq("instance_name", body.instance)
-      .single();
-
-    if (!instance) {
-      return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-    }
-
-    // Auto-capture: store discovered group (upsert updates last_seen_at)
-    if (groupJid.endsWith("@g.us")) {
-      const { data: existingGrp } = await supabase
-        .from("group_settings")
-        .select("id")
-        .eq("instance_id", instance.id)
-        .eq("group_jid", groupJid)
-        .maybeSingle();
-
-      // Only auto-capture if not already configured
-      if (!existingGrp) {
-        await supabase
-          .from("discovered_groups")
-          .upsert({
-            instance_id: instance.id,
-            group_jid: groupJid,
-            last_seen_at: new Date().toISOString(),
-          }, { onConflict: "instance_id,group_jid" });
-      }
-    }
-
-    if (action !== "add") {
-      return NextResponse.json({ status: "ignored" });
-    }
-
-    const plan = await getPlanForInstance(supabase, instance.id);
-
-    // Community feature: group welcome
-    if (hasPlan(plan, "community")) {
-      const result = await handleGroupWelcome({
-        supabase, instanceName: body.instance, groupJid, participantJid, action, bodyInstance: body.instance,
-      });
-      if (result) return NextResponse.json(result);
-    }
-
     return NextResponse.json({ status: "ignored" });
   }
 
@@ -119,6 +70,9 @@ export async function POST(request: Request) {
 
   const instanceName = body.instance;
   const remoteJid = body.data?.key?.remoteJid || "";
+  if (remoteJid.includes("@g.us")) {
+    return NextResponse.json({ status: "ignored" });
+  }
   const plainText = extractMessageText(body.data?.message);
   const buttonText = extractButtonText(body.data?.message);
   const listText = extractListText(body.data?.message);
@@ -129,97 +83,93 @@ export async function POST(request: Request) {
   }
 
   // ============================================================
-  // GROUP MESSAGES → Community feature (spam filter) + auto-capture
-  // ============================================================
-  if (remoteJid.includes("@g.us")) {
-    const { data: grpInstance } = await supabase
-      .from("instances")
-      .select("id, instance_name, evolution_api_url, evolution_api_key")
-      .eq("instance_name", instanceName)
-      .single();
-
-    if (!grpInstance) {
-      return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-    }
-
-    // Auto-capture: track active groups
-    const { data: existingGrp } = await supabase
-      .from("group_settings")
-      .select("id")
-      .eq("instance_id", grpInstance.id)
-      .eq("group_jid", remoteJid)
-      .maybeSingle();
-
-    if (!existingGrp) {
-      // Track active groups (name is filled later by fetchAllGroups sync)
-      await supabase
-        .from("discovered_groups")
-        .upsert({
-          instance_id: grpInstance.id,
-          group_jid: remoteJid,
-          last_seen_at: new Date().toISOString(),
-        }, { onConflict: "instance_id,group_jid" });
-    }
-
-    const plan = await getPlanForInstance(supabase, grpInstance.id);
-
-    if (hasPlan(plan, "community")) {
-      const result = await handleGroupSpam({
-        supabase, instanceName, remoteJid, plainText,
-        msgId: body.data?.key?.id,
-        senderJid: body.data?.key?.participant || remoteJid,
-        bodyInstance: instanceName,
-      });
-      if (result) return NextResponse.json(result);
-    }
-
-    return NextResponse.json({ status: "ignored" });
-  }
-
-  // ============================================================
   // DM MESSAGES → load instance + plan + shared context
   // ============================================================
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("id, instance_name, evolution_api_url, evolution_api_key, welcome_message, outside_hours_message")
-    .eq("instance_name", instanceName)
-    .single();
+  const instances = await select<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; welcome_message: string | null; outside_hours_message: string | null }>(
+    "SELECT id, instance_name, evolution_api_url, evolution_api_key, welcome_message, outside_hours_message FROM instances WHERE instance_name = ? LIMIT 1",
+    [instanceName]
+  );
 
-  if (!instance) {
+  if (instances.length === 0) {
     console.error("[webhook] instancia no encontrada", { instance: instanceName, from: remoteJid });
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  const plan = await getPlanForInstance(supabase, instance.id);
+  const instance = instances[0];
+
+  // Fetch plan: look at subscriptions of assigned users + instance admin
+  const assignments = await select<{ user_id: string }>(
+    "SELECT user_id FROM user_instances WHERE instance_id = ?",
+    [instance.id]
+  );
+
+  const adminRows = await select<{ admin_id: string }>(
+    "SELECT admin_id FROM instances WHERE id = ? LIMIT 1",
+    [instance.id]
+  );
+
+  // Plan resolution: admin = pro; otherwise from active subscriptions
+  const adminUserId = adminRows?.[0]?.admin_id;
+  const proUserIds = new Set<string>();
+  if (assignments.length > 0) {
+    const userIds = assignments.map((a) => a.user_id);
+    const subs = await select<{ user_id: string; plan_type: string }>(
+      "SELECT user_id, plan_type FROM subscriptions WHERE user_id IN (?) AND status = 'active'",
+      [userIds]
+    );
+    for (const s of subs) {
+      if (s.plan_type === "pro") proUserIds.add(s.user_id);
+    }
+  }
+  // Instance admin always counts as pro
+  if (adminUserId && !proUserIds.has(adminUserId)) {
+    proUserIds.add(adminUserId);
+  }
+
+  const userIsPro = proUserIds.has(adminUserId) || proUserIds.size > 0;
+  const userPlan: PlanType = userIsPro ? "pro" : "starter";
+
   const phoneNumber = remoteJid.replace("@s.whatsapp.net", "").replace("@lid", "");
 
   // Log DM messages that look like booking intents to diagnose plan resolution
   if (effectiveText && /(turno|agenda|agendar|reservar|cita)/i.test(effectiveText)) {
-    console.log("[webhook] booking intent dm", { instance: instanceName, plan, from: remoteJid, text: effectiveText.slice(0, 40) });
+    console.log("[webhook] booking intent dm", { instance: instanceName, plan: userPlan, from: remoteJid, text: effectiveText.slice(0, 40) });
   }
 
   // Pre-fetch auto-responses (shared across handlers)
-  const { data: autoResponses } = await supabase
-    .from("auto_responses")
-    .select("id, keyword, regex_pattern, response_type, menu_config, response_text, response_media_url, priority, schedule, user_id")
-    .eq("instance_id", instance.id)
-    .eq("is_active", true)
-    .order("priority", { ascending: false });
+  const autoResponses = await select<{
+    id: string; keyword: string | null; regex_pattern: string | null;
+    response_text: string; response_type: string; menu_config: any | null;
+    response_media_url: string | null; priority: number; schedule: any | null; user_id: string;
+  }>(
+    "SELECT id, keyword, regex_pattern, response_text, response_type, menu_config, response_media_url, priority, schedule, user_id FROM auto_responses WHERE instance_id = ? AND is_active = true ORDER BY priority DESC",
+    [instance.id]
+  );
 
   // Build shared context
   const ctx: WebhookContext = {
-    supabase, instance, plan, instanceName, remoteJid, phoneNumber,
+    supabase: { query, pool: { execute: query } as any },
+    instance, plan: userPlan, instanceName, remoteJid, phoneNumber,
     effectiveText, buttonText, listText,
     pushName: body.data?.pushName,
     messageId: body.data?.key?.id,
     senderJid: body.data?.key?.participant,
+    rawButtonId: extractRawButtonId(body.data?.message) || undefined,
     autoResponses: autoResponses || [],
   };
+
+  // Plain-text menu navigation (Evolution 2.3.7 button fallback):
+  // if a menu is active, "1"/"2"/"3" picks an option and "0"/"volver" goes back.
+  // Runs before booking so numeric replies don't clash with the agenda.
+  if (!buttonText && !listText) {
+    const menuTextResult = await handleMenuTextReply(ctx);
+    if (menuTextResult) return NextResponse.json(menuTextResult);
+  }
 
   // ============================================================
   // PRO features: appointment booking flow
   // ============================================================
-  if (hasPlan(plan, "pro")) {
+  if (hasPlan(userPlan, "pro")) {
     // Reminder confirm/cancel: confirm_<id> or cancel_<id>
     const rawBtnId = extractRawButtonId(body.data?.message);
     const checkId = rawBtnId || effectiveText;
@@ -252,8 +202,9 @@ export async function POST(request: Request) {
     // (also matches plain-text replies: "1", "hoy", "próximo", "completa", etc.)
     const menuTextMatch = checkId.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "").trim();
     if (
-      checkId === "agenda_hoy" || checkId === "agenda_proximo" || checkId === "agenda_completa" ||
-      ["1", "hoy", "librehoy", "2", "proximo", "masproximo", "3", "completa", "agendacompleta"].includes(menuTextMatch)
+      await isAgendaActive(ctx) &&
+      (checkId === "agenda_hoy" || checkId === "agenda_proximo" || checkId === "agenda_completa" ||
+      ["1", "hoy", "librehoy", "2", "proximo", "masproximo", "3", "completa", "agendacompleta"].includes(menuTextMatch))
     ) {
       ctx.effectiveText =
         checkId === "1" || menuTextMatch === "hoy" || menuTextMatch === "librehoy" ? "agenda_hoy"
@@ -286,49 +237,49 @@ export async function POST(request: Request) {
     if (menuResult) return NextResponse.json(menuResult);
   }
 
+  // ============================================================
+  // CATALOG / Pedidos genéricos ( Starter + Pro )
+  // ============================================================
+  const catalogResult = await handleCatalogIntent(ctx);
+  if (catalogResult) return NextResponse.json(catalogResult);
+
   // Regular keyword/regex matching
   const replyResult = await handleAutoReply(ctx);
   return NextResponse.json(replyResult);
 }
 
-/** Look up the subscription plan for an instance */
-async function getPlanForInstance(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
-  instanceId: string,
-): Promise<PlanType> {
-  const hierarchy: PlanType[] = ["starter", "pro", "community"];
+/** Look up the subscription plan for an instance (admin=pro, assigned users from subscriptions) */
+async function resolvePlanForInstance(instanceId: string): Promise<PlanType> {
+  const hierarchy: PlanType[] = ["starter", "pro"];
   let best: PlanType = "starter";
 
-  const resolveUserPlan = async (userId: string | undefined | null) => {
+  const resolveUserPlan = async (userId: string) => {
     if (!userId) return;
-    const { data: sub } = await supabase
-      .from("subscriptions")
-      .select("plan_type")
-      .eq("user_id", userId)
-      .limit(1)
-      .maybeSingle();
-    const plan = (sub?.plan_type as PlanType | undefined);
+    const rows = await select<{ plan_type: string }>(
+      "SELECT plan_type FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1",
+      [userId]
+    );
+    const plan = rows[0]?.plan_type as PlanType | undefined;
     if (plan && hierarchy.indexOf(plan) > hierarchy.indexOf(best)) {
       best = plan;
     }
   };
 
-  // All assigned users
-  const { data: assignments } = await supabase
-    .from("user_instances")
-    .select("user_id")
-    .eq("instance_id", instanceId);
-  for (const a of assignments || []) {
+  // Assigned users
+  const assignments = await select<{ user_id: string }>(
+    "SELECT user_id FROM user_instances WHERE instance_id = ?",
+    [instanceId]
+  );
+  for (const a of assignments) {
     await resolveUserPlan(a.user_id);
   }
 
   // Instance admin (owner) always counts
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("admin_id")
-    .eq("id", instanceId)
-    .single();
-  await resolveUserPlan(instance?.admin_id);
+  const adminRows = await select<{ admin_id: string }>(
+    "SELECT admin_id FROM instances WHERE id = ? LIMIT 1",
+    [instanceId]
+  );
+  await resolveUserPlan(adminRows?.[0]?.admin_id);
 
   return best;
 }

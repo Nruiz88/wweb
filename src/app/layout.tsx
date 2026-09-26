@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { Toaster } from "sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -9,6 +10,11 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-label",
   subsets: ["latin"],
 });
 
@@ -24,20 +30,21 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://bot.panel-niconqn.duckdns.org"),
   title: {
     default: "Boti - Tu asistente de WhatsApp",
     template: "%s | Boti",
   },
   description:
-    "Boti es tu asistente virtual de WhatsApp. Responde automaticamente tus clientes, 24 horas, los 7 dias. Sin contratar a nadie, sin saber de codigo.",
+    "Boti es tu asistente virtual de WhatsApp. Responde automáticamente tus clientes, 24 horas, los 7 días. Sin contratar a nadie, sin saber de código.",
   keywords: [
     "WhatsApp bot",
-    "respuestas automaticas WhatsApp",
-    "bot de atencion al cliente",
+    "respuestas automáticas WhatsApp",
+    "bot de atención al cliente",
     "bot WhatsApp Argentina",
     "Evolution API",
-    "atencion al cliente",
-    "automatizacion WhatsApp",
+    "atención al cliente",
+    "automatización WhatsApp",
     "boti",
   ],
   authors: [{ name: "Boti" }],
@@ -48,13 +55,13 @@ export const metadata: Metadata = {
     siteName: "Boti",
     title: "Boti - Tu asistente de WhatsApp",
     description:
-      "Responde automaticamente tus clientes por WhatsApp, 24/7. Sin saber de codigo, en 2 minutos.",
+      "Responde solo, agenda turnos y toma pedidos por WhatsApp, 24/7. Sin saber de código, en 2 minutos.",
   },
   twitter: {
     card: "summary_large_image",
     title: "Boti - Tu asistente de WhatsApp",
     description:
-      "Responde automaticamente tus clientes por WhatsApp, 24/7.",
+      "Responde solo, agenda turnos y toma pedidos por WhatsApp, 24/7.",
   },
   robots: {
     index: true,
@@ -73,9 +80,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="es"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
-      <body className="h-full">{children}</body>
+      <body className="h-full">{children}<Toaster richColors theme="dark" position="top-right" /></body>
     </html>
   );
 }

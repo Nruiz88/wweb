@@ -2,15 +2,13 @@ import { sendTextMessage, sendButtonMessage } from "@/lib/evolution-multi";
 import type { ButtonItem } from "@/lib/evolution-multi";
 import type { WebhookContext } from "./context";
 import { slugify } from "@/lib/slug";
+import { query } from "@/lib/db";
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
-// Business timezone. Vercel functions run in UTC, so "today"/"now" must be
-// computed in the business's local time or the "Libre hoy" filter will drop
-// valid afternoon slots (server is 3h ahead of Argentina). Configurable via
-// BUSINESS_TIMEZONE env; defaults to Buenos Aires.
-const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/Argentina/Buenos_Aires";
+import { BUSINESS_TIMEZONE } from "@/lib/timezone";
+import { Redis } from "@upstash/redis";
 
 function localDateStr(now: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -33,24 +31,68 @@ function localTimeMinutes(now: Date): number {
   return h * 60 + m;
 }
 
-// In-memory state: remember the date shown to a user so that when they reply
-// with a slot number ("1", "2"...) we know which date to book. Keyed by
-// instance:phone. Note: ephemeral across serverless restarts; used only to
-// bridge the immediate follow-up message.
-const pendingDate = new Map<string, string>();
-const PENDING_TTL_MS = 10 * 60 * 1000;
+// Redis distribuido para agenda/pending (serverless-safe) con fallback en memoria
+const redis =
+  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+    ? new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN })
+    : null;
 
-function rememberDate(ctx: WebhookContext, date: string): void {
-  const key = `${ctx.instance.id}:${ctx.remoteJid}`;
-  pendingDate.set(key, date);
-  setTimeout(() => pendingDate.delete(key), PENDING_TTL_MS);
+const pendingDateFallback = new Map<string, string>();
+const agendaActiveFallback = new Map<string, boolean>();
+const PENDING_TTL_MS = 10 * 60 * 1000;
+const AGENDA_TTL_MS = 15 * 60 * 1000;
+
+function agendaKey(ctx: WebhookContext): string {
+  return `${ctx.instance.id}:${ctx.remoteJid}`;
 }
 
-function getPendingDate(ctx: WebhookContext): string | null {
-  const key = `${ctx.instance.id}:${ctx.remoteJid}`;
-  const date = pendingDate.get(key) ?? null;
-  if (date) pendingDate.delete(key);
-  return date;
+async function markAgendaActive(ctx: WebhookContext): Promise<void> {
+  const key = `agenda:${agendaKey(ctx)}`;
+  if (redis) await redis.set(key, "1", { ex: Math.ceil(AGENDA_TTL_MS / 1000) });
+  else {
+    agendaActiveFallback.set(key, true);
+    setTimeout(() => agendaActiveFallback.delete(key), AGENDA_TTL_MS);
+  }
+}
+
+async function clearAgendaActive(ctx: WebhookContext): Promise<void> {
+  const key = `agenda:${agendaKey(ctx)}`;
+  if (redis) await redis.del(key);
+  else agendaActiveFallback.delete(key);
+}
+
+/** True si el usuario está dentro del flujo de agenda (menú visible). */
+export async function isAgendaActive(ctx: WebhookContext): Promise<boolean> {
+  const key = `agenda:${agendaKey(ctx)}`;
+  if (redis) return (await redis.get(key)) === "1";
+  return agendaActiveFallback.get(key) === true;
+}
+
+async function rememberDate(ctx: WebhookContext, date: string): Promise<void> {
+  const key = `pending:${agendaKey(ctx)}`;
+  if (redis) await redis.set(key, date, { ex: Math.ceil(PENDING_TTL_MS / 1000) });
+  else {
+    pendingDateFallback.set(key, date);
+    setTimeout(() => pendingDateFallback.delete(key), PENDING_TTL_MS);
+  }
+}
+
+async function peekPendingDate(ctx: WebhookContext): Promise<string | null> {
+  const key = `pending:${agendaKey(ctx)}`;
+  if (redis) return (await redis.get(key)) as string | null;
+  return pendingDateFallback.get(key) ?? null;
+}
+
+async function getPendingDate(ctx: WebhookContext): Promise<string | null> {
+  const key = `pending:${agendaKey(ctx)}`;
+  if (redis) {
+    const v = (await redis.get(key)) as string | null;
+    if (v) await redis.del(key);
+    return v;
+  }
+  const v = pendingDateFallback.get(key) ?? null;
+  if (v) pendingDateFallback.delete(key);
+  return v;
 }
 
 function formatDateStr(dateStr: string): string {
@@ -131,6 +173,10 @@ async function getAvailableSlots(
 export async function handleAgendaMenu(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
   const { effectiveText } = ctx;
 
+  // Mientras se muestra cualquier opción del menú de agenda, la sesión está
+  // activa (permite responder con 1/2/3 o con un número de horario).
+  await markAgendaActive(ctx);
+
   if (effectiveText === "agenda_hoy") {
     return handleAgendaHoy(ctx);
   }
@@ -165,7 +211,7 @@ async function handleAgendaHoy(ctx: WebhookContext): Promise<{ status: string; m
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
-      "❌ Hoy no hay horarios configurados. Respondé 2 para ver el próximo día o 3 para la agenda completa.",
+      "❌ *Hoy no hay horarios configurados.*\n\nRespondé 2️⃣ para ver el próximo día o 3️⃣ para la agenda completa.",
       1500,
     );
     return { status: "success", matched: "[turno hoy sin agenda]" };
@@ -175,21 +221,24 @@ async function handleAgendaHoy(ctx: WebhookContext): Promise<{ status: string; m
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
-      "❌ Hoy no quedan horarios libres. Respondé 2 para ver el próximo día o 3 para la agenda completa.",
+      "❌ *Hoy no quedan horarios libres.*\n\nRespondé 2️⃣ para ver el próximo día o 3️⃣ para la agenda completa.",
       1500,
     );
     return { status: "success", matched: "[turno hoy sin slots]" };
   }
 
   const dateStr = formatDateStr(today);
-  const list = slots.map((t, i) => `${i + 1}. ${t}`).join("\n");
+  const list = slots.map((t, i) => `   ${i + 1}.  🕐  ${t} hs`).join("\n");
   await sendTextMessage(
     instance.evolution_api_url, instance.evolution_api_key,
     instance.instance_name, phoneNumber,
-    `🕐 Horarios libres HOY (${dateStr}):\n\n${list}\n\nRespondé con el número del horario que querés.`,
+    `🕐 *Horarios libres HOY* — ${dateStr}\n\n` +
+      `_Elegí un horario y respondé con su número:_\n\n` +
+      `${list}\n\n` +
+      `0️⃣  🔙 Volver atrás`,
     1500,
   );
-  rememberDate(ctx, today);
+  await rememberDate(ctx, today);
   return { status: "success", matched: "[turno hoy]" };
 }
 
@@ -205,14 +254,17 @@ async function handleAgendaProximo(ctx: WebhookContext): Promise<{ status: strin
     const { slots } = await getAvailableSlots(ctx, dateStr);
     if (slots.length > 0) {
       const dateStr2 = formatDateStr(dateStr);
-      const list = slots.map((t, idx) => `${idx + 1}. ${t}`).join("\n");
+      const list = slots.map((t, idx) => `   ${idx + 1}.  🕐  ${t} hs`).join("\n");
       await sendTextMessage(
         instance.evolution_api_url, instance.evolution_api_key,
         instance.instance_name, phoneNumber,
-        `⏭️ Próximo día con horarios libres: ${dateStr2}\n\n${list}\n\nRespondé con el número del horario que querés.`,
+        `⏭️ *Próximo día con horarios libres* — ${dateStr2}\n\n` +
+          `_Elegí un horario y respondé con su número:_\n\n` +
+          `${list}\n\n` +
+          `0️⃣  🔙 Volver atrás`,
         1500,
       );
-      rememberDate(ctx, dateStr);
+      await rememberDate(ctx, dateStr);
       return { status: "success", matched: "[turno próximo]" };
     }
   }
@@ -220,7 +272,7 @@ async function handleAgendaProximo(ctx: WebhookContext): Promise<{ status: strin
   await sendTextMessage(
     instance.evolution_api_url, instance.evolution_api_key,
     instance.instance_name, phoneNumber,
-    "No encontré disponibilidad en los próximos 14 días. Escribí más tarde.",
+    "❌ No encontré disponibilidad en los próximos 14 días. Escribí más tarde.",
     1500,
   );
   return { status: "success", matched: "[turno sin disponibilidad]" };
@@ -317,7 +369,10 @@ export async function handleAppointmentConfirm(ctx: WebhookContext): Promise<{ s
   // Authorization: only confirm/cancel appointments belonging to this instance
   if (appt.instance_id !== instance.id) return null;
 
-  await supabase.from("appointments").update({ status: newStatus }).eq("id", apptId).eq("instance_id", instance.id);
+  await query(
+    "UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ? AND instance_id = ?",
+    [newStatus, apptId, instance.id]
+  );
 
   const dateStr = formatDateStr(appt.appointment_date);
   const [h, m] = appt.appointment_time.split(":");
@@ -413,9 +468,26 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
   const clean = effectiveText.trim();
   if (!/^\d{1,2}$/.test(clean)) return null;
   const index = parseInt(clean, 10);
+
+  // "0" → volver al menú de agenda (consume el estado de la fecha)
+  if (index === 0) {
+    const date = await getPendingDate(ctx);
+    if (date) {
+      await sendTextMessage(
+        instance.evolution_api_url, instance.evolution_api_key,
+        instance.instance_name, phoneNumber,
+        "🔙 Volviste al menú de agenda.\n\n1️⃣ 🕐 Libre hoy\n2️⃣ ⏭️ Libre más próximo\n3️⃣ 📅 Agenda completa\n\nRespondé con el número o la opción 👇",
+        1500,
+      );
+      return { status: "success", matched: "[turno volver]" };
+    }
+    return null;
+  }
+
   if (index < 1 || index > 30) return null;
 
-  const date = getPendingDate(ctx);
+  // Peek (no consume): un intento inválido no rompe el flujo del usuario.
+  const date = await peekPendingDate(ctx);
   if (!date) return null;
 
   const { slots } = await getAvailableSlots(ctx, date);
@@ -464,6 +536,10 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
     .single();
 
   if (newAppt) {
+    // Turno agendado → el flujo de agenda TERMINA. Los números posteriores
+    // ya no deben re-disparar el menú; se vuelve a empezar con la palabra clave.
+    await getPendingDate(ctx);
+    await clearAgendaActive(ctx);
     const dateStr = formatDateStr(date);
     const [h, m] = chosen.split(":");
     await sendTextMessage(
@@ -529,8 +605,8 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
   const bookedSet = new Set((booked || []).map((b) => b.appointment_time));
 
   const now = new Date();
-  const isToday = slotDate === now.toISOString().slice(0, 10);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const isToday = slotDate === localDateStr(now);
+  const nowMinutes = localTimeMinutes(now);
 
   const availableSlots: string[] = [];
   for (let m = startMin; m + dur <= endMin; m += dur) {

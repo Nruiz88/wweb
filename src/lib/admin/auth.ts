@@ -1,48 +1,32 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { supabaseConfig } from "@/lib/supabase/config";
+import { getUserSession } from "../auth";
 
 /**
  * Shared admin authentication helper.
- * Returns { user, supabase } if the request is from an admin,
+ * Returns { user, isAdmin } if the request is from an admin,
  * or a NextResponse error if not.
+ *
+ * All admin API routes must call requireAdmin() first.
+ * Users are authenticated via the wweb_session JWT cookie (JWT_SECRET).
+ * Roles are stored in the profiles table.
  *
  * Usage in any admin API route:
  *
  *   const auth = await requireAdmin();
  *   if ("error" in auth) return auth.error;
- *   const { user, supabase } = auth;
+ *   const { user, isAdmin } = auth;
  */
+
 export async function requireAdmin() {
-  // Get user from session cookies
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
+  const session = await getUserSession();
 
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
-
-  const { data: { user } } = await sessionClient.auth.getUser();
-
-  if (!user) {
+  if (!session) {
     return { error: NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 }) };
   }
 
-  // Verify admin role via service role
-  const supabase = await createServerClient();
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
+  if (session.role !== "admin") {
     return { error: NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 }) };
   }
 
-  return { user, supabase };
+  return { user: { id: session.userId, email: session.email }, isAdmin: true };
 }

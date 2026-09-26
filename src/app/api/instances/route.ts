@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { supabaseConfig } from "@/lib/supabase/config";
-import { getConnectionState } from "@/lib/evolution-multi";
+import { getSession } from "@/lib/auth";
+import { query, select } from "@/lib/db";
+import { getConnectionState, testEvolutionConnection } from "@/lib/evolution-multi";
 import { validateEvolutionUrl, sanitizeString } from "@/lib/validation";
 import { safeErrorMessage } from "@/lib/api-helpers";
+import { checkInstanceLimit } from "@/lib/plan-gating";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,10 @@ interface InstanceRow {
   created_at: string;
   evolution_api_url?: string;
   evolution_api_key?: string;
+  status_checked_at?: string | null;
 }
+
+type ServiceClient = any;
 
 function sanitizeInstance(instance: InstanceRow) {
   return {
@@ -25,167 +29,95 @@ function sanitizeInstance(instance: InstanceRow) {
   };
 }
 
-// Caché del estado en vivo: evita llamar a Evolution API en cada request.
-// Solo se refresca si el dato tiene mas de TTL_MS de antiguedad.
 const statusCache = new Map<string, { status: string; at: number }>();
-const STATUS_TTL_MS = 10_000;
+const STATUS_TTL_MS = 60_000;
+const BASE_COLUMNS = "id, instance_name, status, created_at, evolution_api_url, evolution_api_key";
 
-async function withLiveStatus(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
-  instances: InstanceRow[]
-) {
-  const now = Date.now();
-
-  return Promise.all(
-    instances.map(async (instance) => {
-      if (!instance.evolution_api_url || !instance.evolution_api_key) {
-        return sanitizeInstance(instance);
-      }
-
-      const cacheKey = `${instance.evolution_api_url}|${instance.instance_name}`;
-      const cached = statusCache.get(cacheKey);
-
-      if (cached && now - cached.at < STATUS_TTL_MS) {
-        return sanitizeInstance({ ...instance, status: cached.status });
-      }
-
-      const state = await getConnectionState(
-        instance.evolution_api_url,
-        instance.evolution_api_key,
-        instance.instance_name
-      );
-
-      if (state.ok && state.data) {
-        statusCache.set(cacheKey, { status: state.data, at: Date.now() });
-        try {
-          await supabase
-            .from("instances")
-            .update({ status: state.data })
-            .eq("id", instance.id);
-        } catch {
-          // Non-critical: keep serving even if DB update fails
-        }
-        return sanitizeInstance({ ...instance, status: state.data });
-      }
-
-      return sanitizeInstance(instance);
-    })
-  );
+async function selectInstances(adminId: string | undefined, ids: string[] | undefined): Promise<{ rows: InstanceRow[]; freshCheck: boolean; error: unknown }> {
+  let q: string;
+  if (adminId !== undefined) {
+    q = `SELECT ${BASE_COLUMNS}, status_checked_at FROM instances WHERE admin_id = ? ORDER BY created_at DESC`;
+    const rows = await query<InstanceRow>(q, [adminId]);
+    return { rows: rows || [], freshCheck: true, error: null };
+  }
+  if (ids?.length) {
+    const placeholders = ids.map(() => "?").join(",");
+    q = `SELECT ${BASE_COLUMNS}, status_checked_at FROM instances WHERE id IN (${placeholders}) ORDER BY created_at DESC`;
+    const rows = await query<InstanceRow>(q, [...ids]);
+    return { rows: rows || [], freshCheck: true, error: null };
+  }
+  return { rows: [], freshCheck: false, error: null };
 }
 
-// GET: List instances
-export async function GET() {
-  // Use SSR client to read session from request cookies
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
+async function persistStatus(id: string, status: string) {
+  try {
+    await query("UPDATE instances SET status = ?, status_checked_at = NOW() WHERE id = ?", [status, id]);
+  } catch {
+    // Non-critical
+  }
+}
 
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
+async function withLiveStatus(instances: InstanceRow[], freshCheck: boolean) {
+  const now = Date.now();
+  const results = await Promise.all(instances.map(async (instance) => {
+    if (!instance.evolution_api_url || !instance.evolution_api_key) {
+      return sanitizeInstance(instance);
+    }
+    if (freshCheck && instance.status_checked_at) {
+      const checkedAt = new Date(instance.status_checked_at).getTime();
+      if (!Number.isNaN(checkedAt) && now - checkedAt < STATUS_TTL_MS) {
+        return sanitizeInstance(instance);
+      }
+    }
+    const cacheKey = `${instance.evolution_api_url}|${instance.instance_name}`;
+    const cached = statusCache.get(cacheKey);
+    if (cached && now - cached.at < STATUS_TTL_MS) {
+      return sanitizeInstance({ ...instance, status: cached.status });
+    }
+    const state = await getConnectionState(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name);
+    if (state.ok && state.data) {
+      statusCache.set(cacheKey, { status: state.data, at: Date.now() });
+      await persistStatus(instance.id, state.data);
+      return sanitizeInstance({ ...instance, status: state.data });
+    }
+    return sanitizeInstance(instance);
+  }));
+  return results;
+}
 
-  const { data: { user } } = await sessionClient.auth.getUser();
-
-  if (!user) {
+export async function GET(request: Request) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
+  const lite = new URL(request.url).searchParams.get("lite") === "1";
 
-  // Use service role for DB queries
-  const supabase = await createServerClient();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role === "admin") {
-    const { data: instances, error } = await supabase
-      .from("instances")
-      .select("id, instance_name, status, created_at, evolution_api_url, evolution_api_key")
-      .eq("admin_id", user.id)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-    }
-
-    const live = await withLiveStatus(supabase, instances as InstanceRow[]);
-    return NextResponse.json({ status: "success", data: live, role: "admin" });
-  }
-
-  const { data: assignments } = await supabase
-    .from("user_instances")
-    .select("instance_id")
-    .eq("user_id", user.id);
-
-  if (!assignments || assignments.length === 0) {
-    return NextResponse.json({ status: "success", data: [], role: "user" });
-  }
-
-  const { data: instances, error } = await supabase
-    .from("instances")
-    .select("id, instance_name, status, created_at, evolution_api_url, evolution_api_key")
-    .in("id", assignments.map((a) => a.instance_id));
-
+  const { rows: instances, freshCheck, error } = await selectInstances(session.userId, undefined);
   if (error) {
     return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
-
-  const live = await withLiveStatus(supabase, instances as InstanceRow[]);
-  return NextResponse.json({ status: "success", data: live, role: "user" });
+  if (lite) {
+    return NextResponse.json({ status: "success", data: instances.map(sanitizeInstance), role: "admin" });
+  }
+  const live = await withLiveStatus(instances, freshCheck);
+  return NextResponse.json({ status: "success", data: live, role: "admin" });
 }
 
-// POST: Create new instance (admin only)
 export async function POST(request: Request) {
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
-
-  const { data: { user } } = await sessionClient.auth.getUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
-    return NextResponse.json({ status: "error", error: "Only admins can create instances" }, { status: 403 });
-  }
-
   let body: unknown;
-  try { body = await request.json(); } catch {
-    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
-  }
+  try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const { instanceName, evolutionApiUrl, evolutionApiKey } = (body ?? {}) as {
-    instanceName?: string;
-    evolutionApiUrl?: string;
-    evolutionApiKey?: string;
-  };
+  const { instanceName, evolutionApiUrl, evolutionApiKey } = body as { instanceName?: string; evolutionApiUrl?: string; evolutionApiKey?: string };
 
   const cleanName = sanitizeString(instanceName, 50);
   if (!cleanName) {
     return NextResponse.json({ status: "error", error: "Instance name is required" }, { status: 400 });
   }
-
   if (!evolutionApiUrl || !evolutionApiKey) {
     return NextResponse.json({ status: "error", error: "All fields are required" }, { status: 400 });
   }
@@ -195,54 +127,55 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: urlCheck.error }, { status: 400 });
   }
 
-  const { data: instance, error } = await supabase
-    .from("instances")
-    .insert({ admin_id: user.id, instance_name: cleanName, evolution_api_url: urlCheck.normalized || evolutionApiUrl.trim(), evolution_api_key: evolutionApiKey })
-    .select("id, instance_name, status, created_at")
-    .single();
+  const normalizedUrl = urlCheck.normalized || evolutionApiUrl.trim();
 
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+  // Gating por plan: límite de instancias según suscripción activa + add-ons.
+  const limit = await checkInstanceLimit(session.userId);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { status: "error", error: limit.reason, code: limit.code, used: limit.used, max: limit.max },
+      { status: 403 }
+   );
   }
 
-  return NextResponse.json({ status: "success", data: instance });
+  const serverCheck = await testEvolutionConnection(normalizedUrl, evolutionApiKey);
+  if (!serverCheck.ok) {
+    const hint = serverCheck.status === 401 || serverCheck.status === 403 ? " (API key global de Evolution inválida)" : serverCheck.status === 404 ? " (URL mal)" : "";
+    return NextResponse.json({ status: "error", error: `Servidor no responde: ${serverCheck.message}${hint}` }, { status: 400 });
+  }
+
+  const { insertId } = await query(
+    "INSERT INTO instances (id, admin_id, instance_name, evolution_api_url, evolution_api_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'connecting', NOW(), NOW())",
+    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), session.userId, cleanName, normalizedUrl, evolutionApiKey]
+  );
+
+  return NextResponse.json({
+    status: "success",
+    data: { id: insertId, instance_name: cleanName, status: "connecting", created_at: new Date().toISOString() },
+    message: "Servidor verificado — instancia lista. El usuario debe vincular QR en Mi WhatsApp para pasar a conectada.",
+  });
 }
 
-// DELETE: Delete instance (admin only)
 export async function DELETE(request: Request) {
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
-
-  const { data: { user } } = await sessionClient.auth.getUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
-
   if (!id) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const { data: instance } = await supabase.from("instances").select("id, admin_id").eq("id", id).single();
-
-  if (!instance || instance.admin_id !== user.id) {
+  const inst = await query<{ id: string; admin_id: string }>(
+    "SELECT id, admin_id FROM instances WHERE id = ? LIMIT 1",
+    [id]
+  );
+  if (!inst.length || inst[0].admin_id !== session.userId) {
     return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
   }
 
-  const { error } = await supabase.from("instances").delete().eq("id", id);
-  if (error) return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-
+  await query("DELETE FROM instances WHERE id = ?", [id]);
   return NextResponse.json({ status: "success" });
 }
