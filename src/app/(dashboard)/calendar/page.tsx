@@ -136,15 +136,31 @@ export default function CalendarPage() {
         fetch(`/api/appointments?instanceId=${id}&from=${rangeFrom}&to=${rangeTo}`),
         fetch(`/api/business-hours?instanceId=${id}`),
       ]);
-      const apptPayload = await apptRes.json();
-      if (apptPayload.status === "success") {
-        setAppointments(apptPayload.data);
+
+      // Un 500 de Next devuelve HTML: `res.json()` tira y el catch de arriba
+      // terminaba mostrando un "error de conexión" genérico que no decía nada.
+      // Se lee el cuerpo como texto y se reporta el status + un fragmento.
+      const readJson = async (res: Response) => {
+        const text = await res.text();
+        try {
+          return { ok: res.ok, payload: JSON.parse(text) as any };
+        } catch {
+          return {
+            ok: false,
+            payload: { status: "error", error: `HTTP ${res.status}: ${text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").slice(0, 200)}` },
+          };
+        }
+      };
+
+      const appt = await readJson(apptRes);
+      if (appt.ok && appt.payload?.status === "success") {
+        setAppointments(appt.payload.data);
       } else {
         setAppointments([]);
-        setFeedback({ kind: "error", message: apptPayload.error || "No se pudieron cargar los turnos" });
+        setFeedback({ kind: "error", message: appt.payload?.error || "No se pudieron cargar los turnos" });
       }
-      const hoursPayload = await hoursRes.json();
-      if (hoursPayload.status === "success") {
+      const hoursPayload = (await readJson(hoursRes)).payload;
+      if (hoursPayload?.status === "success") {
         setBusinessHours(hoursPayload.data);
       }
     },
@@ -155,7 +171,17 @@ export default function CalendarPage() {
     setLoading(true);
     try {
       const instRes = await fetch("/api/instances?lite=1");
-      const instPayload = await instRes.json();
+      const instText = await instRes.text();
+      let instPayload: any;
+      try {
+        instPayload = JSON.parse(instText);
+      } catch {
+        setFeedback({
+          kind: "error",
+          message: `/api/instances → HTTP ${instRes.status}: ${instText.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").slice(0, 180)}`,
+        });
+        return;
+      }
       if (instPayload.status !== "success") {
         setFeedback({ kind: "error", message: instPayload.error || "No se pudieron cargar tus instancias" });
         return;
@@ -170,8 +196,11 @@ export default function CalendarPage() {
       setInstanceId(target.id);
 
       await loadInstanceData(target.id);
-    } catch {
-      setFeedback({ kind: "error", message: "Error de conexión al cargar el calendario" });
+    } catch (e) {
+      setFeedback({
+        kind: "error",
+        message: `No se pudo cargar el calendario: ${e instanceof Error ? e.message : String(e)}`,
+      });
     } finally {
       setLoading(false);
     }

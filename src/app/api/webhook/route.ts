@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { query, generateId } from "@/lib/db";
 import { getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { verifyWebhookSignature } from "@/lib/webhook-secret";
 import { extractMessageText, extractButtonText, extractListText, extractRawButtonId } from "@/lib/webhook/extract";
@@ -40,6 +40,79 @@ async function update(sql: string, params: any[] = []): Promise<{ affectedRows: 
   return { affectedRows: res?.affectedRows ?? 0 };
 }
 
+/**
+ * Auditoría durable del webhook.
+ *
+ * Los `console.log` solo viven en el stdout del contenedor (panel de Coolify),
+ * que rota y no se puede consultar después. `webhook_logs` existe en el schema
+ * desde siempre pero NUNCA se escribía: es el único lugar donde queda registro
+ * de qué pasó con cada mensaje. Se lee en /admin (pestaña Webhook).
+ *
+ * Nunca debe romper el flujo: cualquier error acá se traga.
+ */
+async function logWebhook(
+  eventType: string,
+  status: "processed" | "failed" | "skipped",
+  opts: { instanceId?: string | null; payload?: unknown; error?: string | null; userId?: string | null } = {},
+) {
+  try {
+    await query(
+      `INSERT INTO webhook_logs (id, event_type, instance_id, user_id, payload, status, error_message, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        generateId(),
+        String(eventType).slice(0, 255),
+        opts.instanceId ?? null,
+        opts.userId ?? null,
+        opts.payload ? JSON.stringify(opts.payload).slice(0, 60000) : null,
+        status,
+        opts.error ? String(opts.error).slice(0, 2000) : null,
+      ]
+    );
+  } catch (e) {
+    console.error("[webhook] no se pudo auditar", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
+/** Snapshot acotado del payload para no guardar megabytes ni PII sensible. */
+function auditPayload(body: WebhookPayload) {
+  return {
+    instance: body?.instance,
+    remoteJid: body?.data?.key?.remoteJid,
+    fromMe: body?.data?.key?.fromMe,
+    text: String(
+      (body?.data?.message as Record<string, unknown> | undefined)?.conversation ??
+        (body?.data?.message as Record<string, unknown> | undefined)?.extendedTextMessage ?? ""
+    ).slice(0, 300),
+  };
+}
+
+/**
+ * Responde Y audita. Todos los retornos de handler pasan por acá, así
+ * `webhook_logs.status` + `payload.matched` muestran qué handler matcheó y con
+ * qué texto — la forma de saber si el bot respondió "turno" sin tener logs
+ * de runtime.
+ */
+async function reply(
+  result: { status: string; matched?: string } | null,
+  ctx: { instance: { id: string }; plan: string; effectiveText: string; remoteJid: string; isLid: boolean },
+) {
+  await logWebhook(result ? "handler_matched" : "no_handler_matched", "processed", {
+    instanceId: ctx.instance.id,
+    payload: {
+      text: ctx.effectiveText.slice(0, 300),
+      matched: result?.matched ?? null,
+      status: result?.status ?? null,
+      plan: ctx.plan,
+      from: ctx.remoteJid,
+      isLid: ctx.isLid,
+    },
+  });
+  return NextResponse.json(result);
+}
+
 export async function POST(request: Request) {
   // Sin esto, cualquier excepción en un handler (columna inexistente, BD caída,
   // Evolution en timeout) devolvía un 500 sin log y el usuario veía silencio total.
@@ -59,7 +132,10 @@ async function handleWebhook(request: Request) {
   // salen desde el mismo servidor → el límite era compartido. Con 100/min un
   // pico de varios números a la vez saturaba y el bot devolvía 429 (silencio).
   const rateLimitErr = await rateLimitResponse(request, "webhook", { maxRequests: 600, windowMs: 60_000 });
-  if (rateLimitErr) return rateLimitErr;
+  if (rateLimitErr) {
+    await logWebhook("rate_limited", "skipped", { payload: { ip: getClientIp(request) } });
+    return rateLimitErr;
+  }
 
   let rawBody: string;
   try { rawBody = await request.text(); } catch {
@@ -68,11 +144,13 @@ async function handleWebhook(request: Request) {
 
   if (!(await verifyWebhookSignature(request, rawBody))) {
     console.warn("[webhook] firma invalida", { ip: getClientIp(request) });
+    await logWebhook("invalid_signature", "skipped", { payload: { ip: getClientIp(request), body: rawBody.slice(0, 2000) } });
     return NextResponse.json({ status: "error", error: "Invalid signature" }, { status: 401 });
   }
 
   let body: WebhookPayload;
   try { body = JSON.parse(rawBody) as WebhookPayload; } catch {
+    await logWebhook("invalid_json", "failed", { payload: { body: rawBody.slice(0, 2000) } });
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
@@ -82,7 +160,10 @@ async function handleWebhook(request: Request) {
   }
 
   // Only process incoming messages from here
-  if (body.event !== "messages.upsert") return NextResponse.json({ status: "ignored" });
+  if (body.event !== "messages.upsert") {
+    await logWebhook(String(body.event || "unknown"), "skipped", { payload: auditPayload(body) });
+    return NextResponse.json({ status: "ignored" });
+  }
   if (body.data?.key?.fromMe) return NextResponse.json({ status: "ignored" });
 
   const instanceName = body.instance;
@@ -96,6 +177,10 @@ async function handleWebhook(request: Request) {
   const effectiveText = plainText || buttonText || listText;
 
   if (!instanceName || !remoteJid || !effectiveText) {
+    // Es el corte más silencioso de todos: si `extractMessageText` no reconoce
+    // la forma del mensaje (viewOnce, ephemeral, string plano...) el bot no
+    // responde y antes no quedaba registro de nada.
+    await logWebhook("no_extractable_text", "skipped", { payload: { ...auditPayload(body), rawMessage: JSON.stringify(body?.data?.message ?? null).slice(0, 1500) } });
     return NextResponse.json({ status: "ignored" });
   }
 
@@ -109,6 +194,7 @@ async function handleWebhook(request: Request) {
 
   if (instances.length === 0) {
     console.error("[webhook] instancia no encontrada", { instance: instanceName, from: remoteJid });
+    await logWebhook("instance_not_found", "failed", { payload: { instance: instanceName, from: remoteJid } });
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
@@ -194,12 +280,22 @@ async function handleWebhook(request: Request) {
     autoResponses: autoResponses || [],
   };
 
+  // Contexto de auditoría para `reply()`: identifica qué se procesó y si el
+  // remitente vino como LID (que no es un teléfono y Evolution no lo entrega).
+  const replyCtx = {
+    instance: { id: instance.id },
+    plan: userPlan,
+    effectiveText,
+    remoteJid,
+    isLid: remoteJid.endsWith("@lid"),
+  };
+
   // Plain-text menu navigation (Evolution 2.3.7 button fallback):
   // if a menu is active, "1"/"2"/"3" picks an option and "0"/"volver" goes back.
   // Runs before booking so numeric replies don't clash with the agenda.
   if (!buttonText && !listText) {
     const menuTextResult = await handleMenuTextReply(ctx);
-    if (menuTextResult) return NextResponse.json(menuTextResult);
+    if (menuTextResult) return reply(menuTextResult, replyCtx);
   }
 
   // ============================================================
@@ -213,25 +309,25 @@ async function handleWebhook(request: Request) {
     if (checkId.startsWith("confirm_") || checkId.startsWith("cancel_")) {
       ctx.effectiveText = checkId;
       const result = await handleAppointmentConfirm(ctx);
-      if (result) return NextResponse.json(result);
+      if (result) return reply(result, replyCtx);
     }
 
     // Slot selection: slot_<date>_<time>
     if (checkId.startsWith("slot_")) {
       ctx.effectiveText = checkId;
       const result = await handleSlotSelect(ctx);
-      if (result) return NextResponse.json(result);
+      if (result) return reply(result, replyCtx);
     }
 
     // Numeric reply to a text menu (e.g. "2" for a slot previously shown)
     const numericResult = await handleNumericSlotSelect(ctx);
-    if (numericResult) return NextResponse.json(numericResult);
+    if (numericResult) return reply(numericResult, replyCtx);
 
     // Date selection: date_<YYYY-MM-DD>
     if (checkId.startsWith("date_")) {
       ctx.effectiveText = checkId;
       const result = await handleDateSelect(ctx);
-      if (result) return NextResponse.json(result);
+      if (result) return reply(result, replyCtx);
     }
 
     // Agenda menu: agenda_hoy / agenda_proximo / agenda_completa
@@ -248,12 +344,12 @@ async function handleWebhook(request: Request) {
         : checkId === "3" || menuTextMatch === "completa" || menuTextMatch === "agendacompleta" ? "agenda_completa"
         : checkId;
       const result = await handleAgendaMenu(ctx);
-      if (result) return NextResponse.json(result);
+      if (result) return reply(result, replyCtx);
     }
 
     // Booking intent: "turno", "agendar", etc.
     const result = await handleBookingIntent(ctx);
-    if (result) return NextResponse.json(result);
+    if (result) return reply(result, replyCtx);
   }
 
   // ============================================================
@@ -265,21 +361,21 @@ async function handleWebhook(request: Request) {
 
   // Outside hours auto-reply (stops processing if triggered)
   const outsideResult = await handleOutsideHours(ctx);
-  if (outsideResult) return NextResponse.json(outsideResult);
+  if (outsideResult) return reply(outsideResult, replyCtx);
 
   // Menu button/list tap
   if (buttonText || listText) {
     const menuResult = await handleMenuTap(ctx);
-    if (menuResult) return NextResponse.json(menuResult);
+    if (menuResult) return reply(menuResult, replyCtx);
   }
 
   // ============================================================
   // CATALOG / Pedidos genéricos ( Starter + Pro )
   // ============================================================
   const catalogResult = await handleCatalogIntent(ctx);
-  if (catalogResult) return NextResponse.json(catalogResult);
+  if (catalogResult) return reply(catalogResult, replyCtx);
 
   // Regular keyword/regex matching
   const replyResult = await handleAutoReply(ctx);
-  return NextResponse.json(replyResult);
+  return reply(replyResult, replyCtx);
 }
