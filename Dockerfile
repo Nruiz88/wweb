@@ -1,4 +1,4 @@
-# Dokploy / Docker deploy for Next.js 16 (standalone)
+# Coolify / Docker deploy for Next.js 16 (standalone)
 FROM node:20-alpine AS base
 
 FROM base AS deps
@@ -11,7 +11,7 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# .env* esta gitignored: Dokploy las inyecta como Environment Variables.
+# .env* esta gitignored: Coolify las inyecta como Environment Variables.
 # NEXT_* publicas se bakean en el build -> si cambian, hay que Rebuild.
 RUN npm run build
 
