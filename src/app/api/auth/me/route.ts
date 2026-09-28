@@ -9,10 +9,14 @@ export async function GET() {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const profile = await query<{ role: string; full_name: string | null }>(
+  // `query()` devuelve el ARRAY de filas, no un objeto. `profile?.role` daba
+  // undefined siempre → la respuesta mandaba role:"user" y full_name:null a
+  // todos, aunque el usuario fuera admin.
+  const profiles = await query<{ role: string; full_name: string | null }>(
     "SELECT role, full_name FROM profiles WHERE id = ? LIMIT 1",
     [session.userId]
   );
+  const profile = profiles?.[0];
 
   return NextResponse.json({
     status: "success",

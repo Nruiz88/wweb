@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { query, generateId } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +27,14 @@ export async function POST(request: Request) {
 
   if (!sub || sub.status === "pending") {
     if (planType === "starter") {
-      const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15));
+      const id = generateId();
+      const cfg = await query<{ max_instances: number }>(
+        "SELECT max_instances FROM plan_config WHERE plan_type = 'starter' LIMIT 1"
+      );
+      const maxInstances = Number(cfg?.[0]?.max_instances) || 1;
       await query(
         `INSERT INTO subscriptions (id, user_id, plan_type, status, max_instances, paid_until, purchased_at, created_at, updated_at)
-         VALUES (?, ?, 'starter', 'active', 1, NULL, NOW(), NOW(), NOW())
+         VALUES (?, ?, 'starter', 'active', ?, NULL, NOW(), NOW(), NOW())
          ON DUPLICATE KEY UPDATE
            plan_type = VALUES(plan_type),
            status = VALUES(status),
@@ -38,7 +42,7 @@ export async function POST(request: Request) {
            paid_until = VALUES(paid_until),
            purchased_at = VALUES(purchased_at),
            updated_at = NOW()`,
-        [id, session.userId]
+        [id, session.userId, maxInstances]
       );
 
       // Assign instance if missing
@@ -52,11 +56,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "success", data: { plan: "pro", requires_payment: true, preference_url: "/api/payments/preference" } });
   }
 
-  // If already active but wants to change
-  const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15));
+  // ─── BUG CRÍTICO (arreglado) ────────────────────────────────────────────
+  // Esta rama escribía `plan_type = <lo que mande el body>` con
+  // `status = 'active'` y `paid_until = NULL`, SIN comprobar pago. Como la
+  // ruta de cobro real (activatePlan en el webhook de MP) nunca se ejecutaba,
+  // un POST `{"planType":"pro"}` con cualquier cookie de sesión válida
+  // activaba Pro gratis → todo el producto de pago era evadible.
+  //
+  // Regla: desde acá solo se puede BAJAR a starter (gratis) o pedir el cobro
+  // de un upgrade. Activar Pro requiere un pago verificado por el webhook de
+  // Mercado Pago o una acción de admin.
+  const isUpgrade = planType === "pro" && sub.plan_type !== "pro";
+  if (isUpgrade) {
+    return NextResponse.json({
+      status: "success",
+      data: { plan: sub.plan_type, requires_payment: true, preference_url: "/api/payments/preference" },
+    });
+  }
+
+  // `max_instances` venía hardcodeado en 1, ignorando `plan_config.max_instances`
+  // (pro = 3 en el DDL): un usuario "pro" quedaba limitado a 1 instancia.
+  const cfg = await query<{ max_instances: number }>(
+    "SELECT max_instances FROM plan_config WHERE plan_type = ? LIMIT 1",
+    [planType]
+  );
+  const maxInstances = Number(cfg?.[0]?.max_instances) || 1;
+
+  const id = generateId();
   await query(
     `INSERT INTO subscriptions (id, user_id, plan_type, status, max_instances, paid_until, purchased_at, created_at, updated_at)
-     VALUES (?, ?, ?, 'active', 1, NULL, NOW(), NOW(), NOW())
+     VALUES (?, ?, ?, 'active', ?, NULL, NOW(), NOW(), NOW())
      ON DUPLICATE KEY UPDATE
        plan_type = VALUES(plan_type),
        status = VALUES(status),
@@ -64,7 +93,7 @@ export async function POST(request: Request) {
        paid_until = VALUES(paid_until),
        purchased_at = VALUES(purchased_at),
        updated_at = NOW()`,
-    [id, session.userId, planType]
+    [id, session.userId, planType, maxInstances]
   );
 
   return NextResponse.json({ status: "success", data: { plan: planType, activated: true } });

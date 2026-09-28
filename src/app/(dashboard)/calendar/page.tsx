@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Clock, Shield, Check, X, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSearchParams, useRouter } from "next/navigation";
-import { todayInBusinessTimezone } from "@/lib/timezone";
+import { BUSINESS_TIMEZONE, todayInBusinessTimezone } from "@/lib/timezone";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -36,6 +36,11 @@ function formatTime(timeStr: string): string {
   return timeStr.slice(0, 5);
 }
 
+/** MySQL devuelve TIME como "HH:MM:SS"; los <input type="time"> quieren "HH:MM". */
+function normalizeHHMM(timeStr: string): string {
+  return (timeStr || "").slice(0, 5);
+}
+
 // zod schema for business-hours (per requirement)
 const hoursRowSchema = z
   .object({
@@ -56,6 +61,7 @@ export default function CalendarPage() {
   const { plan, isAdmin, loading: planLoading } = useUserPlan();
   const canEdit = isAdmin || plan === "pro";
   const [instanceId, setInstanceId] = useState<string | null>(null);
+  const [instances, setInstances] = useState<{ id: string; instance_name: string }[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [businessHours, setBusinessHours] = useState<BusinessHours[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,43 +88,94 @@ export default function CalendarPage() {
   });
   const watchedSchedule = hoursForm.watch("schedule");
 
+  // Hidrata el form con los horarios REALES de la instancia.
+  // Antes solo se usaban los `defaultValues` hardcodeados (Lun-Vie 09-18) y
+  // `businessHours` únicamente alimentaba el contador: al guardar se hacía
+  // upsert de los 7 días con los defaults y se BORRABA la configuración real
+  // (incluido `is_active` del fin de semana y el `slot_duration_min`).
+  useEffect(() => {
+    if (businessHours.length === 0) return;
+    const byDay = new Map(businessHours.map((h) => [h.day_of_week, h]));
+    hoursForm.reset({
+      schedule: [0, 1, 2, 3, 4, 5, 6].map((day) => {
+        const row = byDay.get(day);
+        return {
+          day,
+          start: row ? normalizeHHMM(row.start_time) : "09:00",
+          end: row ? normalizeHHMM(row.end_time) : "18:00",
+          duration: row?.slot_duration_min ?? 30,
+          active: row ? !!row.is_active : day >= 1 && day <= 5,
+        };
+      }),
+    });
+    // Solo cuando cambia el set de horarios, no en cada render del form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessHours]);
+
+  // Ventana de 14 días desde HOY, igual que el link público /agendar.
+  // Antes arrancaba en el domingo de la semana y llegaba solo a +14 desde ahí,
+  // así que los turnos de los últimos días ofrecidos quedaban fuera.
+  const { from: rangeFrom, to: rangeTo } = useMemo(() => {
+    const todayStr = todayInBusinessTimezone();
+    const from = new Date(`${todayStr}T12:00:00`);
+    const to = new Date(from);
+    to.setDate(from.getDate() + 13);
+    const fmt = (d: Date) =>
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: BUSINESS_TIMEZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
+    return { from: fmt(from), to: fmt(to) };
+  }, []);
+
+  const loadInstanceData = useCallback(
+    async (id: string) => {
+      const [apptRes, hoursRes] = await Promise.all([
+        fetch(`/api/appointments?instanceId=${id}&from=${rangeFrom}&to=${rangeTo}`),
+        fetch(`/api/business-hours?instanceId=${id}`),
+      ]);
+      const apptPayload = await apptRes.json();
+      if (apptPayload.status === "success") {
+        setAppointments(apptPayload.data);
+      } else {
+        setAppointments([]);
+        setFeedback({ kind: "error", message: apptPayload.error || "No se pudieron cargar los turnos" });
+      }
+      const hoursPayload = await hoursRes.json();
+      if (hoursPayload.status === "success") {
+        setBusinessHours(hoursPayload.data);
+      }
+    },
+    [rangeFrom, rangeTo],
+  );
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const instRes = await fetch("/api/instances?lite=1");
       const instPayload = await instRes.json();
-      if (instPayload.status === "success" && instPayload.data?.length > 0) {
-        const id = instPayload.data[0].id;
-        setInstanceId(id);
-
-        const nowStr = todayInBusinessTimezone();
-        const now = new Date(`${nowStr}T12:00:00`);
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() - now.getDay());
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 14);
-
-        const [apptRes, hoursRes] = await Promise.all([
-          fetch(
-            `/api/appointments?instanceId=${id}&from=${weekStart.toISOString().slice(0, 10)}&to=${weekEnd.toISOString().slice(0, 10)}`,
-          ),
-          fetch(`/api/business-hours?instanceId=${id}`),
-        ]);
-        const apptPayload = await apptRes.json();
-        if (apptPayload.status === "success") {
-          setAppointments(apptPayload.data);
-        }
-        const hoursPayload = await hoursRes.json();
-        if (hoursPayload.status === "success") {
-          setBusinessHours(hoursPayload.data);
-        }
+      if (instPayload.status !== "success") {
+        setFeedback({ kind: "error", message: instPayload.error || "No se pudieron cargar tus instancias" });
+        return;
       }
+      const list: { id: string; instance_name: string }[] = instPayload.data || [];
+      setInstances(list);
+      if (list.length === 0) return;
+
+      // Antes se fijaba siempre instances[0] y no había selector: un turno
+      // agendado por el link público sobre la 2ª instancia era invisible.
+      const target = list.find((i) => i.id === instanceId) || list[0];
+      setInstanceId(target.id);
+
+      await loadInstanceData(target.id);
     } catch {
-      // Non-critical
+      setFeedback({ kind: "error", message: "Error de conexión al cargar el calendario" });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [instanceId, loadInstanceData]);
 
   useEffect(() => {
     const t = setTimeout(() => void loadData(), 0);
@@ -258,7 +315,7 @@ export default function CalendarPage() {
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-extrabold tracking-tight text-wa-text">{isConfigMode ? "Horarios del negocio" : "Calendario"}</h1>
-            <p className="text-xs text-wa-text-secondary/60 mt-0.5">{isConfigMode ? "Configurá días, horarios y duración por turno" : `${appointments.length} turno${appointments.length !== 1 ? "s" : ""} esta semana`}</p>
+            <p className="text-xs text-wa-text-secondary/60 mt-0.5">{isConfigMode ? "Configurá días, horarios y duración por turno" : `${filteredAppointments.length} turno${filteredAppointments.length !== 1 ? "s" : ""} en los próximos 14 días`}</p>
           </div>
           {isConfigMode ? (
             <Button variant="ghost" onClick={() => routerNav.push("/calendar")} className="text-wa-text-secondary">Ver turnos</Button>
@@ -314,6 +371,26 @@ export default function CalendarPage() {
         </div>
       ) : (
         <>
+          {/* Instance selector — solo si el usuario tiene más de una */}
+          {instances.length > 1 && (
+            <div className="mx-4 sm:mx-6 mb-3">
+              <select
+                value={instanceId ?? ""}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setInstanceId(id);
+                  setLoading(true);
+                  void loadInstanceData(id).finally(() => setLoading(false));
+                }}
+                className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs font-medium text-wa-text"
+              >
+                {instances.map((i) => (
+                  <option key={i.id} value={i.id}>{i.instance_name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Status filter */}
           <div className="mx-4 sm:mx-6 mb-3 flex gap-1 bg-white/[0.03] border border-white/[0.06] rounded-xl p-0.5">
             {["all", "pending", "confirmed", "canceled", "completed"].map((s) => (

@@ -72,8 +72,12 @@ export async function POST(request: Request) {
     }
 
     if (status === "rejected" || status === "cancelled" || statusDetail?.includes("authentication")) {
+      // `payments.status` tiene CHECK (pending, approved, rejected, cancelled).
+      // Se usaba 'failed', que no está en la lista → ER 3819 tragado por el
+      // catch de abajo, y el pago rechazado quedaba 'pending' para siempre.
+      // 'cancelled' es el valor correcto del enum.
       await query(
-        "UPDATE payments SET status = 'failed', updated_at = NOW() WHERE external_id = ? OR mp_payment_id = ?",
+        "UPDATE payments SET status = 'cancelled', updated_at = NOW() WHERE external_id = ? OR mp_payment_id = ?",
         [externalReference, paymentId]
       );
       return NextResponse.json({ received: true });

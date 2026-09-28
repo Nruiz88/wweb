@@ -1,5 +1,6 @@
 import { query } from "../db";
 import { sendTextMessage } from "../evolution-multi";
+import { BUSINESS_TIMEZONE } from "../timezone";
 import type { WebhookContext } from "./context";
 
 /** Outside hours auto-reply.
@@ -11,9 +12,24 @@ export async function handleOutsideHours(ctx: WebhookContext) {
 
   if (!instance.outside_hours_message) return null;
 
+  // La hora del SERVIDOR es UTC (Coolify/Vercel), no la del negocio: con
+  // BUSINESS_TIMEZONE=America/Argentina/Buenos_Aires el mensaje salía hasta
+  // 3h tarde. Se usa Intl con la zona del negocio.
   const now = new Date();
-  const dayOfWeek = now.getDay();
-  const nowTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const WEEKDAY_INDEX: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  };
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TIMEZONE,
+    weekday: "short",
+  }).format(now);
+  const dayOfWeek = WEEKDAY_INDEX[weekday] ?? now.getDay();
+  const nowTime = new Intl.DateTimeFormat("en-GB", {
+    timeZone: BUSINESS_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(now);
 
   const bizHours = await query<{ start_time: string; end_time: string }>(
     "SELECT start_time, end_time FROM business_hours WHERE instance_id = ? AND day_of_week = ? AND is_active = true LIMIT 1",
@@ -24,8 +40,9 @@ export async function handleOutsideHours(ctx: WebhookContext) {
     const { start_time, end_time } = bizHours[0];
     let isOutside = false;
     if (start_time > end_time) {
-      // Cross-midnight (e.g., 22:00-06:00)
-      isOutside = nowTime < start_time && nowTime > end_time;
+      // Cruza medianoche (ej. 22:00-06:00): está DENTRO entre end y start.
+      // Antes era `now < start && now > end`, imposible de cumplir.
+      isOutside = nowTime < end_time || nowTime > start_time;
     } else {
       isOutside = nowTime < start_time || nowTime > end_time;
     }

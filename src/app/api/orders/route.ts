@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
-import { isValidUUID } from "@/lib/validation";
+import { isValidId } from "@/lib/validation";
+import { verifyUserAccess } from "@/lib/api-helpers";
+import { todayInBusinessTimezone } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -13,32 +15,33 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");
   const date = searchParams.get("date");
-  if (!instanceId || !isValidUUID(instanceId)) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
+  if (!instanceId || !isValidId(instanceId)) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
 
-  // Verify access
-  const inst = await query<{ id: string; admin_id: string }>(
-    "SELECT id, admin_id FROM instances WHERE id = ? LIMIT 1",
-    [instanceId]
-  );
-  if (!inst.length) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
-  const isAdmin = inst[0].admin_id === session.userId;
-  if (!isAdmin) {
-    const assigned = await query<{ id: string }>(
-      "SELECT id FROM user_instances WHERE instance_id = ? AND user_id = ? LIMIT 1",
-      [instanceId, session.userId]
-    );
-    if (!assigned.length) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
+  // Acceso: owner (instances.admin_id) UNION asignada (user_instances) — la
+  // misma fuente de verdad que verifyUserAccess(), en vez de reimplementarla
+  // (ya rompió una vez en /calendar).
+  if (!(await verifyUserAccess(session.userId, instanceId))) {
+    return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
   }
 
-  let sql = "SELECT * FROM orders WHERE instance_id = ? ORDER BY created_at DESC";
+  const where: string[] = ["instance_id = ?"];
   const params: any[] = [instanceId];
   if (date) {
-    const d = date === "today" ? new Date().toISOString().slice(0, 10) : date;
-    sql += " AND created_at >= ? AND created_at <= ?";
-    params.push(`${d}T00:00:00`, `${d}T23:59:59`);
+    // `today` se calculaba con toISOString() (UTC) contra un TIMESTAMP que se
+    // escribe con NOW() (UTC del server): después de las 21:00 ART el filtro
+    // mostraba el día equivocado. Se usa la zona del negocio.
+    const d = date === "today" ? todayInBusinessTimezone() : date;
+    where.push("created_at >= ?", "created_at <= ?");
+    params.push(`${d} 00:00:00`, `${d} 23:59:59`);
   }
-  sql += " LIMIT 100";
-  const orders = await query<any>(sql, params);
+
+  // El ORDER BY iba antes de los AND → error de sintaxis en cuanto se filtraba
+  // por fecha (y `SELECT *` arrastraba customer_* y notes sin necesidad).
+  const orders = await query<any>(
+    `SELECT id, instance_id, customer_phone, customer_name, catalog_item_id, option_label, price_cents, status, created_at
+     FROM orders WHERE ${where.join(" AND ")} ORDER BY created_at DESC LIMIT 100`,
+    params
+  );
   return NextResponse.json({ status: "success", data: orders });
 }
 
@@ -51,7 +54,7 @@ export async function PATCH(request: Request) {
   try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
   const { id, status } = body as { id?: unknown; status?: unknown };
-  if (typeof id !== "string" || !isValidUUID(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
+  if (typeof id !== "string" || !isValidId(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
   if (typeof status !== "string" || !["pending", "completed", "canceled"].includes(status)) return NextResponse.json({ status: "error", error: "status invalid" }, { status: 400 });
 
   // Verify belongs to user

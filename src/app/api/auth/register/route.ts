@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateId, query } from "@/lib/db";
 import { createUser, hashPassword } from "@/lib/auth";
+import { rateLimitResponse } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
+  // Sin límite se podían crear cuentas masivamente (y combined con el
+  // bypass de pago de confirm-plan, Pro gratis ilimitado).
+  const rateLimitErr = await rateLimitResponse(request, "auth-register", { maxRequests: 5, windowMs: 60 * 60_000 });
+  if (rateLimitErr) return rateLimitErr;
+
   try {
     const body = await request.json();
     const { email, password, full_name } = body as { email: string; password: string; full_name?: string };

@@ -32,6 +32,15 @@ const pool = parsed
       database: parsed.database,
       waitForConnections: true,
       connectionLimit: 10,
+      // Sin esto mysql2 devuelve DATE/DATETIME/TIMESTAMP como objetos Date y TIME
+      // como "HH:MM:SS". Todo el código los trata como strings "YYYY-MM-DD" /
+      // "HH:MM", así que:
+      //   - `new Date(appt.appointment_date + "T12:00:00")` → Invalid Date
+      //     (encabezado "undefined NaN" en /calendar, badge HOY nunca activa)
+      //   - `${row.appointment_date}|${row.appointment_time}` nunca matchea
+      //     contra "2026-09-28|09:00" → los slots OCUPADOS se ofrecen como
+      //     libres en /agendar y en el bot.
+      dateStrings: ["DATE", "DATETIME", "TIMESTAMP"],
     })
   : null as any;
 

@@ -2,8 +2,8 @@ import { sendTextMessage, sendButtonMessage } from "@/lib/evolution-multi";
 import type { ButtonItem } from "@/lib/evolution-multi";
 import type { MenuConfig } from "@/lib/db/types";
 import type { WebhookContext } from "./context";
-import { query } from "../db";
-import { isValidUUID } from "@/lib/validation";
+import { query, generateId } from "../db";
+import { isValidId } from "@/lib/validation";
 import { buildCatalogMenus } from "./catalog";
 
 // Button id used to signal "go back to the parent menu".
@@ -202,17 +202,21 @@ export async function handleMenuTap(ctx: WebhookContext) {
   const orderMatch = (rawButtonId || effectiveText || "").match(/^order_(.+)$/);
   if (orderMatch) {
     const itemId = orderMatch[1];
-    if (isValidUUID(itemId)) {
+    if (isValidId(itemId)) {
       const items = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
         "SELECT id, label, price_cents, active FROM catalog_items WHERE id = ? AND active = true",
         [itemId]
       );
       const item = items?.[0];
       if (item) {
-        const { insertId } = await query(
+        // `orders.id` es VARCHAR sin AUTO_INCREMENT → `insertId` daba 0 y el
+        // `if (insertId)` caía al branch de "Producto no disponible": el pedido
+        // se guardaba pero el cliente recibía un error.
+        const orderId = generateId();
+        await query(
           "INSERT INTO orders (id, instance_id, user_id, customer_phone, customer_name, catalog_item_id, option_label, price_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
           [
-            String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
+            orderId,
             instance.id,
             null,
             phoneNumber,
@@ -222,15 +226,13 @@ export async function handleMenuTap(ctx: WebhookContext) {
             item.price_cents,
           ]
         );
-        if (insertId) {
-          await sendTextMessage(
-            instance.evolution_api_url, instance.evolution_api_key,
-            instance.instance_name, phoneNumber,
-            `✅ *Pedido registrado*\n\n📦 ${item.label}\n💰 $${(item.price_cents / 100).toFixed(2)}\n\nTu pedido fue cargado 🚀`,
-            1500,
-          );
-          return { status: "success", matched: `[pedido creado ${item.id}]` };
-        }
+        await sendTextMessage(
+          instance.evolution_api_url, instance.evolution_api_key,
+          instance.instance_name, phoneNumber,
+          `✅ *Pedido registrado*\n\n📦 ${item.label}\n💰 $${(item.price_cents / 100).toFixed(2)}\n\nTu pedido fue cargado 🚀`,
+          1500,
+        );
+        return { status: "success", matched: `[pedido creado ${orderId}]` };
       }
     }
     await sendTextMessage(

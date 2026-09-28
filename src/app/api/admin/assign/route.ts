@@ -74,12 +74,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "User already assigned" }, { status: 409 });
   }
 
-  const { insertId } = await query(
+  const assignmentId = generateId();
+  await query(
     "INSERT INTO user_instances (id, user_id, instance_id, assigned_at) VALUES (?, ?, ?, NOW())",
-    [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), targetUser[0].id, instanceId]
+    [assignmentId, targetUser[0].id, instanceId]
   );
 
-  return NextResponse.json({ status: "success", data: { id: insertId, user_id: targetUser[0].id, instance_id: instanceId } });
+  return NextResponse.json({ status: "success", data: { id: assignmentId, user_id: targetUser[0].id, instance_id: instanceId } });
 }
 
 export async function DELETE(request: Request) {

@@ -17,6 +17,9 @@ const QR_TTL_MS = 20000;
 const recentLogout = new Map<string, number>();
 const LOGOUT_GRACE_MS = 15000;
 
+/** Valores permitidos por el CHECK de `instances.status`. */
+const INSTANCE_STATUSES = new Set(["open", "close", "connecting", "qrcode"]);
+
 async function prepareInstance(baseUrl: string, apiKey: string, instanceName: string, webhookUrl: string) {
   await createInstance(baseUrl, apiKey, instanceName);
   const secret = process.env.WEBHOOK_SECRET;
@@ -47,7 +50,20 @@ interface ResolvedInstance {
   status?: string;
 }
 
-async function resolveInstance(userId: string, selectedInstanceId?: string | null): Promise<ResolvedInstance | null> {
+/**
+ * Resuelve la instancia sobre la que opera el usuario.
+ *
+ * `ownerOnly` es lo que impide que un usuario merelyamente ASIGNADO
+ * (user_instances) desconecte o fuerce el QR de la instancia de otro: el
+ * fallback a `user_instances` de la versión anterior devolvía la
+ * `evolution_api_key` del owner, así que `DELETE /api/whatsapp` deslogueaba
+ * el WhatsApp de otra persona.
+ */
+async function resolveInstance(
+  userId: string,
+  selectedInstanceId?: string | null,
+  ownerOnly = false,
+): Promise<ResolvedInstance | null> {
   const instances = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
     `SELECT id, instance_name, evolution_api_url, evolution_api_key, status FROM instances WHERE admin_id = ? ${selectedInstanceId ? "AND id = ?" : ""} ORDER BY created_at DESC LIMIT 1`,
     selectedInstanceId ? [userId, selectedInstanceId] : [userId]
@@ -60,6 +76,27 @@ async function resolveInstance(userId: string, selectedInstanceId?: string | nul
       evolution_api_key: instances[0].evolution_api_key,
       status: instances[0].status,
     };
+  }
+
+  if (ownerOnly) return null;
+
+  if (selectedInstanceId) {
+    const specific = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
+      `SELECT i.id, i.instance_name, i.evolution_api_url, i.evolution_api_key, i.status
+       FROM instances i JOIN user_instances ui ON ui.instance_id = i.id
+       WHERE ui.user_id = ? AND i.id = ? LIMIT 1`,
+      [userId, selectedInstanceId]
+    );
+    if (specific?.length) {
+      return {
+        id: specific[0].id,
+        instance_name: specific[0].instance_name,
+        evolution_api_url: specific[0].evolution_api_url,
+        evolution_api_key: specific[0].evolution_api_key,
+        status: specific[0].status,
+      };
+    }
+    return null;
   }
 
   const assignment = await query<{ instance_id: string }>(
@@ -96,7 +133,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const instance = await resolveInstance(userId);
+  // El selector de /whatsapp manda ?instanceId=, pero la ruta lo ignoraba y
+  // siempre operaba sobre la más reciente (ORDER BY created_at DESC LIMIT 1).
+  const selectedId = new URL(request.url).searchParams.get("instanceId");
+  const instance = await resolveInstance(userId, selectedId);
   if (!instance) {
     return NextResponse.json({ status: "error", error: "No tienes una instancia asignada" }, { status: 404 });
   }
@@ -110,7 +150,12 @@ export async function GET(request: Request) {
       currentState = "close";
     } else {
       currentState = stateResult.data;
-      await query("UPDATE instances SET status = ? WHERE id = ?", [stateResult.data, instance.id]);
+      // `instances.status` tiene CHECK (open, close, connecting, qrcode).
+      // `getConnectionState` devuelve "unknown" (o cualquier string crudo de
+      // Evolution) cuando no parsea el estado → el UPDATE violaba el CHECK,
+      // reventaba sin catch y el polling del QR devolvía 500.
+      const persistable = INSTANCE_STATUSES.has(stateResult.data) ? stateResult.data : "connecting";
+      await query("UPDATE instances SET status = ? WHERE id = ?", [persistable, instance.id]);
     }
     if (justLoggedOut && Date.now() - (recentLogout.get(key) ?? 0) >= LOGOUT_GRACE_MS) {
       recentLogout.delete(key);
@@ -162,9 +207,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const instance = await resolveInstance(userId);
+  // ownerOnly: conectar/fuerzar el QR modifica el estado del WhatsApp, así que
+  // solo el dueño de la instancia (instances.admin_id) puede hacerlo.
+  const selectedId = new URL(request.url).searchParams.get("instanceId");
+  const instance = await resolveInstance(userId, selectedId, true);
   if (!instance) {
-    return NextResponse.json({ status: "error", error: "No tienes una instancia asignada" }, { status: 404 });
+    return NextResponse.json({ status: "error", error: "No tenés una instancia propia" }, { status: 404 });
   }
 
   if (webhookUrl) {
@@ -199,9 +247,12 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const instance = await resolveInstance(userId);
+  // ownerOnly: desloguear deja sin WhatsApp a la persona. Antes un usuario
+  // merelyamente ASIGNADO podía desloguear la instancia del owner.
+  const selectedId = new URL(request.url).searchParams.get("instanceId");
+  const instance = await resolveInstance(userId, selectedId, true);
   if (!instance) {
-    return NextResponse.json({ status: "error", error: "No tienes una instancia asignada" }, { status: 404 });
+    return NextResponse.json({ status: "error", error: "No tenés una instancia propia" }, { status: 404 });
   }
 
   const result = await logoutInstance(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name);

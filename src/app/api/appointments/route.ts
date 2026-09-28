@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { query, generateId } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 import { requireProFeature, planForbiddenResponse } from "@/lib/plan-gating";
@@ -101,13 +101,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Este horario ya está ocupado" }, { status: 409 });
   }
 
-  const id = Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15);
-  const { insertId } = await query(
+  const id = generateId();
+  await query(
     "INSERT INTO appointments (id, instance_id, user_id, customer_phone, customer_name, appointment_date, appointment_time, duration_min, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NOW(), NOW())",
     [id, instanceId, session.userId, customerPhone, customerName || null, appointmentDate, appointmentTime, durationMin ?? 30, notes || null]
   );
 
-  return NextResponse.json({ status: "success", data: { id: insertId, appointment_date: appointmentDate, appointment_time: appointmentTime } });
+  return NextResponse.json({ status: "success", data: { id, appointment_date: appointmentDate, appointment_time: appointmentTime } });
 }
 
 // PATCH: Update appointment status

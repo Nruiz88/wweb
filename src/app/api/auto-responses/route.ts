@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { query, generateId } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { isSafeRegex } from "@/lib/regex-guard";
 import { verifyUserAccess } from "@/lib/api-helpers";
@@ -78,26 +78,41 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  if (responseType === "menu" && (!menuConfig || !menuConfig.buttons || menuConfig.buttons.length === 0)) {
+  // La UI de /menus manda `{ instanceId, menu_config, is_active }` SIN
+  // `response_type`, así que caía en la rama de texto y moría con
+  // "responseText is required" — no se podía crear ningún menú.
+  // Se infiere el tipo cuando viene un menu_config.
+  const effectiveType = responseType ?? (menuConfig ? "menu" : "text");
+
+  if (effectiveType === "menu" && (!menuConfig || !menuConfig.buttons || menuConfig.buttons.length === 0)) {
     return NextResponse.json({ status: "error", error: "menuConfig with at least 1 button is required for menu responses" }, { status: 400 });
   }
 
-  if ((responseType ?? "text") !== "menu" && !responseText?.trim()) {
+  if (effectiveType !== "menu" && !responseText?.trim()) {
     return NextResponse.json({ status: "error", error: "responseText is required for text responses" }, { status: 400 });
+  }
+
+  // `auto_responses` tiene CHECK (keyword IS NOT NULL OR regex_pattern IS NOT NULL).
+  // Sin esto el INSERT daba ER 3819 → 500 opaco ("Error inesperado" en la UI).
+  // Para menús, que la UI no les pasa keyword, se genera uno interno.
+  const id = generateId();
+  const effectiveKeyword =
+    keyword?.trim() || regexPattern?.trim() ? keyword?.trim() || null : `menu_${id}`;
+  if (!effectiveKeyword && !regexPattern?.trim()) {
+    return NextResponse.json({ status: "error", error: "Necesitás una palabra clave o un patrón regex" }, { status: 400 });
   }
 
   if (regexPattern && !isSafeRegex(regexPattern)) {
     return NextResponse.json({ status: "error", error: "El patrón regex es inválido, muy largo o potencialmente peligroso" }, { status: 400 });
   }
 
-  const id = Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15);
   await query(
     `INSERT INTO auto_responses (id, instance_id, user_id, keyword, regex_pattern, response_text, response_media_url, response_type, menu_config, is_active, priority, schedule, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-    [id, instanceId, session.userId, keyword || null, regexPattern || null, responseText || "", responseMediaUrl || null, responseType || "text", menuConfig || null, isActive ?? true, priority ?? 0, schedule || null]
+    [id, instanceId, session.userId, effectiveKeyword, regexPattern || null, responseText || "", responseMediaUrl || null, effectiveType, menuConfig || null, isActive ?? true, priority ?? 0, schedule || null]
   );
 
-  return NextResponse.json({ status: "success", data: { id, instance_id: instanceId, user_id: session.userId, keyword: keyword || null, regex_pattern: regexPattern || null, response_text: responseText || "", response_media_url: responseMediaUrl || null, response_type: responseType || "text", menu_config: menuConfig || null, is_active: isActive ?? true, priority: priority ?? 0, schedule: schedule || null, created_at: new Date().toISOString() } });
+  return NextResponse.json({ status: "success", data: { id, instance_id: instanceId, user_id: session.userId, keyword: effectiveKeyword, regex_pattern: regexPattern || null, response_text: responseText || "", response_media_url: responseMediaUrl || null, response_type: effectiveType, menu_config: menuConfig || null, is_active: isActive ?? true, priority: priority ?? 0, schedule: schedule || null, created_at: new Date().toISOString() } });
 }
 
 // PUT: Update auto-response

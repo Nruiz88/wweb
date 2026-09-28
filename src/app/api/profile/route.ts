@@ -117,12 +117,31 @@ export async function PUT(request: Request) {
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const { full_name, business_name, phone, address } = body as { full_name?: string; business_name?: string; phone?: string; address?: string };
+  const { full_name, business_name, phone, address } = body as {
+    full_name?: string; business_name?: string; phone?: string; address?: string;
+  };
 
-  const { insertId } = await query(
-    "UPDATE profiles SET full_name = ?, business_name = ?, phone = ?, address = ? WHERE id = ?",
-    [sanitizeString(full_name, 200), sanitizeString(business_name, 200), sanitizeString(phone, 20), sanitizeString(address, 500), session.userId]
-  );
+  // Solo se escriben los campos PRESENTES en el body. Antes se mandaban los 4
+  // siempre: `sanitizeString(undefined)` devuelve null, así que un guardado
+  // parcial (ej. cambiar solo el teléfono) BORRABA nombre, negocio y dirección.
+  const sets: string[] = [];
+  const params: any[] = [];
+  const push = (col: string, value: unknown, max: number) => {
+    if (value === undefined) return;
+    sets.push(`${col} = ?`);
+    params.push(sanitizeString(value, max));
+  };
+  push("full_name", full_name, 200);
+  push("business_name", business_name, 200);
+  push("phone", phone, 20);
+  push("address", address, 500);
 
-  return NextResponse.json({ status: "success", data: { id: session.userId } });
+  if (sets.length > 0) {
+    await query(`UPDATE profiles SET ${sets.join(", ")} WHERE id = ?`, [...params, session.userId]);
+  }
+
+  // Se devuelve el perfil completo: la UI hacía `setProfile(payload.data)` y un
+  // `{ id }` a secas vaciaba el formulario y borraba la card de plan.
+  const updated = await query<any>("SELECT * FROM profiles WHERE id = ? LIMIT 1", [session.userId]);
+  return NextResponse.json({ status: "success", data: updated?.[0] ?? { id: session.userId } });
 }

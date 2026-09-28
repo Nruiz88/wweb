@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { query, generateId } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { verifyUserAccess, safeErrorMessage } from "@/lib/api-helpers";
-import { isValidUUID } from "@/lib/validation";
+import { isValidId } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const instanceId = url.searchParams.get("instanceId");
-  if (!instanceId || !isValidUUID(instanceId)) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
+  if (!instanceId || !isValidId(instanceId)) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
 
   const hasAccess = await verifyUserAccess(session.userId, instanceId);
   if (!hasAccess) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     category?: unknown; active?: unknown; sort_order?: unknown;
   };
 
-  if (typeof instanceId !== "string" || !isValidUUID(instanceId)) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
+  if (typeof instanceId !== "string" || !isValidId(instanceId)) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
   const cleanLabel = String(label ?? "").trim();
   if (!cleanLabel) return NextResponse.json({ status: "error", error: "label required" }, { status: 400 });
   const price = Number(price_cents);
@@ -52,13 +52,13 @@ export async function POST(request: Request) {
   const hasAccess = await verifyUserAccess(session.userId, instanceId);
   if (!hasAccess) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
 
-  const id = Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15);
-  const { insertId } = await query(
+  const id = generateId();
+  await query(
     "INSERT INTO catalog_items (id, instance_id, label, description, price_cents, active, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
     [id, instanceId, cleanLabel, description ? String(description).trim() : null, Math.round(price), active ?? true, Number(sort_order) || 0]
   );
 
-  return NextResponse.json({ status: "success", data: { id: insertId, label: cleanLabel, price_cents: Math.round(price) } });
+  return NextResponse.json({ status: "success", data: { id, label: cleanLabel, price_cents: Math.round(price) } });
 }
 
 // PATCH /api/catalog { id, ...fields }
@@ -74,7 +74,7 @@ export async function PATCH(request: Request) {
     category?: unknown; active?: unknown; sort_order?: unknown;
   };
 
-  if (typeof id !== "string" || !isValidUUID(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
+  if (typeof id !== "string" || !isValidId(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
 
   const existing = await query<{ instance_id: string }>(
     "SELECT instance_id FROM catalog_items WHERE id = ? LIMIT 1",
@@ -108,7 +108,7 @@ export async function DELETE(request: Request) {
   if (!session) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
 
   const id = new URL(request.url).searchParams.get("id");
-  if (!id || !isValidUUID(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
+  if (!id || !isValidId(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
 
   const existing = await query<{ instance_id: string }>(
     "SELECT instance_id FROM catalog_items WHERE id = ? LIMIT 1",

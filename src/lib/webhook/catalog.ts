@@ -1,7 +1,7 @@
 import { sendTextMessage } from "@/lib/evolution-multi";
 import type { WebhookContext } from "./context";
 import type { CatalogItem } from "@/lib/db/types";
-import { query } from "../db";
+import { query, generateId } from "../db";
 import { sendMenuResponse } from "./menus";
 
 export interface MenuConfig {
@@ -84,11 +84,14 @@ export function buildCatalogMenus(items: CatalogItem[]): { menus: MenuConfig[]; 
 
 /**
  * Persist generated catalog menus as auto_responses (type=menu).
- * Call this whenever the catalog changes.
+ *
+ * ⚠️ NO HAY CALLER. `handleMenuTap` busca páginas `catalog_menu_pN` que nunca
+ * se crean, así que el "Ver más" del catálogo queda en silencio. Hay que
+ * cablearlo para que se llame cuando cambian los productos.
  */
 export async function syncCatalogMenus(
-  supabase: WebhookContext["supabase"],
   instanceId: string,
+  ownerUserId: string,
   items: CatalogItem[],
 ): Promise<string | null> {
   const { menus } = buildCatalogMenus(items);
@@ -103,14 +106,18 @@ export async function syncCatalogMenus(
     await query("DELETE FROM auto_responses WHERE id IN (" + old.map(() => "?").join(", ") + ")", old.map((o) => o.id));
   }
 
-  // Insert each page as auto_response with keyword catalog_menu_pN
+  // Insert each page as auto_response with keyword catalog_menu_pN.
+  // `auto_responses.user_id` y `response_text` son NOT NULL (y user_id es FK a
+  // profiles) → mandar null/vacío daba ER 1048 y la página nunca se creaba.
+  // Para un menú, `response_text` es un placeholder: la respuesta real sale de
+  // `menu_config`.
   for (let i = 0; i < menus.length; i++) {
     const menu = menus[i];
-    const id = String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15));
+    const id = generateId();
     await query(
-      `INSERT INTO auto_responses (id, instance_id, user_id, response_type, keyword, menu_config, is_active, priority, created_at, updated_at)
-       VALUES (?, ?, ?, 'menu', ?, ?, true, 10, NOW(), NOW())`,
-      [id, instanceId, null, `catalog_menu_p${i + 1}`, menu]
+      `INSERT INTO auto_responses (id, instance_id, user_id, response_type, keyword, response_text, menu_config, is_active, priority, created_at, updated_at)
+       VALUES (?, ?, ?, 'menu', ?, ?, ?, true, 10, NOW(), NOW())`,
+      [id, instanceId, ownerUserId, `catalog_menu_p${i + 1}`, `[catálogo p${i + 1}]`, menu]
     );
   }
 
@@ -176,10 +183,14 @@ export async function handleOrderSelect(ctx: WebhookContext, itemId: string): Pr
   }
 
   // Create order
-  const { insertId } = await query(
+  // `orders.id` es VARCHAR sin AUTO_INCREMENT → `insertId` siempre era 0, así
+  // que el `if (insertId)` de abajo NUNCA entraba: el pedido se guardaba pero
+  // el cliente nunca recibía el "✅ Pedido registrado".
+  const orderId = generateId();
+  await query(
     "INSERT INTO orders (id, instance_id, user_id, customer_phone, customer_name, catalog_item_id, option_label, price_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
     [
-      String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
+      orderId,
       instance.id,
       null,
       phoneNumber,
@@ -189,17 +200,15 @@ export async function handleOrderSelect(ctx: WebhookContext, itemId: string): Pr
       item.price_cents,
     ]
   );
-  if (insertId) {
-    await sendTextMessage(
-      instance.evolution_api_url, instance.evolution_api_key,
-      instance.instance_name, phoneNumber,
-      `✅ *Pedido registrado*\n\n` +
-        `📦 *${item.label}*\n` +
-        `💰 $${(item.price_cents / 100).toFixed(2)}\n\n` +
-        `Tu pedido fue cargado. Lo estamos preparando 🚀`,
-      1500,
-    );
-  }
+  await sendTextMessage(
+    instance.evolution_api_url, instance.evolution_api_key,
+    instance.instance_name, phoneNumber,
+    `✅ *Pedido registrado*\n\n` +
+      `📦 *${item.label}*\n` +
+      `💰 $${(item.price_cents / 100).toFixed(2)}\n\n` +
+      `Tu pedido fue cargado. Lo estamos preparando 🚀`,
+    1500,
+  );
 
   return { status: "success", matched: "[order created]" };
 }

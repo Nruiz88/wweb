@@ -1,8 +1,14 @@
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { getUserByEmail, verifyPassword, signToken, COOKIE_NAME } from "@/lib/auth";
+import { rateLimitResponse } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
+  // Sin límite, `verifyPassword` (bcrypt coste 10) corría ilimitado: fuerza
+  // bruta sin backoff ni bloqueo de cuenta contra todos los usuarios.
+  const rateLimitErr = await rateLimitResponse(request, "auth-login", { maxRequests: 10, windowMs: 5 * 60_000 });
+  if (rateLimitErr) return rateLimitErr;
+
   try {
     const body = await request.json();
     const { email, password } = body as { email: string; password: string };

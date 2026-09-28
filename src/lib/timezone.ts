@@ -28,3 +28,19 @@ export function parseDateInBusinessTimezone(dateStr: string): Date {
   // dateStr YYYY-MM-DD → lo tratamos como fecha local negocio, no UTC
   return new Date(`${dateStr}T12:00:00`);
 }
+
+/**
+ * Formatea un Date como DATETIME de MySQL: "YYYY-MM-DD HH:MM:SS".
+ *
+ * NO usar `toISOString()` para comparar contra columnas TIMESTAMP/DATETIME:
+ * devuelve "2026-09-27T12:00:00.000Z" y MySQL no parsea ni el sufijo `Z` ni los
+ * milisegundos → la comparación da NULL y el WHERE nunca matchea
+ * (warning 1292). Con esto, `/api/admin/stats` y `/api/admin/activity`
+ * devolvían 0 y el gráfico de Actividad salía siempre vacío.
+ *
+ * Se usa UTC porque las columnas se escriben con `NOW()`, que es la hora del
+ * servidor (UTC en Vercel/Coolify).
+ */
+export function toMySQLDateTime(date: Date = new Date()): string {
+  return date.toISOString().slice(0, 19).replace("T", " ");
+}

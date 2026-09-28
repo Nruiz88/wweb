@@ -3,7 +3,7 @@ import { query } from "@/lib/db";
 import { getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { verifyWebhookSignature } from "@/lib/webhook-secret";
 import { extractMessageText, extractButtonText, extractListText, extractRawButtonId } from "@/lib/webhook/extract";
-import { hasPlan, type WebhookContext } from "@/lib/webhook/context";
+import { hasPlan, createSupabaseMariaDB, type WebhookContext } from "@/lib/webhook/context";
 import { handleWelcome } from "@/lib/webhook/welcome";
 import { handleOutsideHours } from "@/lib/webhook/outside-hours";
 import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect, isAgendaActive } from "@/lib/webhook/booking";
@@ -41,7 +41,24 @@ async function update(sql: string, params: any[] = []): Promise<{ affectedRows: 
 }
 
 export async function POST(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "webhook", { maxRequests: 100, windowMs: 60_000 });
+  // Sin esto, cualquier excepción en un handler (columna inexistente, BD caída,
+  // Evolution en timeout) devolvía un 500 sin log y el usuario veía silencio total.
+  try {
+    return await handleWebhook(request);
+  } catch (err) {
+    console.error("[webhook] error no manejado", {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    return NextResponse.json({ status: "error", error: "Internal error" }, { status: 500 });
+  }
+}
+
+async function handleWebhook(request: Request) {
+  // OJO: la clave por defecto es la IP, y todas las instancias de Evolution
+  // salen desde el mismo servidor → el límite era compartido. Con 100/min un
+  // pico de varios números a la vez saturaba y el bot devolvía 429 (silencio).
+  const rateLimitErr = await rateLimitResponse(request, "webhook", { maxRequests: 600, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
   let rawBody: string;
@@ -108,32 +125,47 @@ export async function POST(request: Request) {
     [instance.id]
   );
 
-  // Plan resolution: admin = pro; otherwise from active subscriptions
+  // Plan resolution: admin = pro; otherwise from active subscriptions.
+  // Ojo: `admin_id` es NOT NULL y siempre se suma al set, así que el chequeo
+  // anterior (`size > 0`) daba "pro" SIEMPRE y el gate era un no-op.
   const adminUserId = adminRows?.[0]?.admin_id;
-  const proUserIds = new Set<string>();
-  if (assignments.length > 0) {
-    const userIds = assignments.map((a) => a.user_id);
-    const subs = await select<{ user_id: string; plan_type: string }>(
-      "SELECT user_id, plan_type FROM subscriptions WHERE user_id IN (?) AND status = 'active'",
-      [userIds]
+  const userIds = new Set<string>(assignments.map((a) => a.user_id));
+  if (adminUserId) userIds.add(adminUserId);
+
+  const planVotes: PlanType[] = [];
+  if (userIds.size > 0) {
+    const idList = [...userIds];
+    const placeholders = idList.map(() => "?").join(",");
+    const subs = await select<{ plan_type: string }>(
+      `SELECT plan_type FROM subscriptions WHERE user_id IN (${placeholders}) AND status = 'active'`,
+      idList,
     );
     for (const s of subs) {
-      if (s.plan_type === "pro") proUserIds.add(s.user_id);
+      const p = s.plan_type as PlanType;
+      if (p === "pro" || p === "starter") planVotes.push(p);
     }
   }
-  // Instance admin always counts as pro
-  if (adminUserId && !proUserIds.has(adminUserId)) {
-    proUserIds.add(adminUserId);
-  }
+  // El dueño de la instancia siempre es pro.
+  if (adminUserId) planVotes.push("pro");
 
-  const userIsPro = proUserIds.has(adminUserId) || proUserIds.size > 0;
-  const userPlan: PlanType = userIsPro ? "pro" : "starter";
+  const userPlan: PlanType = planVotes.some((p) => p === "pro") ? "pro" : "starter";
 
+  // OJO: en DMs, Evolution 2.3.5+ puede mandar el JID como <lid>@lid, que NO
+  // es un teléfono. Si eso pasa, el `number` que le pasamos a sendText es un LID
+  // y Evolution no lo entrega. Se deja el log con el número derivado para poder
+  // confirmarlo en producción.
   const phoneNumber = remoteJid.replace("@s.whatsapp.net", "").replace("@lid", "");
 
   // Log DM messages that look like booking intents to diagnose plan resolution
   if (effectiveText && /(turno|agenda|agendar|reservar|cita)/i.test(effectiveText)) {
-    console.log("[webhook] booking intent dm", { instance: instanceName, plan: userPlan, from: remoteJid, text: effectiveText.slice(0, 40) });
+    console.log("[webhook] booking intent dm", {
+      instance: instanceName,
+      plan: userPlan,
+      from: remoteJid,
+      to: phoneNumber,
+      isLid: remoteJid.endsWith("@lid"),
+      text: effectiveText.slice(0, 40),
+    });
   }
 
   // Pre-fetch auto-responses (shared across handlers)
@@ -148,7 +180,11 @@ export async function POST(request: Request) {
 
   // Build shared context
   const ctx: WebhookContext = {
-    supabase: { query, pool: { execute: query } as any },
+    // BUG CRÍTICO: antes se inyectaba `{ query, pool: { execute: query } }`, un
+    // objeto SIN `.from()`. Todos los handlers hacen `ctx.supabase.from(...)`,
+    // así que reventaba con "ctx.supabase.from is not a function" → 500 y el bot
+    // NUNCA respondía (ni "turno", ni auto-respuestas, ni menú, ni bienvenida).
+    supabase: createSupabaseMariaDB(),
     instance, plan: userPlan, instanceName, remoteJid, phoneNumber,
     effectiveText, buttonText, listText,
     pushName: body.data?.pushName,
@@ -246,40 +282,4 @@ export async function POST(request: Request) {
   // Regular keyword/regex matching
   const replyResult = await handleAutoReply(ctx);
   return NextResponse.json(replyResult);
-}
-
-/** Look up the subscription plan for an instance (admin=pro, assigned users from subscriptions) */
-async function resolvePlanForInstance(instanceId: string): Promise<PlanType> {
-  const hierarchy: PlanType[] = ["starter", "pro"];
-  let best: PlanType = "starter";
-
-  const resolveUserPlan = async (userId: string) => {
-    if (!userId) return;
-    const rows = await select<{ plan_type: string }>(
-      "SELECT plan_type FROM subscriptions WHERE user_id = ? AND status = 'active' LIMIT 1",
-      [userId]
-    );
-    const plan = rows[0]?.plan_type as PlanType | undefined;
-    if (plan && hierarchy.indexOf(plan) > hierarchy.indexOf(best)) {
-      best = plan;
-    }
-  };
-
-  // Assigned users
-  const assignments = await select<{ user_id: string }>(
-    "SELECT user_id FROM user_instances WHERE instance_id = ?",
-    [instanceId]
-  );
-  for (const a of assignments) {
-    await resolveUserPlan(a.user_id);
-  }
-
-  // Instance admin (owner) always counts
-  const adminRows = await select<{ admin_id: string }>(
-    "SELECT admin_id FROM instances WHERE id = ? LIMIT 1",
-    [instanceId]
-  );
-  await resolveUserPlan(adminRows?.[0]?.admin_id);
-
-  return best;
 }

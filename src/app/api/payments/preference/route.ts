@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { query, generateId } from "@/lib/db";
+import { rateLimitResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const rateLimitErr = await rateLimitResponse(request, "mp-preference", { maxRequests: 10, windowMs: 10 * 60_000 });
+  if (rateLimitErr) return rateLimitErr;
+
   const session = await getSession();
   if (!session) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
 
@@ -19,24 +23,26 @@ export async function POST(request: Request) {
 
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
-  const { amount_pesos, external_ref, title, plan_type = "pro" } = body as { amount_pesos?: number; external_ref?: string; title?: string; plan_type?: string };
+  const { plan_type = "pro" } = body as { plan_type?: string };
 
-  let finalAmount = (amount_pesos && amount_pesos > 0) ? amount_pesos : null;
-  const finalPlanType = (plan_type || "pro");
+  // ─── BUGS ARREGLA ───────────────────────────────────────────────────────
+  // 1. `amount_pesos` venía del body: el cliente fijaba el importe (una
+  //    preferencia de $1 activates el Pro completo).
+  // 2. `external_ref` del body SOBRESCRIBÍA al session.userId: el pago se
+  //    asociaba al usuario que el cliente indicara.
+  // 3. `plan_type` no se validaba contra plan_config.
+  // Ahora el precio y la referencia salen SIEMPRE del servidor.
+  const finalPlanType = plan_type === "starter" ? "starter" : "pro";
 
-  if (!finalAmount) {
-    const planConfig = await query<{ amount_pesos: number; label: string }>(
-      "SELECT amount_pesos, label FROM plan_config WHERE plan_type = ? LIMIT 1",
-      [finalPlanType]
-    );
-    if (planConfig?.length && planConfig[0].amount_pesos > 0) {
-      finalAmount = planConfig[0].amount_pesos;
-    } else {
-      return NextResponse.json({ status: "error", error: `Plan ${finalPlanType} no configurado en plan_config o sin precio` }, { status: 400 });
-    }
+  const planConfig = await query<{ amount_pesos: number; label: string }>(
+    "SELECT amount_pesos, label FROM plan_config WHERE plan_type = ? LIMIT 1",
+    [finalPlanType]
+  );
+  if (!planConfig?.length || !(planConfig[0].amount_pesos > 0)) {
+    return NextResponse.json({ status: "error", error: `Plan ${finalPlanType} no configurado en plan_config o sin precio` }, { status: 400 });
   }
-
-  if (!finalAmount || finalAmount <= 0) return NextResponse.json({ status: "error", error: "amount_pesos required" }, { status: 400 });
+  const finalAmount = planConfig[0].amount_pesos;
+  const finalTitle = planConfig[0].label || `Plan ${finalPlanType}`;
 
   try {
     const res = await fetch("https://api.mercadopago.com/checkout/preferences", {
@@ -48,13 +54,15 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         items: [
           {
-            title: title || "Plan Pro",
+            title: finalTitle,
             quantity: 1,
             currency_id: "ARS",
             unit_price: finalAmount,
           },
         ],
-        external_reference: external_ref || session.userId,
+        // Forzado al usuario autenticado: el body ya no puede elegir a quién
+        // se le acredita el pago.
+        external_reference: session.userId,
         back_urls: {
           success: `${process.env.APP_URL || ""}/dashboard`,
           failure: `${process.env.APP_URL || ""}/dashboard`,
@@ -71,10 +79,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: "error", error: mpData.message || "MP error" }, { status: 502 });
     }
 
-    // Record pending payment
-    const { insertId } = await query(
+    // Record pending payment. El `mp_payment_id` real se guarda acá para que el
+    // webhook de MP pueda matchear por el id de la preferencia (el `external_id`
+    // es el id de la preferencia, no el de la preferencia de pago).
+    await query(
       "INSERT INTO payments (id, user_id, external_id, amount_pesos, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', NOW(), NOW())",
-      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), session.userId, String(mpData.id || `mp_${Date.now()}`), finalAmount]
+      [generateId(), session.userId, String(mpData.id || `mp_${Date.now()}`), finalAmount]
     );
 
     return NextResponse.json({

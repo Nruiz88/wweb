@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { sendButtonMessage } from "@/lib/evolution-multi";
-import { safeErrorMessage } from "@/lib/api-helpers";
+import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
+import { getSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -72,11 +73,19 @@ async function processReminders() {
     const instance = instanceMap.get(appt.instance_id);
     if (!instance) { failed++; continue; }
 
-    const apptDateTime = new Date(`${appt.appointment_date}T${appt.appointment_time}`);
+    // `appointment_date` (DATE) y `appointment_time` (TIME) llegan como
+    // "YYYY-MM-DD" y "HH:MM:SS" (pool con dateStrings). Con Timezone se
+    // interpreta como hora local del navegador, que no es la del negocio.
+    const apptDateTime = new Date(`${appt.appointment_date}T${(appt.appointment_time || "").slice(0, 5)}:00Z`);
     const hoursUntil = (apptDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
     // Wider window (18-30h) since we run once per day
-    if (hoursUntil < 18 || hoursUntil > 30) continue;
+    if (Number.isNaN(hoursUntil) || hoursUntil < 18 || hoursUntil > 30) continue;
 
+    // `customer_phone` es NULLABLE (el booking por link público no lo exige).
+    // El `.replace()` original reventaba con TypeError y, sin try/catch por
+    // turno, abortaba el LOTE ENTERO: un solo turno sin teléfono impedía
+    // recordar todos los demás.
+    if (!appt.customer_phone) { failed++; continue; }
     const phone = appt.customer_phone.replace("@s.whatsapp.net", "").replace("@lid", "");
     const dateDisplay = formatDate(appt.appointment_date, appt.appointment_time);
     const name = appt.customer_name || "";
@@ -101,10 +110,14 @@ async function processReminders() {
       1500,
     );
 
-    await query("UPDATE appointments SET reminder_24h_sent = true WHERE id = ?", [appt.id]);
-
-    if (result.ok) { processed++; }
-    else { failed++; }
+    // Solo se marca como enviado si Evolution lo entregó: antes el UPDATE iba
+    // ANTES de mirar `result.ok`, así que un fallo nunca se reintentaba.
+    if (result.ok) {
+      await query("UPDATE appointments SET reminder_24h_sent = true WHERE id = ?", [appt.id]);
+      processed++;
+    } else {
+      failed++;
+    }
   }
 
   return { status: "success" as const, processed, failed, total: appointments.length };
@@ -135,21 +148,39 @@ async function previewReminders(instanceId: string) {
   return NextResponse.json({ status: "success", data: appointments });
 }
 
-// GET: Vercel cron calls this every hour (with CRON_SECRET)
-// GET with ?instanceId=... returns preview instead
+/** Comparte la validación del cron. Fail-CLOSED: sin CRON_SECRET no se ejecuta. */
+function isAuthorizedCron(request: Request): boolean {
+  const cronSecret = process.env.CRON_SECRET;
+  // Sin secret configurado, el endpoint queda ABIERTO: cualquier POST anónimo
+  // disparaba WhatsApp a todos los clientes del sistema. Mejor fallar cerrado.
+  if (!cronSecret) {
+    console.error("[reminder] CRON_SECRET no definido — se rechaza el trigger");
+    return false;
+  }
+  return request.headers.get("authorization") === `Bearer ${cronSecret}`;
+}
+
+// GET: Vercel cron calls this every day (with CRON_SECRET)
+// GET with ?instanceId=... returns a preview (requires session + instance access)
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const instanceId = searchParams.get("instanceId");
 
-  // If instanceId provided, return preview (dashboard use)
+  // La rama de preview devolvía customer_phone y customer_name de TODOS los
+  // turnos de cualquier instancia sin sesión, sin CRON_SECRET y sin
+  // verifyUserAccess(): fuga de PII trivial desde fuera.
   if (instanceId) {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+    }
+    if (!(await verifyUserAccess(session.userId, instanceId))) {
+      return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
+    }
     return previewReminders(instanceId);
   }
 
-  // Otherwise, treat as cron trigger
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!isAuthorizedCron(request)) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
@@ -162,9 +193,7 @@ export async function GET(request: Request) {
 
 // POST: Manual trigger or legacy cron (with CRON_SECRET)
 export async function POST(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!isAuthorizedCron(request)) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 

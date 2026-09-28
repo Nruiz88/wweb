@@ -66,18 +66,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "User not found" }, { status: 404 });
   }
 
-  // Resolve the user's instances: admin → own, user → assigned
-  let instanceIds: string[] = [];
-  if (profile.role === "admin") {
-    const own = await query<{ id: string }>("SELECT id FROM instances WHERE admin_id = ?", [profile.id]);
-    instanceIds = (own || []).map((i) => i.id);
-  } else {
-    const assigned = await query<{ instance_id: string }>(
-      "SELECT instance_id FROM user_instances WHERE user_id = ?",
-      [profile.id]
-    );
-    instanceIds = (assigned || []).map((a) => a.instance_id);
-  }
+  // Instancias del usuario: propias (instances.admin_id) UNION asignadas.
+  // Antes se bifurcaba por `role === "admin"`: un usuario con role="user" que
+  // había creado su propia instancia la veía en /calendar pero su link público
+  // devolvía `instances: []` — el mismo bug que rompió el calendario.
+  const owned = await query<{ id: string }>("SELECT id FROM instances WHERE admin_id = ?", [profile.id]);
+  const assigned = await query<{ instance_id: string }>(
+    "SELECT instance_id FROM user_instances WHERE user_id = ?",
+    [profile.id]
+  );
+  const instanceIds = [...new Set([...(owned || []).map((i) => i.id), ...(assigned || []).map((a) => a.instance_id)])];
 
   if (instanceIds.length === 0) {
     return NextResponse.json({ status: "success", data: { instances: [] } });
@@ -124,8 +122,11 @@ export async function GET(request: Request) {
     return h * 60 + m;
   })();
 
+  // Ventana de 14 días empezando por HOY. Antes arrancaba en i=1 (mañana), lo
+  // que dejaba el filtro `isToday` muerto y hacía que un turno agendado para
+  // hoy no se pudiera ver ni agendar. Coincide con la ventana del bot.
   const days: { date: string; display: string }[] = [];
-  for (let i = 1; i <= 14; i++) {
+  for (let i = 0; i < 14; i++) {
     const base = new Date(`${today}T12:00:00`);
     base.setDate(base.getDate() + i);
     const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(base);

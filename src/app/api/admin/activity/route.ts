@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin/auth";
 import { query } from "@/lib/db";
+import { toMySQLDateTime } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +15,16 @@ export async function GET() {
   const daysAgo = new Date(now.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
   daysAgo.setHours(0, 0, 0, 0);
 
+  // MySQL no parsea el formato ISO-8601 de `toISOString()` contra un TIMESTAMP
+  // (suffix Z + milisegundos → warning 1292, comparación NULL). Por eso el
+  // gráfico de Actividad salía siempre vacío: las dos queries no traían filas.
   const logs = await query<{ sent_at: string }>(
     "SELECT sent_at FROM response_logs WHERE sent_at >= ?",
-    [daysAgo.toISOString()]
+    [toMySQLDateTime(daysAgo)]
   );
   const newUsers = await query<{ created_at: string }>(
     "SELECT created_at FROM profiles WHERE created_at >= ?",
-    [daysAgo.toISOString()]
+    [toMySQLDateTime(daysAgo)]
   );
 
   const series = [];
@@ -46,7 +50,7 @@ export async function GET() {
     if (i !== undefined) series[i].newUsers += 1;
   }
 
-  const weekAgo = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
+  const weekAgo = toMySQLDateTime(new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000));
   const kwLogs = await query<{ matched_keyword: string }>(
     "SELECT matched_keyword FROM response_logs WHERE sent_at >= ?",
     [weekAgo]

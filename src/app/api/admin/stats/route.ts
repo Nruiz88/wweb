@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin/auth";
 import { query } from "@/lib/db";
+import { toMySQLDateTime } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -9,8 +10,11 @@ export async function GET() {
   if ("error" in auth) return auth.error;
 
   try {
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    // OJO: `toISOString()` ("...T12:00:00.000Z") no lo parsea MySQL contra un
+    // TIMESTAMP → warning 1292, comparación NULL → estos contadores salían
+    // siempre en 0.
+    const oneDayAgo = toMySQLDateTime(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const sevenDaysAgo = toMySQLDateTime(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
 
     const [
       usersResult, instancesResult, connectedInstancesResult, autoResponsesResult,

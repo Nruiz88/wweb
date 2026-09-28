@@ -1,4 +1,4 @@
-import { sendTextMessage, sendButtonMessage } from "@/lib/evolution-multi";
+import { sendTextMessage as sendTextMessageRaw, sendButtonMessage } from "@/lib/evolution-multi";
 import type { ButtonItem } from "@/lib/evolution-multi";
 import type { WebhookContext } from "./context";
 import { slugify } from "@/lib/slug";
@@ -6,6 +6,41 @@ import { query } from "@/lib/db";
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+/**
+ * Envía un texto y REGISTRA el fallo si Evolution no lo entrega.
+ * Antes se ignoraba el resultado: el webhook devolvía 200 "success" y el
+ * usuario no veía nada, sin ninguna señal en los logs (API key vencida, URL
+ * vieja, timeout de 40s, JID inválido...).
+ */
+async function sendTextMessage(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string,
+  number: string,
+  text: string,
+  delay?: number,
+) {
+  try {
+    const res = await sendTextMessageRaw(baseUrl, apiKey, instanceName, number, text, delay);
+    if (!res.ok) {
+      console.error("[booking] Evolution NO envío el mensaje", {
+        instance: instanceName,
+        to: number,
+        status: res.status,
+        error: res.message,
+      });
+    }
+    return res;
+  } catch (err) {
+    console.error("[booking] excepción enviando a Evolution", {
+      instance: instanceName,
+      to: number,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, status: 0, message: String(err) } as any;
+  }
+}
 
 import { BUSINESS_TIMEZONE } from "@/lib/timezone";
 import { Redis } from "@upstash/redis";
@@ -669,10 +704,15 @@ export async function handleBookingIntent(ctx: WebhookContext): Promise<{ status
     .limit(1);
 
   if (!bizHours || bizHours.length === 0) {
+    console.warn("[booking] agenda pedida pero sin business_hours", {
+      instance: instance.instance_name,
+      instanceId: instance.id,
+    });
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, ctx.phoneNumber,
-      "Lo siento, la agenda no está configurada todavía. Escribí más tarde.",
+      "Todavía no hay horarios de atención cargados. ⏰\n\n" +
+      "En cuanto los configuremos vas a poder sacar tu turno por acá.",
       1500,
     );
     return { status: "success", matched: "[turno sin agenda]" };
