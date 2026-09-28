@@ -30,27 +30,39 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
   }
 
-  let sql = "SELECT * FROM appointments WHERE instance_id = ? ORDER BY appointment_date ASC, appointment_time ASC";
+  // El ORDER BY iba al final de la cadena base y los filtros se concatenaban
+  // DESPUÉS como " AND ..." → SQL inválido en cuanto se filtraba por fecha
+  // (que es lo que siempre manda /calendar). Error 1064 y el calendario en
+  // blanco. Igual bug estaba en /api/orders.
+  const where: string[] = ["instance_id = ?"];
   const params: any[] = [instanceId];
 
   if (status && ["pending", "confirmed", "canceled", "completed"].includes(status)) {
-    sql += " AND status = ?";
+    where.push("status = ?");
     params.push(status);
   }
   if (dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
-    sql += " AND appointment_date >= ?";
+    where.push("appointment_date >= ?");
     params.push(dateFrom);
   }
   if (dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
-    sql += " AND appointment_date <= ?";
+    where.push("appointment_date <= ?");
     params.push(dateTo);
   }
   if (phone) {
-    sql += " AND customer_phone = ?";
+    where.push("customer_phone = ?");
     params.push(phone);
   }
 
-  const appointments = await query<any>(sql, params);
+  // Proyección explícita: `SELECT *` arrastraba notes y datos del cliente de
+  // más. Sin paginación, como antes.
+  const appointments = await query<any>(
+    `SELECT id, instance_id, user_id, customer_phone, customer_name,
+            appointment_date, appointment_time, duration_min, status, notes, created_at
+     FROM appointments WHERE ${where.join(" AND ")}
+     ORDER BY appointment_date ASC, appointment_time ASC`,
+    params
+  );
 
   return NextResponse.json({ status: "success", data: appointments });
 }

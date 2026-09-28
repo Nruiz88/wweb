@@ -79,6 +79,18 @@ class MariaDbBuilder implements SupabaseMariaDB {
   }
   private isDelete = false;
 
+  // ── BUG CRÍTICO (arreglado) ────────────────────────────────────────────
+  // `whereClauses` y `whereParams` se USABAN en eq/neq/in/like y en execSelect
+  // (17 usos) pero NUNCA se declararon ni inicializaron → `this.whereClauses`
+  // era `undefined` y el primer `.eq()` tiraba:
+  //   TypeError: Cannot read properties of undefined (reading 'push')
+  // O sea: el builder NUNCA funcionó. Todos los handlers del webhook que usan
+  // `ctx.supabase.from(...).eq(...)` reventaban, y por eso el bot no
+  // respondía "turno" ni auto-respuestas ni menús. TypeScript lo reportaba
+  // (TS2339) y estaba escondido entre los ~100 errores preexistentes del repo.
+  private whereClauses: string[] = [];
+  private whereParams: unknown[] = [];
+
   eq(column: string, value: unknown): SupabaseMariaDB {
     this.whereClauses.push(`${safeIdent(column)} = ?`);
     this.whereParams.push(value);

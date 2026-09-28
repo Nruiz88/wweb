@@ -81,11 +81,13 @@ export async function GET() {
   const broken = Object.entries(schema).filter(([, v]) => !v.ok);
 
   // Muestra de los tipos reales que devuelve el driver (la causa raíz de que
-  // DATE volviera como Date y rompiera el calendario).
-  const typeSample = await query<{ appointment_date: unknown; appointment_time: unknown; sent_at: unknown }[]>(
-    "SELECT appointment_date, appointment_time, sent_at FROM response_logs ORDER BY sent_at DESC LIMIT 1"
+  // DATE volviera como Date y rompiera el calendario). Se consulta
+  // appointments (que sí tiene esas columnas), no response_logs.
+  const typeSample = await query<{ appointment_date: unknown; appointment_time: unknown }[]>(
+    "SELECT appointment_date, appointment_time FROM appointments ORDER BY created_at DESC LIMIT 1"
   );
   const typeOf = (v: unknown) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v);
+  const valueOf = (v: unknown) => (v === null || v === undefined ? null : String(v).slice(0, 40));
 
   const webhookEvents = await query<{ n: number }[]>("SELECT COUNT(*) AS n FROM webhook_logs");
   const logsLast = await query<{ n: number }[]>("SELECT COUNT(*) AS n FROM response_logs");
@@ -99,9 +101,10 @@ export async function GET() {
       timezoneOffsetMin: new Date().getTimezoneOffset(),
       typeSample: {
         appointment_date: typeOf(typeSample?.[0]?.appointment_date),
+        appointment_date_value: valueOf(typeSample?.[0]?.appointment_date),
         appointment_time: typeOf(typeSample?.[0]?.appointment_time),
-        sent_at: typeOf(typeSample?.[0]?.sent_at),
-        note: "esperado: string / string / string (pool con dateStrings)",
+        appointment_time_value: valueOf(typeSample?.[0]?.appointment_time),
+        note: "esperado: string / string (pool con dateStrings). Si date es 'object', el dateStrings no aplicó",
       },
       counts: {
         tables: tables.length,
