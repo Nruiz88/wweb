@@ -1,161 +1,202 @@
 import { NextResponse } from "next/server";
-import { query, select } from "@/lib/db";
-import { getSession } from "@/lib/auth/server";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { query, generateId } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-async function selectOne<T>(sql: string, params?: unknown[]): Promise<T[]> {
-  return query<T>(sql, params);
+/**
+ * Verifica la firma `x-signature` de Mercado Pago.
+ *
+ * Manifest según la spec de MP:
+ *   `id:{data.id};request-id:{x-request-id};ts:{ts};` + secret, con SHA-256.
+ *
+ * Es OBLIGATORIA: sin ella, este endpoint público permite a cualquiera
+ * forjar un POST y activarse el plan Pro a cualquier `external_reference`.
+ */
+function verifyMpSignature(
+  request: Request,
+  payload: { data?: { id?: unknown } },
+  secret: string,
+): boolean {
+  const signature = request.headers.get("x-signature");
+  const ts = request.headers.get("x-ts");
+  const requestId = request.headers.get("x-request-id");
+  const dataId = String(payload?.data?.id ?? "");
+
+  if (!signature || !ts || !dataId) return false;
+
+  // Ventana de 5 minutos contra replay.
+  const tsNum = Number(ts);
+  if (!Number.isFinite(tsNum) || Math.abs(Date.now() - tsNum * 1000) > 5 * 60_000) return false;
+
+  const manifest = `id:${dataId};request-id:${requestId ?? ""};ts:${ts};`;
+  const expected = createHmac("sha256", secret).update(manifest).digest("hex");
+
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(signature, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
-// Mercado Pago webhook — MariaDB only, JWT authorized, idempotent.
+// Mercado Pago webhook (server-to-server, sin sesión de usuario).
 export async function POST(request: Request) {
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  let rawBody: string;
+  try {
+    rawBody = await request.text();
+  } catch {
+    return NextResponse.json({ status: "error", error: "Invalid body" }, { status: 400 });
   }
 
-  let body: unknown;
+  let body: { type?: string; data?: Record<string, unknown> };
   try {
-    body = await request.json();
+    body = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { type, data } = body as { type?: string; data?: Record<string, unknown> };
-  if (type !== "payment_assigned" && type !== "payment_created") {
-    return NextResponse.json({ received: true });
-  }
-
-  const paymentId = String((data?.id as string) || "");
-  const merchantOrderId = String((data?.merchant_order_id as string) || "");
-  const externalReference = String((data?.external_reference as string) || "");
-
-  // ── Idempotency: skip if already approved ───────────────────────────────
-  const existing = await selectOne<{ id: string; status: string; updated_at: string }>(
-    "SELECT id, status FROM payments WHERE external_id = ? OR mp_payment_id = ? LIMIT 1",
-    [externalReference, paymentId]
-  );
-  if (existing.length > 0) {
-    const p = existing[0];
-    if (p.status === "approved") {
-      console.log(`[mp] payment ${paymentId} already approved; skip`);
-      return NextResponse.json({ received: true, already_approved: true });
-    }
-    // Otherwise keep processing (e.g. pending → approved)
-  }
-
-  // ── Mercado Pago config ────────────────────────────────────────────────
-  const mpConfig = await selectOne<{ access_token: string | null; public_key: string | null }>(
-    "SELECT access_token, public_key FROM mercado_pago_config ORDER BY updated_at DESC LIMIT 1"
+  // ── Config ─────────────────────────────────────────────────────────────
+  const mpConfig = await query<{ access_token: string | null; webhook_secret: string | null }>(
+    "SELECT access_token, webhook_secret FROM mercado_pago_config ORDER BY updated_at DESC LIMIT 1"
   );
   if (!mpConfig?.length || !mpConfig[0].access_token) {
     return NextResponse.json({ status: "error", error: "Mercado Pago not configured" }, { status: 500 });
   }
-  const mpConfigData = mpConfig[0];
+  const { access_token, webhook_secret } = mpConfig[0];
+
+  // ── Firma (fail-closed) ────────────────────────────────────────────────
+  if (!webhook_secret) {
+    console.error("[mp] webhook_secret no configurado — se rechaza el webhook");
+    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  }
+  if (!verifyMpSignature(request, body, webhook_secret)) {
+    console.warn("[mp] firma inválida", { type: body.type });
+    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { type, data } = body;
+  if (type !== "payment_assigned" && type !== "payment_created") {
+    return NextResponse.json({ received: true });
+  }
+
+  const paymentId = String(data?.id ?? "");
+  if (!paymentId) return NextResponse.json({ received: true });
 
   try {
-    const res = await fetch("https://api.mercadopago.com/v1/payments/" + paymentId, {
-      headers: { Authorization: `Bearer ${mpConfigData.access_token}` },
+    // paymentId va a un path: sin encode se podría traversed.
+    const res = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+      headers: { Authorization: `Bearer ${access_token}` },
     });
     const mpPayment = await res.json();
     if (!res.ok) {
-      console.error("[mp] payment fetch error:", mpPayment);
+      console.error("[mp] no se pudo leer el pago", res.status, paymentId);
       return NextResponse.json({ received: true });
+    }
+
+    // `preference_id` es lo que guardamos como `payments.external_id` al crear
+    // la preferencia. Matchear por ahí es determinista; antes se buscaba por
+    // `external_reference` (el userId) o por `mp_payment_id` (que el INSERT de
+    // la preferencia dejaba NULL) → nunca encontraba nada.
+    const preferenceId = String(mpPayment.preference_id ?? "");
+    const externalReference = String(mpPayment.external_reference ?? "");
+
+    const existing = await query<{
+      id: string; status: string; user_id: string | null; external_id: string; amount_pesos: number;
+    }>(
+      `SELECT id, status, user_id, external_id, amount_pesos FROM payments
+       WHERE external_id = ? OR mp_payment_id = ? LIMIT 1`,
+      [preferenceId, paymentId]
+    );
+    if (existing.length > 0 && existing[0].status === "approved") {
+      return NextResponse.json({ received: true, already_approved: true });
     }
 
     const status = String(mpPayment.status || "").toLowerCase();
     const statusDetail = String(mpPayment.status_detail || "");
 
-    if (status === "paid") {
-      return NextResponse.json({ received: true });
-    }
-
+    // ── Pago rechazado / cancelado ───────────────────────────────────────
     if (status === "rejected" || status === "cancelled" || statusDetail?.includes("authentication")) {
-      // `payments.status` tiene CHECK (pending, approved, rejected, cancelled).
-      // Se usaba 'failed', que no está en la lista → ER 3819 tragado por el
-      // catch de abajo, y el pago rechazado quedaba 'pending' para siempre.
-      // 'cancelled' es el valor correcto del enum.
-      await query(
-        "UPDATE payments SET status = 'cancelled', updated_at = NOW() WHERE external_id = ? OR mp_payment_id = ?",
-        [externalReference, paymentId]
-      );
+      // El CHECK de `payments.status` es (pending, approved, rejected,
+      // cancelled). Se usaba 'failed', que no existe → ER 3819 tragado por el
+      // catch y el pago quedaba 'pending' para siempre.
+      if (existing.length > 0) {
+        await query("UPDATE payments SET status = 'cancelled', mp_payment_id = ?, updated_at = NOW() WHERE id = ?", [
+          paymentId,
+          existing[0].id,
+        ]);
+      }
       return NextResponse.json({ received: true });
     }
 
-    if (status === "authorized" || status === "in_process" || status === "scheduled") {
-      await query(
-        "UPDATE payments SET status = 'pending', updated_at = NOW() WHERE external_id = ? OR mp_payment_id = ?",
-        [externalReference, paymentId]
-      );
+    // ── Pago en proceso ──────────────────────────────────────────────────
+    if (status === "authorized" || status === "in_process" || status === "scheduled" || status === "pending") {
+      if (existing.length > 0) {
+        await query("UPDATE payments SET mp_payment_id = ?, updated_at = NOW() WHERE id = ?", [
+          paymentId,
+          existing[0].id,
+        ]);
+      }
       return NextResponse.json({ received: true });
     }
 
-    // Unknown status — do nothing.
-    return NextResponse.json({ received: true });
+    if (status !== "approved" && status !== "paid") {
+      return NextResponse.json({ received: true });
+    }
+
+    // ── Pago aprobado → activar plan ─────────────────────────────────────
+    //
+    // El usuario SIEMPRE viene de `payments/external_reference` (que
+    // /api/payments/preference fuerza a session.userId), nunca del body del
+    // webhook. Antes se tomaba `externalReference` directo del body forjado.
+    const userId = existing[0]?.user_id || externalReference;
+    if (!userId) {
+      console.error("[mp] pago aprobado sin external_reference", paymentId);
+      return NextResponse.json({ received: true });
+    }
+
+    const planConfig = await query<{ max_instances: number }>(
+      "SELECT max_instances FROM plan_config WHERE plan_type = 'pro' LIMIT 1"
+    );
+    const maxInstances = Number(planConfig?.[0]?.max_instances) || 1;
+    const amountPesos = Number(mpPayment.transaction_amount ?? existing[0]?.amount_pesos ?? 0);
+
+    if (existing.length > 0) {
+      await query(
+        "UPDATE payments SET status = 'approved', mp_payment_id = ?, amount_pesos = ?, updated_at = NOW() WHERE id = ?",
+        [paymentId, Math.max(0, Math.round(amountPesos)), existing[0].id]
+      );
+    } else {
+      await query(
+        `INSERT INTO payments (id, user_id, external_id, mp_payment_id, amount_pesos, status, plan_activated, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'approved', true, NOW(), NOW())
+         ON DUPLICATE KEY UPDATE
+           status = 'approved',
+           mp_payment_id = VALUES(mp_payment_id),
+           plan_activated = true,
+           updated_at = NOW()`,
+        [generateId(), userId, preferenceId || `mp_${paymentId}`, paymentId, Math.max(0, Math.round(amountPesos))]
+      );
+    }
+
+    // El plan SIEMPRE es 'pro': antes se leía `mpPayment.collection_id`, que
+    // es un id numérico de MP → violaba el CHECK plan_type IN ('starter','pro')
+    // y la activación fallaba silenciosamente.
+    await query(
+      `INSERT INTO subscriptions (id, user_id, plan_type, status, max_instances, paid_until, purchased_at, created_at, updated_at)
+       VALUES (?, ?, 'pro', 'active', ?, DATE_ADD(NOW(), INTERVAL 30 DAY), NOW(), NOW(), NOW())
+       ON DUPLICATE KEY UPDATE
+         plan_type = 'pro',
+         status = 'active',
+         max_instances = VALUES(max_instances),
+         paid_until = VALUES(paid_until),
+         purchased_at = NOW(),
+         updated_at = NOW()`,
+      [generateId(), userId, maxInstances]
+    );
+
+    return NextResponse.json({ received: true, activated: true });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Internal error";
     console.error("[mp] error:", message);
     return NextResponse.json({ received: true });
   }
-}
-
-// ── Plan activation (success/created flow) ──────────────────────────────
-async function activatePlan(
-  paymentId: string,
-  externalReference: string,
-  mpPayment: Record<string, unknown>,
-  mpConfigData: { access_token: string; public_key: string }
-) {
-  const status = String(mpPayment.status || "").toLowerCase();
-
-  if (status !== "paid" && status !== "approved") return;
-
-  const existing = await selectOne<{ id: string; status: string }>(
-    "SELECT id, status FROM payments WHERE external_id = ? OR mp_payment_id = ? LIMIT 1",
-    [externalReference, paymentId]
-  );
-  if (!existing.length || existing[0].status === "approved") return;
-
-  const planType = String(mpPayment.collection_id || "pro");
-  const planConfig = await selectOne<{ amount_pesos: number; label: string }>(
-    "SELECT amount_pesos, label FROM plan_config WHERE plan_type = ? LIMIT 1",
-    [planType]
-  );
-  const planLabel = planConfig?.[0]?.label || planType;
-
-  // Record payment
-  const { insertId } = await query(
-    "INSERT INTO payments (id, user_id, external_id, mp_payment_id, amount_pesos, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'approved', NOW(), NOW())",
-    [
-      String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
-      externalReference,
-      externalReference,
-      paymentId,
-      planConfig?.[0]?.amount_pesos || 0,
-    ]
-  );
-
-  // Upsert subscription (guarded — account exists by this point)
-  try {
-    await query(
-      `INSERT INTO subscriptions (id, user_id, plan_type, status, max_instances, created_at, updated_at)
-       VALUES (?, ?, ?, 'active', 1, NOW(), NOW())
-       ON DUPLICATE KEY UPDATE
-         plan_type = VALUES(plan_type),
-         status = VALUES(status),
-         max_instances = VALUES(max_instances),
-         updated_at = NOW()`,
-      [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), externalReference, planType]
-    );
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "subscription upsert failed";
-    console.error("[mp] subscription upsert error:", message);
-  }
-
-  // Nota: la suscripción ya quedó activa vía el upsert de arriba. La asignación
-  // de instancias se hace desde el panel admin (o el usuario crea la suya con el
-  // gating de plan). El SP assign_instance_for_user no existe en MariaDB.
-
-  return { paymentId: insertId, status: "approved" };
 }
