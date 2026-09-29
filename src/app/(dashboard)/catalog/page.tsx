@@ -7,8 +7,9 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Trash2, Edit2, X, ShoppingBag, ChevronRight, Tag,
-  Eye, EyeOff, GripVertical, Search, Check, Package, Sparkles
+  Eye, EyeOff, GripVertical, Search, Check, Package, Sparkles, ListPlus
 } from "lucide-react";
+import BulkImportModal from "@/components/catalog/BulkImportModal";
 import {
   DndContext,
   closestCenter,
@@ -114,6 +115,7 @@ export default function CatalogPage() {
   const [filter, setFilter] = useState<"all" | "active" | "inactive">("all");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [showImport, setShowImport] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -214,9 +216,21 @@ export default function CatalogPage() {
             <p className="text-xs text-wa-text-secondary/60 mt-0.5">Productos que el bot ofrece cuando escriben <span className="text-[#00a884] font-semibold">&quot;pedido&quot;</span></p>
           </div>
           {!showNew && !editing && (
-            <Button onClick={() => setShowNew(true)} className="h-10 rounded-xl gap-1.5 bg-gradient-to-r from-[#00a884] to-[#25d366] hover:from-[#00a884] hover:to-[#25d366] text-white font-semibold shadow-lg shadow-[#00a884]/25 transition-all hover:shadow-[#00a884]/40">
-              <Plus className="h-4 w-4" strokeWidth={2.5} />Nuevo
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Carga masiva: pegar la lista de precios. Es la vía principal
+                  para un comercio con 30 productos, no agregar uno por uno. */}
+              <Button
+                onClick={() => setShowImport(true)}
+                variant="outline"
+                className="h-10 rounded-xl gap-1.5 border-white/10 text-wa-text-secondary hover:bg-white/5"
+              >
+                <ListPlus className="h-4 w-4" strokeWidth={2.5} />
+                <span className="hidden sm:inline">Cargar lista</span>
+              </Button>
+              <Button onClick={() => setShowNew(true)} className="h-10 rounded-xl gap-1.5 bg-gradient-to-r from-[#00a884] to-[#25d366] hover:from-[#00a884] hover:to-[#25d366] text-white font-semibold shadow-lg shadow-[#00a884]/25 transition-all hover:shadow-[#00a884]/40">
+                <Plus className="h-4 w-4" strokeWidth={2.5} />Nuevo
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -304,6 +318,15 @@ export default function CatalogPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Importación masiva desde lista de precios */}
+      {showImport && instanceId && (
+        <BulkImportModal
+          instanceId={instanceId}
+          onClose={() => setShowImport(false)}
+          onImported={() => void load()}
+        />
+      )}
 
       {/* Grid de categorías */}
       <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6">
