@@ -5,6 +5,7 @@ import { getConnectionState, testEvolutionConnection } from "@/lib/evolution-mul
 import { validateEvolutionUrl, sanitizeString } from "@/lib/validation";
 import { safeErrorMessage } from "@/lib/api-helpers";
 import { checkInstanceLimit } from "@/lib/plan-gating";
+import { seedDefaults } from "@/lib/seed-defaults";
 
 export const dynamic = "force-dynamic";
 
@@ -162,11 +163,44 @@ export async function POST(request: Request) {
     [id, session.userId, cleanName, normalizedUrl, evolutionApiKey]
   );
 
+  // Seed de respuestas base + menú. Va acá y no en el registro porque
+  // auto_responses.instance_id es NOT NULL con FK: el registro todavía no
+  // tiene instancia. Es idempotente, así que un fallo acá no rompe la creación.
+  let seeded = 0;
+  let seededSkipped = false;
+  try {
+    const business = await getBusinessNameFor(session.userId);
+    const result = await seedDefaults(id, session.userId, business);
+    seeded = result.created;
+    seededSkipped = result.skipped;
+  } catch (e) {
+    console.error("[instances] no se pudieron crear las respuestas por defecto", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+
   return NextResponse.json({
     status: "success",
-    data: { id, instance_name: cleanName, status: "connecting", created_at: new Date().toISOString() },
+    data: {
+      id,
+      instance_name: cleanName,
+      status: "connecting",
+      created_at: new Date().toISOString(),
+      seeded_responses: seeded,
+      seeded_skipped: seededSkipped,
+    },
     message: "Servidor verificado — instancia lista. El usuario debe vincular QR en Mi WhatsApp para pasar a conectada.",
   });
+}
+
+/** business_name del dueño, para personalizar el contenido inicial. */
+async function getBusinessNameFor(userId: string): Promise<string> {
+  const rows = await query<{ business_name: string | null; full_name: string | null }>(
+    "SELECT business_name, full_name FROM profiles WHERE id = ? LIMIT 1",
+    [userId]
+  );
+  const p = rows?.[0];
+  return (p?.business_name ?? "").trim() || (p?.full_name ?? "").trim() || "";
 }
 
 export async function DELETE(request: Request) {

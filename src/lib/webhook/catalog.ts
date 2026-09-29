@@ -202,10 +202,22 @@ export function matchCatalogTrigger(text: string): string | null {
  * Handle catalog intent: "menú", "quiero un alfajor", "tienen helado?" → catálogo.
  */
 export async function handleCatalogIntent(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
-  const { instance, phoneNumber, effectiveText } = ctx;
+  const { instance, phoneNumber, effectiveText, autoResponses } = ctx;
 
   const trigger = matchCatalogTrigger(effectiveText);
   if (!trigger) return null;
+
+  // Colisión de palabras: el catálogo gatilla con "menu"/"menú", pero el menú
+  // base que se crea con la instancia usa esa MISMA keyword. Si el merchant
+  // tiene una auto-respuesta con keyword exacta, gana la suya: él sabe qué
+  // quiere que pase. El catálogo solo entra con "catálogo", "precios",
+  // "productos" o frases.
+  const norm = effectiveText.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  // `ctx.autoResponses` ya viene filtrado por is_active = true en la query.
+  const ownMenu = (autoResponses || []).find(
+    (ar) => (ar.keyword || "").trim().toLowerCase() === norm,
+  );
+  if (ownMenu) return null;
 
   const items = await query<CatalogItem>(
     "SELECT id, label, description, price_cents, active, sort_order, category, image_url FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
