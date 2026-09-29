@@ -127,17 +127,11 @@ export function parsePriceList(text: string, defaultCategory: string | null = nu
     if (pipeParts.length >= 3) {
       category = pipeParts[1] || category;
       working = `${pipeParts[0]} - ${pipeParts[pipeParts.length - 1]}`;
-    } else {
-      // "Alfajor (Dulces) - 1200" → categoría "Dulces", se conserva el precio.
-      const paren = working.match(/^(.+?)\s*[\(\[]\s*([^)\]]{2,40})\s*[\)\]]\s*(.*)$/);
-      if (paren) {
-        category = paren[2].trim() || category;
-        // IMPORTANTE: hay que re-enganchar el resto de la línea (el precio),
-        // si no el producto se rechaza por "sin precio".
-        const rest = paren[3].trim();
-        working = rest ? `${paren[1].trim()} ${rest}` : paren[1].trim();
-      }
     }
+    // OJO: los paréntesis NO se toman como categoría. "Pastafrola (grande)"
+    // y "Café (mediano)" son variantes de tamaño, no secciones del catálogo, y
+    // convertirlas en categoría parte al producto al revés. Para categorías
+    // está el pipe: "Café | Bebidas | 2500".
 
     const m = working.match(TRAILING_PRICE);
     if (!m) {

@@ -107,9 +107,14 @@ Alfajor | Dulces | 1200
     expect(products[1]).toMatchObject({ label: "Alfajor", category: "Dulces", priceCents: 120000 });
   });
 
-  it("detecta categorías con paréntesis", () => {
-    const { products } = parsePriceList("Alfajor (Dulces) - 1200");
-    expect(products[0]).toMatchObject({ label: "Alfajor", category: "Dulces", priceCents: 120000 });
+  it("NO toma los paréntesis como categoría: son variantes", () => {
+    // "Pastafrola (grande)" es una pastafrola grande, no una categoría "grande".
+    const { products } = parsePriceList(`
+Pastafrola (grande) 4.500
+Café (mediano) - 2.200
+`);
+    expect(products[0]).toMatchObject({ label: "Pastafrola (grande)", category: null, priceCents: 450000 });
+    expect(products[1]).toMatchObject({ label: "Café (mediano)", category: null, priceCents: 220000 });
   });
 
   it("usa la categoría por defecto cuando la línea no trae", () => {
