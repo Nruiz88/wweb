@@ -98,6 +98,17 @@ export async function GET() {
   const pendingReminders = await query<{ n: number }>(
     "SELECT COUNT(*) AS n FROM appointments WHERE status IN ('pending','confirmed') AND reminder_24h_sent = false"
   );
+
+  // Cómo se vera el nombre del negocio en los mensajes del bot.
+  const branding = await query<{ instance_id: string; instance_name: string; business_name: string | null }>(
+    `SELECT i.id AS instance_id, i.instance_name, p.business_name
+     FROM instances i LEFT JOIN profiles p ON p.id = i.admin_id`
+  );
+  const brandingRows = (branding || []).map((b) => ({
+    instancia: b.instance_name,
+    business_name: b.business_name || null,
+    enLosMensajes: b.business_name?.trim() || `${b.instance_name} (fallback: instance_name)`,
+  }));
   const cron = {
     crontabFile: "vercel.json (Coolify lo ignora)",
     crontaskConfigurado: "No verificable desde la app: crealo en Coolify → Schedule Tasks → /api/appointments/reminder",
@@ -126,6 +137,7 @@ export async function GET() {
         response_logs: Number(logsLast?.[0]?.n ?? -1),
       },
       cron,
+      branding: brandingRows,
       schemaOk: broken.length === 0,
       problems: broken.length
         ? broken.map(([t, v]) => ({

@@ -3,6 +3,8 @@ import { query } from "@/lib/db";
 import { sendTextMessage } from "@/lib/evolution-multi";
 import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 import { getSession } from "@/lib/auth";
+import { getBusinessName } from "@/lib/business-name";
+import { BUSINESS_TIMEZONE } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +26,17 @@ async function processReminders() {
   // Wider window since runs once per day
   const in30h = new Date(now.getTime() + 30 * 60 * 60 * 1000);
 
-  const dateStrNow = now.toISOString().slice(0, 10);
-  const dateStr30h = in30h.toISOString().slice(0, 10);
+  // Fechas en la zona del negocio, no en UTC: con toISOString() después de las
+  // 21:00 ART la ventana se corría un día.
+  const fmtDay = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: BUSINESS_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  const dateStrNow = fmtDay(now);
+  const dateStr30h = fmtDay(in30h);
 
   const appointments = await query<{
     id: string;
@@ -89,6 +100,7 @@ async function processReminders() {
     const phone = appt.customer_phone.replace("@s.whatsapp.net", "").replace("@lid", "");
     const dateDisplay = formatDate(appt.appointment_date, appt.appointment_time);
     const name = appt.customer_name || "";
+    const business = await getBusinessName(instance.id, instance.instance_name);
 
     // TEXTO, no botones: se comprobó que `sendButtonMessage` devuelve 200 pero
     // Evolution envuelve el interactiveMessage en un `viewOnceMessage`, así que
@@ -101,7 +113,7 @@ async function processReminders() {
       instance.instance_name,
       phone,
       "╭━━━━━━━━━━━━━━━━━━━━━╮\n" +
-        `  ⏰  *RECORDATORIO DE TURNO*${name ? `\n  para ${name}` : ""}\n` +
+        `  ⏰  *${business}*${name ? `\n  Recordatorio para ${name}` : ""}\n` +
         "╰━━━━━━━━━━━━━━━━━━━━━╯\n\n" +
         `📅  *${dateDisplay}*\n\n` +
         "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n" +

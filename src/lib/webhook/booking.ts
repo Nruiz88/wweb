@@ -65,36 +65,38 @@ const USE_BUTTONS = process.env.AGENDA_USE_BUTTONS === "1";
 async function sendAgendaMenuButtons(ctx: WebhookContext): Promise<boolean> {
   if (!USE_BUTTONS) return false;
   const { instance, phoneNumber } = ctx;
+  const business = await getBusinessName(instance.id, instance.instance_name);
   const res = await sendButtonMessage(
     instance.evolution_api_url,
     instance.evolution_api_key,
     instance.instance_name,
     phoneNumber,
-    "🗓️  *Agenda de turnos*",
+    `🗓️  *Turnos — ${business}*`,
     "¿Qué querés ver?",
     [
       { type: "reply", displayText: "🕐 Libre hoy", id: "agenda_hoy" },
       { type: "reply", displayText: "⏭️ Más próximo", id: "agenda_proximo" },
       { type: "reply", displayText: "📅 Agenda completa", id: "agenda_completa" },
     ],
-    "Turnos",
+    business,
     800,
   );
   return res.ok;
 }
 
-/** Fallback en texto del menú principal, para cuando los botones no van. */
+/** Menú principal en texto (el camino que sí llega: los botones no). */
 async function sendAgendaMenuText(ctx: WebhookContext): Promise<void> {
   const { instance, phoneNumber } = ctx;
+  const business = await getBusinessName(instance.id, instance.instance_name);
   await sendTextMessage(
     instance.evolution_api_url,
     instance.evolution_api_key,
     instance.instance_name,
     phoneNumber,
     "╭━━━━━━━━━━━━━━━━━━━━━╮\n" +
-      "     🗓️  *AGENDAR TURNO*\n" +
+      `  🗓️  *${business}*\n` +
       "╰━━━━━━━━━━━━━━━━━━━━━╯\n\n" +
-      "  Elegí una opción 👇\n\n" +
+      "  _Turnos — elegí una opción_ 👇\n\n" +
       "  ┌─────────────────────┐\n" +
       "  │ 1️⃣  🕐  *Libre hoy*\n" +
       "  │ 2️⃣  ⏭️  *Más próximo*\n" +
@@ -123,6 +125,7 @@ async function sendSlotsAsText(
       : "";
 
   const pageLabel = totalPages > 1 ? `   _pág. ${page + 1}/${totalPages}_` : "";
+  const business = await getBusinessName(instance.id, instance.instance_name);
 
   await sendTextMessage(
     instance.evolution_api_url,
@@ -133,7 +136,7 @@ async function sendSlotsAsText(
       "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
       "  _Respondé con el número:_\n\n" +
       `${list}${more}\n\n` +
-      "  0️⃣  🔙 Volver al menú",
+      `  0️⃣  🔙 Volver · ${business}`,
     1200,
   );
 }
@@ -190,6 +193,7 @@ export async function handleSlotsMore(ctx: WebhookContext): Promise<{ status: st
 
 
 import { BUSINESS_TIMEZONE } from "@/lib/timezone";
+import { getBusinessName } from "@/lib/business-name";
 import { Redis } from "@upstash/redis";
 
 function localDateStr(now: Date): string {
@@ -736,11 +740,19 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
     await clearAgendaActive(ctx);
     const dateStr = formatDateStr(date);
     const [h, m] = chosen.split(":");
+    const business = await getBusinessName(instance.id, instance.instance_name);
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
-      `✅ ¡Turno agendado!\n\n📅 ${dateStr} a las ${h}:${m}\n\nTe enviaremos un recordatorio 24 horas antes. ¡Nos vemos!`,
-      1500,
+      "╭━━━━━━━━━━━━━━━━━━━━━╮\n" +
+        "   ✅  *¡TURNO AGENDADO!*\n" +
+        "╰━━━━━━━━━━━━━━━━━━━━━╯\n\n" +
+        `📅  *${dateStr}*\n` +
+        `🕐  *${h}:${m} hs*\n` +
+        `📍  ${business}\n` +
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n" +
+        `Te recordamos desde ${business} 24 h antes. ¡Nos vemos! 🎉`,
+      1200,
     );
     return { status: "success", matched: "[turno agendado]" };
   }
