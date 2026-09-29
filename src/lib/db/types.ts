@@ -153,6 +153,8 @@ export interface CatalogItem {
   active: boolean;
   sort_order: number;
   category: string | null;
+  /** URL de la foto del producto. */
+  image_url?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -165,6 +167,8 @@ export interface Order {
   customer_name: string | null;
   catalog_item_id: string | null;
   option_label: string;
+  /** Cantidad pedida (default 1). */
+  quantity: number;
   price_cents: number;
   status: "pending" | "completed" | "canceled";
   notes: string | null;

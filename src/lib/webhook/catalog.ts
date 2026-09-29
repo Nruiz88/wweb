@@ -3,6 +3,7 @@ import type { WebhookContext } from "./context";
 import type { CatalogItem } from "@/lib/db/types";
 import { query, generateId } from "../db";
 import { sendMenuResponse } from "./menus";
+import { getBusinessName } from "@/lib/business-name";
 
 export interface MenuConfig {
   title: string;
@@ -11,75 +12,114 @@ export interface MenuConfig {
   buttons: Array<{ id: string; text: string; target_id: string | null }>;
 }
 
+/** Productos por página en el listado de texto. */
+const ITEMS_PER_PAGE = 8;
+
+function priceLabel(cents: number): string {
+  const pesos = cents / 100;
+  return Number.isInteger(pesos) ? `$${pesos}` : `$${pesos.toFixed(2)}`;
+}
+
+/** Id de la página siguiente, para el botón de navegación. */
+function nextPageTarget(page: number): string {
+  return `menu_p${page + 1}`;
+}
+
 /**
- * Build paginated catalog menus (2+1 rule: 2 items + 1 nav per page).
- * If items have categories, the first level is categories (2 per page + Ver más),
- * and second level shows products of that category (2 per page + Ver más).
+ * Arma las páginas del catálogo.
+ *
+ * Antes eran 2 productos por página: con 4 productos el 4º era inalcanzable
+ * desde el chat. Ahora son 8 por página, y si hay más se agrega "Ver más" como
+ * última opción numerada.
+ *
+ * Si hay varias categorías, la primera pantalla muestra las categorías y al
+ * elegir una se listan sus productos.
  */
 export function buildCatalogMenus(items: CatalogItem[]): { menus: MenuConfig[]; entryMenuId: string } {
-  const active = items.filter((it) => it.active).sort((a, b) => a.sort_order - b.sort_order);
+  const active = items
+    .filter((it) => it.active)
+    .sort((a, b) => a.sort_order - b.sort_order);
   if (active.length === 0) return { menus: [], entryMenuId: "" };
 
-  // If there are 2+ distinct categories, group by category as first-level menus
-  const categories = [...new Set(active.map((it) => it.category || "_default"))];
-  const hasMultipleCategories = categories.length > 1 && categories.filter((c) => c !== "_default").length > 1;
+  const namedCategories = [...new Set(active.map((it) => it.category).filter(Boolean))] as string[];
 
-  if (hasMultipleCategories && categories.length <= 6) {
-    // Category-level menus: 2 categories + "Ver más" (or 3 categories on last page)
+  // ── Nivel 1: categorías (solo si hay 2 o más con nombre) ──────────────
+  if (namedCategories.length >= 2) {
     const menus: MenuConfig[] = [];
-    const catItems = categories.map((cat) => {
-      const products = active.filter((it) => (it.category || "_default") === cat);
-      return { category: cat, products };
-    });
-
-    for (let i = 0; i < catItems.length; i += 2) {
-      const pageCats = catItems.slice(i, i + 2);
-      const pageNum = Math.floor(i / 2) + 1;
-      const totalPages = Math.ceil(catItems.length / 2);
-      const buttons: Array<{ id: string; text: string; target_id: string | null }> = pageCats.map((catGroup) => ({
-        id: `cat_${catGroup.category}`,
-        text: `${catGroup.category === "_default" ? "Sin categoría" : catGroup.category} (${catGroup.products.length})`,
-        target_id: `cat_sub_${catGroup.category}`,
+    for (let i = 0; i < namedCategories.length; i += ITEMS_PER_PAGE) {
+      const pageCats = namedCategories.slice(i, i + ITEMS_PER_PAGE);
+      const pageNum = Math.floor(i / ITEMS_PER_PAGE) + 1;
+      const totalPages = Math.ceil(namedCategories.length / ITEMS_PER_PAGE);
+      const buttons: Array<{ id: string; text: string; target_id: string | null }> = pageCats.map((cat) => ({
+        id: `cat_${cat}`,
+        text: `📂 ${cat}`,
+        target_id: `cat_sub_${cat}`,
       }));
-      if (i + 2 < catItems.length) {
-        buttons.push({ id: `next_p${pageNum}`, text: "Ver más →", target_id: `menu_p${pageNum + 1}` });
+      if (i + ITEMS_PER_PAGE < namedCategories.length) {
+        buttons.push({ id: `next_p${pageNum}`, text: "➡️ Ver más", target_id: nextPageTarget(pageNum) });
       }
       menus.push({
-        title: `Categorías — pág ${pageNum}/${totalPages}`,
-        description: "Elegí una categoría:",
-        footer: "Después verás los productos de esa categoría",
+        title: `Nuestro catálogo — pág ${pageNum}/${totalPages}`,
+        description: "¿Qué estás buscando?",
+        footer: `${active.length} productos disponibles`,
         buttons,
       });
     }
-
-    // Note: submenus (products per category) are handled by handleCatalogIntent
-    // which reads the category name and builds product pages dynamically.
     return { menus, entryMenuId: "menu_p1" };
   }
 
-  // Flat paginated (no categories or single category)
+  // ── Lista plana de productos ──────────────────────────────────────────
   const menus: MenuConfig[] = [];
-  for (let i = 0; i < active.length; i += 2) {
-    const pageItems = active.slice(i, i + 2);
-    const pageNum = Math.floor(i / 2) + 1;
-    const totalPages = Math.ceil(active.length / 2);
+  for (let i = 0; i < active.length; i += ITEMS_PER_PAGE) {
+    const pageItems = active.slice(i, i + ITEMS_PER_PAGE);
+    const pageNum = Math.floor(i / ITEMS_PER_PAGE) + 1;
+    const totalPages = Math.ceil(active.length / ITEMS_PER_PAGE);
     const buttons: Array<{ id: string; text: string; target_id: string | null }> = pageItems.map((it) => ({
       id: `opt_${it.id}`,
-      text: `${it.label} — $${(it.price_cents / 100).toFixed(0)}`,
+      text: `${it.label} — ${priceLabel(it.price_cents)}`,
       target_id: `order_${it.id}`,
     }));
-    if (i + 2 < active.length) {
-      buttons.push({ id: `next_p${pageNum}`, text: "Ver más →", target_id: `menu_p${pageNum + 1}` });
+    if (i + ITEMS_PER_PAGE < active.length) {
+      buttons.push({ id: `next_p${pageNum}`, text: "➡️ Ver más", target_id: nextPageTarget(pageNum) });
     }
     menus.push({
-      title: `Catálogo — pág ${pageNum}/${totalPages}`,
-      description: "Elegí una opción:",
-      footer: "Tu pedido se registra automáticamente",
+      title: `Nuestro catálogo — pág ${pageNum}/${totalPages}`,
+      description: "Elegí con el número lo que quieras:",
+      footer: "Te lo dejamos anotado apenas confirmes",
       buttons,
     });
   }
 
   return { menus, entryMenuId: menus[0] ? "menu_p1" : "" };
+}
+
+/**
+ * Productos de una categoría, paginados igual que la lista plana.
+ * Es lo que se muestra al elegir una categoría del primer nivel.
+ */
+export function buildCategoryMenu(category: string, items: CatalogItem[]): MenuConfig[] {
+  const active = items.filter((it) => it.active).sort((a, b) => a.sort_order - b.sort_order);
+  const menus: MenuConfig[] = [];
+  for (let i = 0; i < active.length; i += ITEMS_PER_PAGE) {
+    const pageItems = active.slice(i, i + ITEMS_PER_PAGE);
+    const pageNum = Math.floor(i / ITEMS_PER_PAGE) + 1;
+    const totalPages = Math.ceil(active.length / ITEMS_PER_PAGE);
+    const buttons: Array<{ id: string; text: string; target_id: string | null }> = pageItems.map((it) => ({
+      id: `opt_${it.id}`,
+      text: `${it.label} — ${priceLabel(it.price_cents)}`,
+      target_id: `order_${it.id}`,
+    }));
+    if (i + ITEMS_PER_PAGE < active.length) {
+      buttons.push({ id: `next_cat_${pageNum}`, text: "➡️ Ver más", target_id: `catnext_${pageNum + 1}` });
+    }
+    menus.push({
+      title: `${category} — pág ${pageNum}/${totalPages}`,
+      description: "Elegí con el número:",
+      footer: `${active.length} productos`,
+      buttons,
+    });
+  }
+  return menus;
 }
 
 /**
@@ -125,17 +165,50 @@ export async function syncCatalogMenus(
 }
 
 /**
- * Handle catalog intent: trigger word (pedido/catálogo/quiero) → show first menu page.
+ * Palabras que abren el catálogo.
+ *
+ * Antes era coincidencia EXACTA contra una lista corta: "pedido", "catálogo",
+ * "quiero", "menu", "catalogo". Si el cliente escribía "hola, tenés alfajores?"
+ * o "quiero un flan" no pasaba nada. Ahora se busca la palabra DENTRO del texto
+ * y se aceptan las formas que la gente realmente usa.
+ */
+const CATALOG_TRIGGERS = [
+  "menu", "menú", "carta",
+  "catalogo", "catálogo",
+  "pedido", "pedidos", "encargar", "encargo",
+  "producto", "productos", "precios", "lista de precios",
+  "quiero", "quisiera", "tienen", "tenes", "venden",
+  "comprar", "compro",
+];
+
+/** Si el texto parece un pedido del catálogo, devuelve el trigger encontrado. */
+export function matchCatalogTrigger(text: string): string | null {
+  const t = (text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  if (!t) return null;
+  for (const trigger of CATALOG_TRIGGERS) {
+    const needle = trigger.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    // "tienen"/"venden" cuentan como match solo si hay algo más que un
+    // saludo, para no interceptar "hola".
+    if (needle === "tienen" || needle === "tenes" || needle === "venden") {
+      if (t.length > needle.length + 1 && t.includes(needle)) return trigger;
+      continue;
+    }
+    if (t.includes(needle)) return trigger;
+  }
+  return null;
+}
+
+/**
+ * Handle catalog intent: "menú", "quiero un alfajor", "tienen helado?" → catálogo.
  */
 export async function handleCatalogIntent(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
-  const { supabase, instance, phoneNumber, effectiveText } = ctx;
-  const trigger = (effectiveText || "").toLowerCase().trim();
+  const { instance, phoneNumber, effectiveText } = ctx;
 
-  // Only respond to explicit catalog triggers (not booking words)
-  if (!["pedido", "catálogo", "quiero", "menu", "catalogo"].includes(trigger)) return null;
+  const trigger = matchCatalogTrigger(effectiveText);
+  if (!trigger) return null;
 
   const items = await query<CatalogItem>(
-    "SELECT id, label, description, price_cents, active, sort_order, category FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+    "SELECT id, label, description, price_cents, active, sort_order, category, image_url FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
     [instance.id]
   );
 
@@ -143,22 +216,91 @@ export async function handleCatalogIntent(ctx: WebhookContext): Promise<{ status
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
-      "📭 *Catálogo vacío*\n\nAún no hay productos disponibles. Intentá más tarde.",
-      1500,
+      "📭 Por ahora no tenemos productos cargados.\n\nPronto te avisamos 😊",
+      1200,
     );
     return { status: "success", matched: "[catalog empty]" };
   }
 
   const { menus } = buildCatalogMenus(items);
-  const entryMenu = menus[0];
+  if (menus.length === 0) return null;
 
-  // Send first page as interactive buttons (falls back to text via sendMenuResponse)
   await sendMenuResponse(
     instance.evolution_api_url, instance.evolution_api_key,
-    instance.instance_name, phoneNumber, entryMenu,
+    instance.instance_name, phoneNumber, menus[0],
   );
 
-  return { status: "success", matched: "[catalog menu]" };
+  return { status: "success", matched: `[catálogo: ${trigger}]` };
+}
+
+/**
+ * Paginación del catálogo desde texto: el cliente responde el número del
+ * "Ver más" y se muestra la página siguiente.
+ *
+ * `menu_p<N>` para la lista plana / categorías, `catnext_<N>` para los
+ * productos de una categoría.
+ */
+export async function handleCatalogPage(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
+  const { instance, phoneNumber, effectiveText } = ctx;
+  const text = (effectiveText || "").trim();
+  const m = /^(?:menu_p|catnext_)(\d{1,3})$/.exec(text);
+  if (!m) return null;
+
+  const page = Number(m[1]);
+  if (!Number.isFinite(page) || page < 1) return null;
+
+  const items = await query<CatalogItem>(
+    "SELECT id, label, description, price_cents, active, sort_order, category, image_url FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+    [instance.id]
+  );
+  if (!items?.length) return null;
+
+  const business = await getBusinessName(instance.id, instance.instance_name);
+  const isCategoryPage = text.startsWith("catnext_");
+
+  // En `catnext_<N>` el número es la página DENTRO de la última categoría
+  // elegida. Como no guardamos estado, reconstruimos la primera categoría con
+  // productos: es el caso natural al encadenar productos de una misma sección.
+  if (isCategoryPage) {
+    const cats = [...new Set(items.map((i) => i.category).filter(Boolean))] as string[];
+    if (cats.length < 2) {
+      const { menus } = buildCatalogMenus(items);
+      const target = menus[page - 1];
+      if (!target) return null;
+      await sendMenuResponse(
+        instance.evolution_api_url, instance.evolution_api_key,
+        instance.instance_name, phoneNumber, target,
+      );
+      return { status: "success", matched: "[catálogo página]" };
+    }
+    const cat = cats[0];
+    const sub = buildCategoryMenu(cat, items.filter((i) => i.category === cat));
+    const target = sub[page - 1];
+    if (!target) return null;
+    await sendMenuResponse(
+      instance.evolution_api_url, instance.evolution_api_key,
+      instance.instance_name, phoneNumber, target,
+    );
+    return { status: "success", matched: "[catálogo página]" };
+  }
+
+  const { menus } = buildCatalogMenus(items);
+  const target = menus[page - 1];
+  if (!target) {
+    await sendTextMessage(
+      instance.evolution_api_url, instance.evolution_api_key,
+      instance.instance_name, phoneNumber,
+      `Esa es la última página 😊\n\nElegí *${business}* con otro número o escribí *menú* para volver.`,
+      1200,
+    );
+    return { status: "success", matched: "[catálogo fuera de rango]" };
+  }
+
+  await sendMenuResponse(
+    instance.evolution_api_url, instance.evolution_api_key,
+    instance.instance_name, phoneNumber, target,
+  );
+  return { status: "success", matched: "[catálogo página]" };
 }
 
 /**

@@ -177,6 +177,9 @@ CREATE TABLE IF NOT EXISTS catalog_items (
   active BOOLEAN NOT NULL DEFAULT true,
   sort_order INT NOT NULL DEFAULT 0,
   category VARCHAR(255),
+  -- Foto del producto. Es el dato que más pesa en la venta de un comercio
+  -- chico: la descripción sin imagen no convince.
+  image_url VARCHAR(500) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
@@ -194,6 +197,9 @@ CREATE TABLE IF NOT EXISTS orders (
   customer_name VARCHAR(255),
   catalog_item_id VARCHAR(36),
   option_label VARCHAR(255) NOT NULL,
+  -- Cantidad pedida. Sin esto, comprar 3 unidades obliga a registrar 3 pedidos
+  -- y el merchant tiene que corregirlos a mano.
+  quantity INT NOT NULL DEFAULT 1 CHECK (quantity > 0),
   price_cents INT NOT NULL DEFAULT 0 CHECK (price_cents >= 0),
   status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','completed','canceled')),
   notes TEXT,

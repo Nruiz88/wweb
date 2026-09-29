@@ -4,7 +4,9 @@ import type { MenuConfig } from "@/lib/db/types";
 import type { WebhookContext } from "./context";
 import { query, generateId } from "../db";
 import { isValidId } from "@/lib/validation";
-import { buildCatalogMenus } from "./catalog";
+import { buildCatalogMenus, handleCatalogPage } from "./catalog";
+import { getBusinessName } from "@/lib/business-name";
+import type { CatalogItem } from "@/lib/db/types";
 
 // Button id used to signal "go back to the parent menu".
 function backButtonId(parentId: string): string {
@@ -38,10 +40,30 @@ export function clearActiveMenu(instanceName: string, phoneNumber: string): void
 }
 
 /**
- * Send a menu (interactive buttons) response.
- * Falls back to plain text if buttons fail.
- * When `backToId` is provided (a submenu), a "⬅ Volver" button is appended
- * that returns to the parent menu.
+ * Los botones interactivos de Evolution NO llegan al usuario en esta
+ * instancia: `sendButtonMessage` devuelve 200 con un interactiveMessage
+ * envuelto en `viewOnceMessage`, así que el mensaje queda marcado "ver una
+ * vez" y no se renderiza. Como devuelve `ok`, el fallback a texto NUNCA se
+ * disparaba y el catálogo y los menús quedaban mudos.
+ *
+ * Por eso el texto es el camino PRINCIPAL y los botones quedan opt-in con
+ * MENU_USE_BUTTONS=1, por si el server de Evolution se actualiza.
+ */
+const USE_BUTTONS = process.env.MENU_USE_BUTTONS === "1";
+
+/** Máximo de opciones que se listan en un menú de texto. */
+const MAX_TEXT_OPTIONS = 9;
+
+/** Marca un botón de navegación ("Ver más"), que no es una opción real. */
+function isNavOption(text: string): boolean {
+  return /ver\s*más/i.test(text);
+}
+
+/**
+ * Muestra un menú.
+ *
+ * Texto numerado (el cliente responde con el número) por defecto; botones si
+ * MENU_USE_BUTTONS=1. Cuando `backToId` viene, se ofrece "0 = volver".
  */
 export async function sendMenuResponse(
   evoUrl: string,
@@ -51,38 +73,62 @@ export async function sendMenuResponse(
   menu: MenuConfig,
   backToId?: string,
 ): Promise<boolean> {
-  const buttons: ButtonItem[] = menu.buttons.slice(0, 3).map((b) => ({
-    type: "reply",
-    displayText: b.text,
-    id: b.id,
-  }));
+  const shown = menu.buttons.slice(0, MAX_TEXT_OPTIONS);
 
-  // Submenus always get a native back button (max 3 real options + back).
-  if (backToId) {
-    buttons.push({ type: "reply", displayText: "⬅ Volver", id: backButtonId(backToId) });
+  if (USE_BUTTONS) {
+    const buttons: ButtonItem[] = menu.buttons.slice(0, 3).map((b) => ({
+      type: "reply",
+      displayText: b.text,
+      id: b.id,
+    }));
+    if (backToId) {
+      buttons.push({ type: "reply", displayText: "⬅ Volver", id: backButtonId(backToId) });
+    }
+    const result = await sendButtonMessage(
+      evoUrl, evoKey, instanceName, phoneNumber,
+      menu.title, menu.description, buttons, menu.footer, 1500,
+    );
+    if (result.ok) {
+      setActiveMenu(instanceName, phoneNumber, { ...menu, buttons: shown }, backToId);
+      return true;
+    }
+    console.warn("[webhook] botones fallaron, uso texto", { error: result.message });
   }
 
-  const result = await sendButtonMessage(
-    evoUrl, evoKey, instanceName, phoneNumber,
-    menu.title, menu.description, buttons, menu.footer, 1500,
-  );
+  // Camino principal: texto. Se separa la navegación de las opciones reales
+  // para que el número de "ver más" no se confunda con un producto.
+  const options = shown.filter((b) => !isNavOption(b.text));
+  const nav = shown.filter((b) => isNavOption(b.text));
 
+  const lines: string[] = [];
+  options.forEach((b, i) => {
+    lines.push(`  ┣ ${String(i + 1).padStart(2, " ")}. ${b.text}`);
+  });
+  nav.forEach((b, i) => {
+    lines.push(`  ┗ ${String(options.length + i + 1).padStart(2, " ")}. ${b.text}`);
+  });
+
+  const parts: string[] = [];
+  if (menu.title) parts.push(`*${menu.title}*`);
+  if (menu.description) parts.push(`_${menu.description}_`);
+  parts.push("━━━━━━━━━━━━━━━━━━━━━━");
+  parts.push("  _Elegí con el número:_");
+  parts.push("");
+  parts.push(lines.join("\n"));
+
+  const tail: string[] = [];
+  if (backToId) tail.push("  0️⃣  🔙 Volver");
+  if (menu.footer) tail.push(`  _${menu.footer}_`);
+  if (tail.length) {
+    parts.push("");
+    parts.push(tail.join("\n"));
+  }
+
+  const result = await sendTextMessage(evoUrl, evoKey, instanceName, phoneNumber, parts.join("\n"), 1200);
   if (result.ok) {
-    // Remember the shown menu so "0"/"volver" (text fallback) can go back.
-    setActiveMenu(instanceName, phoneNumber, menu, backToId);
-    return true;
+    setActiveMenu(instanceName, phoneNumber, { ...menu, buttons: shown }, backToId);
   }
-
-  // Fallback: plain text with numbered options + back
-  console.warn("[webhook] botones fallaron, fallback a texto", { error: result.message });
-  const fallback = menu.buttons.map((b, i) => `${i + 1}. ${b.text}`).join("\n");
-  let text = `${menu.title}\n\n${menu.description}\n\n${fallback}`;
-  if (backToId) text += `\n\n0️⃣ ⬅ Volver`;
-  const fallbackResult = await sendTextMessage(evoUrl, evoKey, instanceName, phoneNumber, text, 1500);
-  if (fallbackResult.ok) {
-    setActiveMenu(instanceName, phoneNumber, menu, backToId);
-  }
-  return fallbackResult.ok;
+  return result.ok;
 }
 
 /**
@@ -114,13 +160,21 @@ export async function handleMenuTextReply(ctx: WebhookContext) {
     return null;
   }
 
-  // Option pick: 1-3
+  // Opción: 1-9 (el menú de texto puede listar más de 3, a diferencia de los
+  // quick replies de WhatsApp que topan en 3).
+  if (!/^[1-9]$/.test(clean)) return null;
   const idx = Number(clean) - 1;
-  if (!/^[1-3]$/.test(clean)) return null;
   const option = state.config.buttons[idx];
   if (!option) return null;
 
   if (option.target_id) {
+    // Primero los targets del catálogo (menu_p<N>, order_<id>): antes se
+    // buscaban solo en auto_responses, donde no están, así que al elegir un
+    // producto desde el menú de texto NO se creaba ningún pedido y el bot
+    // devolvía el texto de la opción como si nada.
+    const catalogResult = await handleCatalogTarget(ctx, option.target_id);
+    if (catalogResult) return catalogResult;
+
     const targets = await query<{ id: string; response_text: string; response_type: string; menu_config: any; user_id: string }>(
       "SELECT id, response_text, response_type, menu_config, user_id FROM auto_responses WHERE id = ? AND is_active = true",
       [option.target_id]
@@ -167,6 +221,126 @@ export async function handleMenuTextReply(ctx: WebhookContext) {
     }
 
 /**
+ * Crea el pedido de un producto del catálogo.
+ *
+ * Compartido por el camino de texto (elegir el número) y el de botones, que
+ * antes eran dos implementaciones y solo una funcionaba.
+ */
+export async function createCatalogOrder(
+  ctx: WebhookContext,
+  itemId: string,
+  quantity = 1,
+): Promise<{ ok: boolean; label?: string; totalCents?: number; orderId?: string }> {
+  const { instance, phoneNumber, pushName } = ctx;
+  if (!isValidId(itemId)) return { ok: false };
+
+  const items = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
+    "SELECT id, label, price_cents, active FROM catalog_items WHERE id = ? AND active = true",
+    [itemId]
+  );
+  const item = items?.[0];
+  if (!item) return { ok: false };
+
+  const qty = Math.max(1, Math.min(99, Math.floor(quantity) || 1));
+  // `orders.id` es VARCHAR sin AUTO_INCREMENT → `insertId` daba 0 y el
+  // `if (insertId)` caía al branch de "Producto no disponible": el pedido se
+  // guardaba pero el cliente recibía un error.
+  const orderId = generateId();
+  await query(
+    `INSERT INTO orders (id, instance_id, user_id, customer_phone, customer_name,
+                        catalog_item_id, option_label, quantity, price_cents, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())`,
+    [
+      orderId, instance.id, null, phoneNumber, pushName || null,
+      item.id, item.label, qty, item.price_cents,
+    ]
+  );
+
+  return { ok: true, label: item.label, totalCents: item.price_cents * qty, orderId };
+}
+
+function money(cents: number): string {
+  const pesos = cents / 100;
+  return Number.isInteger(pesos) ? `$${pesos}` : `$${pesos.toFixed(2)}`;
+}
+
+/** Confirmación del pedido, con el nombre del negocio. */
+export async function confirmOrder(
+  ctx: WebhookContext,
+  label: string,
+  totalCents: number,
+  quantity: number,
+): Promise<void> {
+  const { instance, phoneNumber } = ctx;
+  const business = await getBusinessName(instance.id, instance.instance_name);
+  const line = quantity > 1 ? `${quantity} × ${label}` : label;
+  await sendTextMessage(
+    instance.evolution_api_url, instance.evolution_api_key,
+    instance.instance_name, phoneNumber,
+    "╭━━━━━━━━━━━━━━━━━━━━━╮\n" +
+      "   🧾  *PEDIDO ANOTADO*\n" +
+      "╰━━━━━━━━━━━━━━━━━━━━━╯\n\n" +
+      `📦  *${line}*\n` +
+      `💰  *${money(totalCents)}*\n` +
+      `🏪  ${business}\n` +
+      "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n" +
+      "Te confirmamos por acá. ¡Gracias! 🎉",
+    1200,
+  );
+}
+
+/**
+ * Rutea un `target_id` de catálogo. Devuelve el resultado si lo consumió.
+ * `menu_p<N>` = página siguiente, `order_<itemId>` = pedir el producto.
+ */
+async function handleCatalogTarget(
+  ctx: WebhookContext,
+  targetId: string,
+): Promise<{ status: string; matched: string } | null> {
+  const navMatch = /^menu_p(\d{1,3})$/.exec(targetId);
+  if (navMatch) {
+    const res = await handleCatalogPage(ctx);
+    if (res) return res;
+    const menus = await catalogPageMenus(ctx, Number(navMatch[1]));
+    if (!menus) return null;
+    await sendMenuResponse(
+      ctx.instance.evolution_api_url, ctx.instance.evolution_api_key,
+      ctx.instance.instance_name, ctx.phoneNumber, menus,
+    );
+    return { status: "success", matched: `[catálogo pág ${navMatch[1]}]` };
+  }
+
+  const orderMatch = /^order_(.+)$/.exec(targetId);
+  if (orderMatch) {
+    const created = await createCatalogOrder(ctx, orderMatch[1], 1);
+    if (!created.ok) {
+      await sendTextMessage(
+        ctx.instance.evolution_api_url, ctx.instance.evolution_api_key,
+        ctx.instance.instance_name, ctx.phoneNumber,
+        "Ese producto ya no está disponible 🤔\n\nEscribí *menú* para ver el catálogo.",
+        1200,
+      );
+      return { status: "success", matched: "[pedido: producto no disponible]" };
+    }
+    await confirmOrder(ctx, created.label!, created.totalCents!, 1);
+    return { status: "success", matched: `[pedido ${created.orderId}]` };
+  }
+
+  return null;
+}
+
+/** Reconstruye la página N del catálogo (para la navegación). */
+async function catalogPageMenus(ctx: WebhookContext, page: number) {
+  const items = await query<CatalogItem>(
+    "SELECT id, label, description, price_cents, active, sort_order, category FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+    [ctx.instance.id]
+  );
+  if (!items?.length) return null;
+  const { menus } = buildCatalogMenus(items);
+  return menus[page - 1] ?? null;
+}
+
+/**
  * Handle button/list tap responses from interactive menus.
  * Looks up the tapped button text in menu_config.buttons.
  * Requires: Starter plan
@@ -176,72 +350,11 @@ export async function handleMenuTap(ctx: WebhookContext) {
 
   if (!ctx.buttonText && !ctx.listText) return null;
 
-  // ---- Catalog menu navigation: "Ver más →" (target_id = menu_pN) ----
-  const navMatch = (rawButtonId || effectiveText || "").match(/^menu_p(\d+)$/);
-  if (navMatch) {
-    const pageNum = parseInt(navMatch[1], 10);
-    const { data: items } = await supabase
-      .from("catalog_items")
-      .select("*")
-      .eq("instance_id", instance.id)
-      .eq("active", true)
-      .order("sort_order", { ascending: true });
-    const { menus } = buildCatalogMenus(items || []);
-    const menu = menus[pageNum - 1];
-    if (menu) {
-      await sendMenuResponse(
-        instance.evolution_api_url, instance.evolution_api_key,
-        instance.instance_name, phoneNumber, menu,
-      );
-      return { status: "success", matched: `[catálogo pág ${pageNum}]` };
-    }
-    return null;
-  }
-
-  // ---- Catalog item selected (target_id = order_<itemId>) ----
-  const orderMatch = (rawButtonId || effectiveText || "").match(/^order_(.+)$/);
-  if (orderMatch) {
-    const itemId = orderMatch[1];
-    if (isValidId(itemId)) {
-      const items = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
-        "SELECT id, label, price_cents, active FROM catalog_items WHERE id = ? AND active = true",
-        [itemId]
-      );
-      const item = items?.[0];
-      if (item) {
-        // `orders.id` es VARCHAR sin AUTO_INCREMENT → `insertId` daba 0 y el
-        // `if (insertId)` caía al branch de "Producto no disponible": el pedido
-        // se guardaba pero el cliente recibía un error.
-        const orderId = generateId();
-        await query(
-          "INSERT INTO orders (id, instance_id, user_id, customer_phone, customer_name, catalog_item_id, option_label, price_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
-          [
-            orderId,
-            instance.id,
-            null,
-            phoneNumber,
-            ctx.pushName || null,
-            item.id,
-            item.label,
-            item.price_cents,
-          ]
-        );
-        await sendTextMessage(
-          instance.evolution_api_url, instance.evolution_api_key,
-          instance.instance_name, phoneNumber,
-          `✅ *Pedido registrado*\n\n📦 ${item.label}\n💰 $${(item.price_cents / 100).toFixed(2)}\n\nTu pedido fue cargado 🚀`,
-          1500,
-        );
-        return { status: "success", matched: `[pedido creado ${orderId}]` };
-      }
-    }
-    await sendTextMessage(
-      instance.evolution_api_url, instance.evolution_api_key,
-      instance.instance_name, phoneNumber,
-      "❌ *Producto no disponible*. Elegí otra opción.",
-      1500,
-    );
-    return { status: "success", matched: "[order failed]" };
+  // ---- Catálogo: navegación y pedido (mismo ruteo que el camino de texto) ----
+  const raw = rawButtonId || effectiveText || "";
+  if (/^menu_p\d+$/.test(raw) || /^order_/.test(raw)) {
+    const handled = await handleCatalogTarget(ctx, raw);
+    if (handled) return handled;
   }
   
   const autoResponses = ctx.autoResponses;

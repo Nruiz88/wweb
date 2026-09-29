@@ -38,9 +38,9 @@ export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try { body = (await request.json()) as Record<string, unknown>; } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const { instanceId, label, price_cents, description, category, active, sort_order } = body as {
+  const { instanceId, label, price_cents, description, category, image_url, active, sort_order } = body as {
     instanceId?: unknown; label?: unknown; price_cents?: unknown; description?: unknown;
-    category?: unknown; active?: unknown; sort_order?: unknown;
+    category?: unknown; image_url?: unknown; active?: unknown; sort_order?: unknown;
   };
 
   if (typeof instanceId !== "string" || !isValidId(instanceId)) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
@@ -48,17 +48,38 @@ export async function POST(request: Request) {
   if (!cleanLabel) return NextResponse.json({ status: "error", error: "label required" }, { status: 400 });
   const price = Number(price_cents);
   if (isNaN(price) || price < 0) return NextResponse.json({ status: "error", error: "price invalid" }, { status: 400 });
+  // Solo http(s) y data: (para imágenes subidas como data URL). Corta AttemptSSRF.
+  const imageUrl = normalizeImageUrl(image_url);
 
   const hasAccess = await verifyUserAccess(session.userId, instanceId);
   if (!hasAccess) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
 
   const id = generateId();
   await query(
-    "INSERT INTO catalog_items (id, instance_id, label, description, price_cents, active, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
-    [id, instanceId, cleanLabel, description ? String(description).trim() : null, Math.round(price), active ?? true, Number(sort_order) || 0]
+    // `category` se ESCARTABA en el INSERT: el form la mandaba pero no se
+    // guardaba, así que todo producto nuevo salía sin categoría.
+    `INSERT INTO catalog_items (id, instance_id, label, description, price_cents, active, sort_order, category, image_url, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+    [
+      id, instanceId, cleanLabel,
+      description ? String(description).trim() : null,
+      Math.round(price), active ?? true, Number(sort_order) || 0,
+      category ? String(category).trim() : null,
+      imageUrl,
+    ]
   );
 
-  return NextResponse.json({ status: "success", data: { id, label: cleanLabel, price_cents: Math.round(price) } });
+  return NextResponse.json({ status: "success", data: { id, label: cleanLabel, price_cents: Math.round(price), category: category || null, image_url: imageUrl } });
+}
+
+/** Acepta solo http(s) y data:image/. Cualquier otra cosa se descarta. */
+function normalizeImageUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  if (!v || v.length > 500) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^data:image\/(png|jpe?g|webp|gif);base64,[a-z0-9+/=\s]+$/i.test(v)) return v;
+  return null;
 }
 
 // PATCH /api/catalog { id, ...fields }
@@ -69,9 +90,9 @@ export async function PATCH(request: Request) {
   let body: Record<string, unknown>;
   try { body = (await request.json()) as Record<string, unknown>; } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const { id, label, price_cents, description, category, active, sort_order } = body as {
+  const { id, label, price_cents, description, category, image_url, active, sort_order } = body as {
     id?: unknown; label?: unknown; price_cents?: unknown; description?: unknown;
-    category?: unknown; active?: unknown; sort_order?: unknown;
+    category?: unknown; image_url?: unknown; active?: unknown; sort_order?: unknown;
   };
 
   if (typeof id !== "string" || !isValidId(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
@@ -90,6 +111,7 @@ export async function PATCH(request: Request) {
   if (price_cents !== undefined) { const p = Number(price_cents); if (isNaN(p) || p < 0) return NextResponse.json({ status: "error", error: "price invalid" }, { status: 400 }); updates.price_cents = Math.round(p); }
   if (description !== undefined) updates.description = description ? String(description).trim() : null;
   if (category !== undefined) updates.category = category ? String(category).trim() : null;
+  if (image_url !== undefined) updates.image_url = normalizeImageUrl(image_url);
   if (active !== undefined) updates.active = !!active;
   if (sort_order !== undefined) updates.sort_order = Number(sort_order) || 0;
 
