@@ -4,7 +4,7 @@ import type { MenuConfig } from "@/lib/db/types";
 import type { WebhookContext } from "./context";
 import { query, generateId } from "../db";
 import { isValidId } from "@/lib/validation";
-import { buildCatalogMenus, handleCatalogPage } from "./catalog";
+import { buildCatalogMenus, buildCategoryMenu } from "./catalog";
 import { getBusinessName } from "@/lib/business-name";
 import type { CatalogItem } from "@/lib/db/types";
 
@@ -297,17 +297,64 @@ async function handleCatalogTarget(
   ctx: WebhookContext,
   targetId: string,
 ): Promise<{ status: string; matched: string } | null> {
+  // Elegir una categoría → listar sus productos.
+  const catMatch = /^cat_sub_(.+)$/.exec(targetId);
+  if (catMatch) {
+    const category = catMatch[1];
+    const items = await query<CatalogItem>(
+      "SELECT id, label, description, price_cents, active, sort_order, category FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+      [ctx.instance.id]
+    );
+    if (!items?.length) return null;
+    const inCat = items.filter((i) => i.category === category);
+    if (inCat.length === 0) return null;
+    const sub = buildCategoryMenu(category, inCat);
+    await sendMenuResponse(
+      ctx.instance.evolution_api_url, ctx.instance.evolution_api_key,
+      ctx.instance.instance_name, ctx.phoneNumber, sub[0],
+    );
+    return { status: "success", matched: `[catálogo categoría: ${category}]` };
+  }
+
+  // Página siguiente del catálogo.
   const navMatch = /^menu_p(\d{1,3})$/.exec(targetId);
   if (navMatch) {
-    const res = await handleCatalogPage(ctx);
-    if (res) return res;
     const menus = await catalogPageMenus(ctx, Number(navMatch[1]));
-    if (!menus) return null;
+    if (!menus) {
+      await sendTextMessage(
+        ctx.instance.evolution_api_url, ctx.instance.evolution_api_key,
+        ctx.instance.instance_name, ctx.phoneNumber,
+        "Esa es la última página 😊\n\nEscribí *menú* para volver a empezar.",
+        1200,
+      );
+      return { status: "success", matched: "[catálogo fuera de rango]" };
+    }
     await sendMenuResponse(
       ctx.instance.evolution_api_url, ctx.instance.evolution_api_key,
       ctx.instance.instance_name, ctx.phoneNumber, menus,
     );
     return { status: "success", matched: `[catálogo pág ${navMatch[1]}]` };
+  }
+
+  // Productos de una categoría, página siguiente.
+  const catNext = /^catnext_(\d{1,3})$/.exec(targetId);
+  if (catNext) {
+    const page = Number(catNext[1]);
+    const items = await query<CatalogItem>(
+      "SELECT id, label, description, price_cents, active, sort_order, category FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+      [ctx.instance.id]
+    );
+    const cats = [...new Set((items || []).map((i) => i.category).filter(Boolean))] as string[];
+    const category = cats[0];
+    if (!category) return null;
+    const sub = buildCategoryMenu(category, (items || []).filter((i) => i.category === category));
+    const target = sub[page - 1];
+    if (!target) return null;
+    await sendMenuResponse(
+      ctx.instance.evolution_api_url, ctx.instance.evolution_api_key,
+      ctx.instance.instance_name, ctx.phoneNumber, target,
+    );
+    return { status: "success", matched: `[catálogo ${category} pág ${page}]` };
   }
 
   const orderMatch = /^order_(.+)$/.exec(targetId);
