@@ -166,9 +166,15 @@ async function previewReminders(instanceId: string) {
  *
  * Dos caminos válidos:
  *  1. `Authorization: Bearer <CRON_SECRET>` — lo usan las Schedule Tasks.
- *  2. Sesión de admin — para disparar a mano desde el panel, sin depender de
- *     que CRON_SECRET esté configurado en Coolify (que hoy no lo está, y por
- *     eso el cron automático no corría).
+ *  2. Sesión de admin — para disparar a mano desde el panel.
+ *
+ * Configurado en Coolify: variable `CRON_SECRET` en la app + Schedule Task
+ * "Recordatorios de turnos (24h)" con `0 12 * * *` (12:00 UTC = 9:00 ART),
+ * que corre wget contra localhost:3000 dentro del contenedor.
+ *
+ * OJO: `vercel.json` declara un cron pero **Coolify no lo ejecuta**; la
+ * Schedule Task es la que corre. Y cambiar env vars en Coolify no aplica al
+ * contenedor vivo: hace falta redeploy.
  *
  * Fail-CLOSED: sin ninguno de los dos, se rechaza. Con la versión anterior
  * (sin secret seteado el chequeo se saltaba) cualquier POST anónimo disparaba
