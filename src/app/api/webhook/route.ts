@@ -6,7 +6,7 @@ import { extractMessageText, extractButtonText, extractListText, extractRawButto
 import { hasPlan, createSupabaseMariaDB, type WebhookContext } from "@/lib/webhook/context";
 import { handleWelcome } from "@/lib/webhook/welcome";
 import { handleOutsideHours } from "@/lib/webhook/outside-hours";
-import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect, isAgendaActive } from "@/lib/webhook/booking";
+import { handleBookingIntent, handleDateSelect, handleSlotSelect, handleAppointmentConfirm, handleAgendaMenu, handleNumericSlotSelect, handleSlotsMore, isAgendaActive } from "@/lib/webhook/booking";
 import { handleMenuTap, handleMenuTextReply } from "@/lib/webhook/menus";
 import { handleAutoReply } from "@/lib/webhook/auto-reply";
 import { handleCatalogIntent } from "@/lib/webhook/catalog";
@@ -313,9 +313,16 @@ async function handleWebhook(request: Request) {
     }
 
     // Slot selection: slot_<date>_<time>
-    if (checkId.startsWith("slot_")) {
+    if (checkId.startsWith("slot_") && !checkId.startsWith("slots_more_")) {
       ctx.effectiveText = checkId;
       const result = await handleSlotSelect(ctx);
+      if (result) return reply(result, replyCtx);
+    }
+
+    // Paginación del listado de horarios: slots_more_<date>_<offset>
+    if (checkId.startsWith("slots_more_")) {
+      ctx.effectiveText = checkId;
+      const result = await handleSlotsMore(ctx);
       if (result) return reply(result, replyCtx);
     }
 
