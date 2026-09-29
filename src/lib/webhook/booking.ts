@@ -44,23 +44,26 @@ async function sendTextMessage(
 
 // ─── UI de la agenda (menú y slots) ────────────────────────────────────────
 
-/** Máximo de quick replies que acepta WhatsApp. */
-const MAX_BUTTONS = 3;
-/** Slots por página cuando hay más de MAX_BUTTONS disponibles. */
-const SLOTS_PER_PAGE = 3;
+/** Horarios por página en el listado de texto. */
+const SLOTS_PER_PAGE = 8;
 
 /**
- * Menú principal de la agenda con botones interactivos reales.
+ * Los botones interactivos de Evolution NO llegan al usuario en esta
+ * instancia, así que la agenda va con texto formateado.
  *
- * En ESTE servidor (Evolution 2.3.7) `sendButtons` funciona: verificado contra
- * la API, devuelve interactiveMessage con nativeFlowMessage. El bug
- * `this.isZero is not a function` documentado antes NO se reproduce acá.
- * `sendList` sí falla en silencio, así que no se usa.
+ * `sendButtons` responde 200 con un `interactiveMessage` envuelto en
+ * `viewOnceMessage` (verificado contra la API), o sea que Evolution lo acepta
+ * pero queda marcado "ver una vez" y no se renderiza. `sendList` directamente
+ * no devuelve nada.
  *
- * Si el envío de botones falla (API key vencida, URL vieja, timeout) cae
- * automáticamente al menú de texto: el usuario nunca se queda mudo.
+ * Con `AGENDA_USE_BUTTONS=1` se reactivan, por si el server de Evolution se
+ * actualiza. while Eso no pase, el texto es el camino fiable.
  */
+const USE_BUTTONS = process.env.AGENDA_USE_BUTTONS === "1";
+
+/** Menú principal de la agenda. */
 async function sendAgendaMenuButtons(ctx: WebhookContext): Promise<boolean> {
+  if (!USE_BUTTONS) return false;
   const { instance, phoneNumber } = ctx;
   const res = await sendButtonMessage(
     instance.evolution_api_url,
@@ -74,7 +77,7 @@ async function sendAgendaMenuButtons(ctx: WebhookContext): Promise<boolean> {
       { type: "reply", displayText: "⏭️ Más próximo", id: "agenda_proximo" },
       { type: "reply", displayText: "📅 Agenda completa", id: "agenda_completa" },
     ],
-    "Boti · Turnos",
+    "Turnos",
     800,
   );
   return res.ok;
@@ -88,18 +91,20 @@ async function sendAgendaMenuText(ctx: WebhookContext): Promise<void> {
     instance.evolution_api_key,
     instance.instance_name,
     phoneNumber,
-    "╭───────────────────╮\n" +
-      "   🗓️  *AGENDA*\n" +
-      "╰───────────────────╯\n\n" +
-      "Elegí una opción 👇\n\n" +
-      "┃ 1️⃣  🕐  *Libre hoy*\n" +
-      "┃ 2️⃣  ⏭️  *Más próximo*\n" +
-      "┃ 3️⃣  📅  *Agenda completa*",
+    "╭━━━━━━━━━━━━━━━━━━━━━╮\n" +
+      "     🗓️  *AGENDAR TURNO*\n" +
+      "╰━━━━━━━━━━━━━━━━━━━━━╯\n\n" +
+      "  Elegí una opción 👇\n\n" +
+      "  ┌─────────────────────┐\n" +
+      "  │ 1️⃣  🕐  *Libre hoy*\n" +
+      "  │ 2️⃣  ⏭️  *Más próximo*\n" +
+      "  │ 3️⃣  📅  *Agenda completa*\n" +
+      "  └─────────────────────┘",
     1200,
   );
 }
 
-/** Fallback en texto numerado (el usuario responde con el número). */
+/** Listado de horarios en texto, paginado. El usuario responde con el número. */
 async function sendSlotsAsText(
   ctx: WebhookContext,
   title: string,
@@ -110,27 +115,30 @@ async function sendSlotsAsText(
   const { instance, phoneNumber } = ctx;
   const start = page * SLOTS_PER_PAGE;
   const pageSlots = slots.slice(start, start + SLOTS_PER_PAGE);
-  const list = pageSlots.map((t, i) => `┃ *${start + i + 1}.*  🕐  ${t} hs`).join("\n");
+  const list = pageSlots.map((t, i) => `  ┣ ${String(start + i + 1).padStart(2)}. 🕐  *${t}* hs`).join("\n");
 
-  const more = page < totalPages - 1 ? `\n\n➡️ Respondé _${start + pageSlots.length + 1}_ para ver más` : "";
+  const more =
+    page < totalPages - 1
+      ? `\n\n  ➡️ Respondé *${start + pageSlots.length + 1}* para ver más horarios`
+      : "";
+
+  const pageLabel = totalPages > 1 ? `   _pág. ${page + 1}/${totalPages}_` : "";
 
   await sendTextMessage(
     instance.evolution_api_url,
     instance.evolution_api_key,
     instance.instance_name,
     phoneNumber,
-    `${title}\n┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n` +
-      `_Respondé con el número del horario:_\n\n` +
+    `${title}${pageLabel}\n` +
+      "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+      "  _Respondé con el número:_\n\n" +
       `${list}${more}\n\n` +
-      `0️⃣  🔙 Volver`,
+      "  0️⃣  🔙 Volver al menú",
     1200,
   );
 }
 
-/**
- * Lista los horarios como botones, paginados de a 3 (límite de WhatsApp).
- * Si los botones fallan, cae al listado numerado en texto.
- */
+/** Lista los horarios. Botones si están habilitados, texto si no. */
 async function sendSlotMenu(
   ctx: WebhookContext,
   title: string,
@@ -138,84 +146,48 @@ async function sendSlotMenu(
   slots: string[],
   page = 0,
 ): Promise<void> {
-  const { instance, phoneNumber } = ctx;
-  const totalPages = Math.max(1, Math.ceil(slots.length / SLOTS_PER_PAGE));
-  const safePage = Math.max(0, Math.min(page, totalPages - 1));
-  const start = safePage * SLOTS_PER_PAGE;
-  const pageSlots = slots.slice(start, start + SLOTS_PER_PAGE);
-
-  const buttons: ButtonItem[] = pageSlots.map((t) => ({
-    type: "reply",
-    displayText: `🕐 ${t}`,
-    id: `slot_${dateIso}_${t}`,
-  }));
-
-  // Hay más páginas: "Ver más" va en un mensaje aparte porque WhatsApp no
-  // admite un 4º quick reply.
-  const hasMore = safePage < totalPages - 1;
-  if (hasMore) {
-    const moreRes = await sendButtonMessage(
+  if (USE_BUTTONS) {
+    const { instance, phoneNumber } = ctx;
+    const totalPages = Math.max(1, Math.ceil(slots.length / 3));
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const start = safePage * 3;
+    const pageSlots = slots.slice(start, start + 3);
+    const res = await sendButtonMessage(
       instance.evolution_api_url,
       instance.evolution_api_key,
       instance.instance_name,
       phoneNumber,
-      `${start + pageSlots.length} horarios más`,
-      `Página ${safePage + 2} de ${totalPages}`,
-      [
-        {
-          type: "reply",
-          displayText: "➡️ Ver más",
-          id: `slots_more_${dateIso}_${start + pageSlots.length}`,
-        },
-      ],
-      "Boti · Turnos",
-      1500,
+      title,
+      "Tocá tu horario 👇",
+      pageSlots.map((t) => ({
+        type: "reply" as const,
+        displayText: `🕐 ${t}`,
+        id: `slot_${dateIso}_${t}`,
+      })),
+      "Turnos",
+      800,
     );
-    if (!moreRes.ok) {
-      await sendSlotsAsText(ctx, title, slots, safePage, totalPages);
-      return;
-    }
+    if (res.ok) return;
   }
-
-  const pageLabel = totalPages > 1 ? `  ·  página ${safePage + 1}/${totalPages}` : "";
-  const res = await sendButtonMessage(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name,
-    phoneNumber,
-    title + pageLabel,
-    hasMore ? "Elegí un horario 👇" : "Tocá tu horario para reservarlo 👇",
-    buttons,
-    "Boti · Turnos",
-    800,
-  );
-
-  if (!res.ok) {
-    console.warn("[booking] los botones de horario no salieron, fallback a texto", {
-      instance: instance.instance_name,
-      status: res.status,
-    });
-    await sendSlotsAsText(ctx, title, slots, safePage, totalPages);
-  }
+  await sendSlotsAsText(ctx, title, slots, page, Math.max(1, Math.ceil(slots.length / SLOTS_PER_PAGE)));
 }
 
-/** Handler del botón "Ver más": `slots_more_<YYYY-MM-DD>_<offset>`. */
+/** Handler del botón "Ver más" (solo si hay botones habilitados). */
 export async function handleSlotsMore(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
-  const { instance, effectiveText } = ctx;
+  const { effectiveText } = ctx;
   if (!effectiveText.startsWith("slots_more_")) return null;
 
   const m = /^slots_more_(\d{4}-\d{2}-\d{2})_(\d{1,3})$/.exec(effectiveText);
   if (!m) return null;
   const dateIso = m[1];
-  const offset = Number(m[2]);
 
   const { slots, hours } = await getAvailableSlots(ctx, dateIso);
   if (!hours) return null;
 
-  const page = Math.floor(offset / SLOTS_PER_PAGE);
-  await sendSlotMenu(ctx, `🕐 *Horarios libres* — ${formatDateStr(dateIso)}`, dateIso, slots, page);
+  await sendSlotMenu(ctx, `🕐 *Horarios* — ${formatDateStr(dateIso)}`, dateIso, slots, 0);
   return { status: "success", matched: "[turno ver más horarios]" };
 }
+
 
 import { BUSINESS_TIMEZONE } from "@/lib/timezone";
 import { Redis } from "@upstash/redis";
@@ -680,13 +652,39 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
     return null;
   }
 
-  if (index < 1 || index > 30) return null;
+  if (index < 1 || index > 200) return null;
 
   // Peek (no consume): un intento inválido no rompe el flujo del usuario.
   const date = await peekPendingDate(ctx);
   if (!date) return null;
 
   const { slots } = await getAvailableSlots(ctx, date);
+
+  // El número es más allá de la página actual → mostrar la siguiente en vez de
+  //	error. El listado avisa "respondé N para ver más".
+  const totalPages = Math.max(1, Math.ceil(slots.length / SLOTS_PER_PAGE));
+  const page = Math.floor((index - 1) / SLOTS_PER_PAGE);
+  if (page >= totalPages) {
+    await sendTextMessage(
+      instance.evolution_api_url, instance.evolution_api_key,
+      instance.instance_name, phoneNumber,
+      `❌ Ese número no corresponde a un horario.\n\n` +
+        `Hay *${slots.length}* horarios libres ese día. Escribí *turno* para empezar de nuevo.`,
+      1200,
+    );
+    return { status: "success", matched: "[turno num inválido]" };
+  }
+  if ((index - 1) % SLOTS_PER_PAGE === 0 && index > 1) {
+    await sendSlotMenu(
+      ctx,
+      `🕐 *Horarios* — ${formatDateStr(date)}`,
+      date,
+      slots,
+      page,
+    );
+    return { status: "success", matched: "[turno paginación]" };
+  }
+
   const chosen = slots[index - 1];
   if (!chosen) {
     await sendTextMessage(
