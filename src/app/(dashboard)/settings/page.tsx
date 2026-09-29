@@ -63,13 +63,21 @@ export default function SettingsPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/instances?lite=1");
+    // El perfil se carga del endpoint que corresponde. Antes se fabricaba un
+    // Profile falso con `email: null` (contra un tipo que dice `string`) para
+    // copiar el rol de /api/instances, y el "perfil" de esta página nunca
+    // tinha datos reales.
+    const [res, profileRes] = await Promise.all([
+      fetch("/api/instances?lite=1"),
+      fetch("/api/profile"),
+    ]);
     const payload = await res.json();
+    const profilePayload = await profileRes.json();
+    if (profilePayload.status === "success" && profilePayload.data) {
+      setProfile(profilePayload.data);
+    }
     if (payload.status === "success") {
       setInstances(payload.data);
-      if (payload.role) {
-        setProfile({ id: "", email: null, full_name: null, role: payload.role, business_name: null, phone: null, address: null, created_at: "" });
-      }
       if (payload.data?.length > 0) {
         const id = payload.data[0].id;
         setSelectedInstanceId(id);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { query, exec } from "@/lib/db";
+import { toMySQLDateTime } from "@/lib/timezone";
 import { isValidId } from "@/lib/validation";
 import { verifyUserAccess } from "@/lib/api-helpers";
 import { todayInBusinessTimezone } from "@/lib/timezone";
@@ -64,13 +65,19 @@ export async function PATCH(request: Request) {
   );
   if (!inst.length) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
 
-  const updates: any = { status };
-  if (status === "completed") updates.completed_at = new Date().toISOString();
-
-  const { insertId } = await query(
+  // `query` devuelve filas; para un UPDATE hay que usar `exec`. Además
+  // `insertId` en un UPDATE siempre es 0, y la respuesta mandaba eso como `id`
+  // en vez del id real del pedido.
+  const { affectedRows } = await exec(
     "UPDATE orders SET status = ?, completed_at = IF(? = 'completed', NOW(), completed_at) WHERE id = ?",
     [status, status, id]
   );
+  if (affectedRows === 0) {
+    return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
+  }
 
-  return NextResponse.json({ status: "success", data: { id: insertId, status, completed_at: status === "completed" ? new Date().toISOString() : null } });
+  return NextResponse.json({
+    status: "success",
+    data: { id, status, completed_at: status === "completed" ? toMySQLDateTime() : null },
+  });
 }

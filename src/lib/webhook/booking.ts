@@ -325,7 +325,7 @@ async function getAvailableSlots(
     .eq("appointment_date", date)
     .in("status", ["pending", "confirmed"]);
 
-  const bookedSet = new Set((booked || []).map((b) => b.appointment_time));
+  const bookedSet = new Set((booked || []).map((b: { appointment_time: string }) => b.appointment_time));
 
   const now = new Date();
   const todayStr = localDateStr(now);
@@ -796,7 +796,7 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
     .eq("appointment_date", slotDate)
     .in("status", ["pending", "confirmed"]);
 
-  const bookedSet = new Set((booked || []).map((b) => b.appointment_time));
+  const bookedSet = new Set((booked || []).map((b: { appointment_time: string }) => b.appointment_time));
 
   const now = new Date();
   const isToday = slotDate === localDateStr(now);

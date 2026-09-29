@@ -52,7 +52,7 @@ export default function MenusPage() {
     (m) =>
       m.menu_config?.title?.toLowerCase().includes(search.toLowerCase()) ||
       m.menu_config?.description?.toLowerCase().includes(search.toLowerCase()) ||
-      m.menu_config?.buttons?.some(b => b.text.toLowerCase().includes(search.toLowerCase()))
+      m.menu_config?.buttons?.some((b: { text: string }) => b.text.toLowerCase().includes(search.toLowerCase()))
   );
 
   function startEdit(m: AutoResponse) {
@@ -165,7 +165,7 @@ export default function MenusPage() {
                         <div className="p-2.5 bg-violet-500/[0.04] rounded-xl border border-violet-400/10">
                           <p className="text-[10px] font-bold uppercase tracking-wider text-violet-400 mb-1.5">Botones</p>
                           <div className="flex flex-wrap gap-1.5">
-                            {m.menu_config.buttons.map(b => (
+                            {m.menu_config.buttons.map((b: { id: string; text: string }) => (
                               <span key={b.id} className="text-[10px] px-2 py-0.5 rounded-lg bg-violet-500/10 text-violet-300 border border-violet-400/15">{b.text}</span>
                             ))}
                           </div>

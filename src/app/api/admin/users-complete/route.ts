@@ -23,9 +23,12 @@ export async function GET() {
   );
 
   const subByUser = new Map(subs.map((s) => [s.user_id, s]));
-  const payLatest = {};
+  // Tipado: sin esto `payLatest` era `{}` y los accesos por user_id no
+  // chequeaban (TS7053).
+  const payLatest: Record<string, (typeof payments)[number]> = {};
   for (const p of payments) {
-    if (!payLatest[p.user_id] || new Date(p.created_at) > new Date(payLatest[p.user_id].created_at)) {
+    const prev = payLatest[p.user_id];
+    if (!prev || new Date(p.created_at) > new Date(prev.created_at)) {
       payLatest[p.user_id] = p;
     }
   }

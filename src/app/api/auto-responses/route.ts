@@ -171,7 +171,8 @@ async function updateAutoResponse(request: Request) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
   }
 
-  const updates = {};
+  // Tipado explícito: `{}` no permite asignarle propiedades ni indexarlo.
+  const updates: Record<string, unknown> = {};
   if (keyword !== undefined) updates.keyword = keyword;
   if (regexPattern !== undefined) updates.regex_pattern = regexPattern;
   if (responseText !== undefined) updates.response_text = responseText;

@@ -33,7 +33,9 @@ export async function GET() {
     countByUser.set(a.user_id, (countByUser.get(a.user_id) || 0) + 1);
   }
 
-  const planDistribution = { starter: 0, pro: 0 };
+  // Record<PlanType, number> para que `planDistribution[plan]` chequee
+  // (plan_type viene como string de la DB).
+  const planDistribution: Record<string, number> = { starter: 0, pro: 0 };
   let activeSubscriptions = 0;
   let totalAddons = 0;
 

@@ -184,7 +184,7 @@ export default function AutoResponsesPage() {
                         <div className="p-2.5 bg-cyan-500/[0.04] rounded-xl border border-cyan-400/10">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-cyan-400 mb-1.5">Botones</p>
                           <div className="flex flex-wrap gap-1.5">
-                            {r.menu_config.buttons.map(b => (
+                            {r.menu_config.buttons.map((b: { id: string; text: string }) => (
                               <span key={b.id} className="text-[10px] px-2 py-0.5 rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-400/20">{b.text}</span>
                             ))}
                           </div>

@@ -53,14 +53,14 @@ export async function GET() {
   }
 
   const dbOk = await query("SELECT 1 AS ok");
-  const tables = (await query<{ table_name: string }[]>(
+  const tables = (await query<{ table_name: string }>(
     "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
   )).map((t) => t.table_name);
   const tableSet = new Set(tables);
 
   const columns = new Map<string, Set<string>>();
   for (const t of tables) {
-    const cols = await query<{ column_name: string }[]>(
+    const cols = await query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?",
       [t]
     );
@@ -83,14 +83,14 @@ export async function GET() {
   // Muestra de los tipos reales que devuelve el driver (la causa raíz de que
   // DATE volviera como Date y rompiera el calendario). Se consulta
   // appointments (que sí tiene esas columnas), no response_logs.
-  const typeSample = await query<{ appointment_date: unknown; appointment_time: unknown }[]>(
+  const typeSample = await query<{ appointment_date: unknown; appointment_time: unknown }>(
     "SELECT appointment_date, appointment_time FROM appointments ORDER BY created_at DESC LIMIT 1"
   );
   const typeOf = (v: unknown) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v);
   const valueOf = (v: unknown) => (v === null || v === undefined ? null : String(v).slice(0, 40));
 
-  const webhookEvents = await query<{ n: number }[]>("SELECT COUNT(*) AS n FROM webhook_logs");
-  const logsLast = await query<{ n: number }[]>("SELECT COUNT(*) AS n FROM response_logs");
+  const webhookEvents = await query<{ n: number }>("SELECT COUNT(*) AS n FROM webhook_logs");
+  const logsLast = await query<{ n: number }>("SELECT COUNT(*) AS n FROM response_logs");
 
   return NextResponse.json({
     status: broken.length ? "degraded" : "success",

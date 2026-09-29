@@ -35,10 +35,9 @@ async function select<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   return Array.isArray(rows) ? rows : [];
 }
 
-async function update(sql: string, params: any[] = []): Promise<{ affectedRows: number }> {
-  const res = await query<{ affectedRows: number }>(sql, params);
-  return { affectedRows: res?.affectedRows ?? 0 };
-}
+// Nota: `update()` se eliminó. Era código muerto (nadie lo llamaba) y con la
+// nueva firma de `query` pedía tipos que no existen. Para UPDATE/DELETE usar
+// `exec()` de "@/lib/db".
 
 /**
  * Auditoría durable del webhook.

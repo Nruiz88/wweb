@@ -77,15 +77,41 @@ export interface PaginatedResult<T> {
 }
 
 /**
- * Ejecuta una query parametrizada.
- * Los `?` se reemplazan por los `values` en orden.
+ * Ejecuta una consulta y devuelve SIEMPRE un array de filas.
+ *
+ * El tipo genérico es la FILA, no el array: `query<{ id: string }>(...)` devuelve
+ * `Promise<{ id: string }[]>` y así `.map`, `.length` y `[0]` type-chequean.
+ *
+ * Antes la firma era `Promise<T>`, o sea que el compilador veía UNA fila
+ * donde en runtime hay un array. Eso producía ~200 errores TS en el repo y
+ * hacía que `tsc` fuera inútil como gate — con el后果ario de que un error
+ * REAL (MariaDbBuilder usando whereClauses sin declarar) pasara inadvertido
+ * entre el ruido. No volver a ignorar los errores de `tsc`.
  */
 export async function query<T = any>(
   sql: string,
   values: any[] = []
-): Promise<T> {
-  const [rows] = await pool.execute<T>(sql, values);
-  return rows as T;
+): Promise<T[]> {
+  // `pool` es `any` cuando MARIADB_URL falta (ternario con `null as any`), así
+  // que no se le pueden pasar type args: se castea el resultado.
+  const [rows] = await pool.execute(sql, values);
+  return rows as T[];
+}
+
+/**
+ * Ejecuta INSERT / UPDATE / DELETE y devuelve el ResultSetHeader
+ * (`insertId`, `affectedRows`, ...).
+ *
+ * OJO: las PK de este proyecto son VARCHAR generadas por la app, sin
+ * AUTO_INCREMENT, así que `insertId` SIEMPRE da 0. Para inserts generá el id
+ * con `generateId()` y devuelvelo vos.
+ */
+export async function exec(
+  sql: string,
+  values: any[] = []
+): Promise<{ insertId: number; affectedRows: number; warningStatus: number }> {
+  const [res] = await pool.execute(sql, values);
+  return res as { insertId: number; affectedRows: number; warningStatus: number };
 }
 
 /**
@@ -112,21 +138,28 @@ export async function select<T = any>(
   } = {}
 ): Promise<PaginatedResult<T>> {
   let sql = `SELECT * FROM ${table}`;
-  const whereParams: any[] = [];
+  // Antes: `whereParams.push(...params)` reventaba si `where` venía sin
+  // `params`, los params se contaban dos veces (`whereParams.concat(params)`
+  // que además no se usaba nunca) y `ORDER BY ${orderBy}` con orderBy
+  // undefined generaba SQL inválido. Ahora se valida y se usa una sola lista.
+  const sqlParams: any[] = [];
   if (where) {
     sql += ` WHERE ${where}`;
-    whereParams.push(...params);
+    sqlParams.push(...(params ?? []));
   }
-  const sqlParams = whereParams.concat(params);
+  if (!orderBy) {
+    throw new Error(`select(${table}) requiere orderBy`);
+  }
 
-  const totalSql = `SELECT COUNT(*) as total FROM (${sql}) AS _count`;
-  const countResult = await query<{ total: number }>(totalSql, params);
+  const countResult = await query<{ total: number }>(
+    `SELECT COUNT(*) as total FROM (${sql}) AS _count`,
+    sqlParams
+  );
   const total = countResult[0]?.total || 0;
 
   const offset = (page - 1) * perPage;
-  sql += ` ORDER BY ${orderBy} ${order} LIMIT ${perPage} OFFSET ${offset}`;
+  const data = await query<T>(`${sql} ORDER BY ${orderBy} ${order} LIMIT ${perPage} OFFSET ${offset}`, sqlParams);
 
-  const data = await query<T>(sql, params);
   return {
     data,
     total,

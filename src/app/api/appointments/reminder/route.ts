@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { sendButtonMessage } from "@/lib/evolution-multi";
+import { sendTextMessage } from "@/lib/evolution-multi";
 import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
 import { getSession } from "@/lib/auth";
 
@@ -90,24 +90,25 @@ async function processReminders() {
     const dateDisplay = formatDate(appt.appointment_date, appt.appointment_time);
     const name = appt.customer_name || "";
 
-    const title = `⏰ Recordatorio${name ? ` para ${name}` : ""}`;
-    const description = `Tu turno es ${dateDisplay}. ¿Confirmás?`;
-
-    const buttons = [
-      { type: "reply", displayText: "✅ Confirmar", id: `confirm_${appt.id}` },
-      { type: "reply", displayText: "❌ Cancelar", id: `cancel_${appt.id}` },
-    ];
-
-    const result = await sendButtonMessage(
+    // TEXTO, no botones: se comprobó que `sendButtonMessage` devuelve 200 pero
+    // Evolution envuelve el interactiveMessage en un `viewOnceMessage`, así que
+    // el recordatorio NO le llegaba al cliente (era invisible, no fallaba).
+    // El cliente confirma respondiendo con el número, que el webhook ya sabe
+    // interpretar.
+    const result = await sendTextMessage(
       instance.evolution_api_url,
       instance.evolution_api_key,
       instance.instance_name,
       phone,
-      title,
-      description,
-      buttons,
-      "Boti Recordatorios",
-      1500,
+      "╭━━━━━━━━━━━━━━━━━━━━━╮\n" +
+        `  ⏰  *RECORDATORIO DE TURNO*${name ? `\n  para ${name}` : ""}\n` +
+        "╰━━━━━━━━━━━━━━━━━━━━━╯\n\n" +
+        `📅  *${dateDisplay}*\n\n` +
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n" +
+        "  Respondé con un número:\n" +
+        "  *1*  ✅ Confirmo que voy\n" +
+        "  *2*  ❌ Necesito cancelarlo",
+      1200,
     );
 
     // Solo se marca como enviado si Evolution lo entregó: antes el UPDATE iba
@@ -184,10 +185,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
+  // processReminders() siempre devuelve status "success" (contadores), asi que
+  // la rama de error era inalcanzable y TypeScript lo senalaba.
   const result = await processReminders();
-  if (result.status === "error") {
-    return NextResponse.json({ status: "error", error: result.error }, { status: 500 });
-  }
   return NextResponse.json({ status: "success", data: result });
 }
 
@@ -197,9 +197,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
+  // processReminders() siempre devuelve status "success" (contadores), asi que
+  // la rama de error era inalcanzable y TypeScript lo senalaba.
   const result = await processReminders();
-  if (result.status === "error") {
-    return NextResponse.json({ status: "error", error: result.error }, { status: 500 });
-  }
   return NextResponse.json({ status: "success", data: result });
 }

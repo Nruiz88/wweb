@@ -134,7 +134,7 @@ export async function handleCatalogIntent(ctx: WebhookContext): Promise<{ status
   // Only respond to explicit catalog triggers (not booking words)
   if (!["pedido", "catálogo", "quiero", "menu", "catalogo"].includes(trigger)) return null;
 
-  const items = await query<{ id: string; label: string; description: string | null; price_cents: number; active: boolean; sort_order: number; category: string | null }>(
+  const items = await query<CatalogItem>(
     "SELECT id, label, description, price_cents, active, sort_order, category FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
     [instance.id]
   );

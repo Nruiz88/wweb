@@ -11,6 +11,9 @@ import { query, generateId } from "@/lib/db";
  * y el builder es thenable: se puede hacer `await supabase.from(t).select(...).eq(...)`
  * igual que con el cliente de Supabase.
  */
+/** Resultado de ejecutar el builder. */
+export type QueryResult = { data: any; error?: Error };
+
 export interface SupabaseMariaDB {
   /** Start a query on a table. Returns a fresh builder. */
   from<T = any>(table: string): SupabaseMariaDB;
@@ -25,8 +28,18 @@ export interface SupabaseMariaDB {
   order(column: string, options: { ascending: boolean }): SupabaseMariaDB;
   limit(n: number): SupabaseMariaDB;
   range(from: number, to: number): SupabaseMariaDB;
-  single(): Promise<{ data: any; error?: Error }>;
+  single(): Promise<QueryResult>;
   maybeSingle(): Promise<{ data: any | null; error?: Error }>;
+  /**
+   * El builder es thenable. Sin esta firma, `await supabase.from(...).eq(...)`
+   * resolvía al propio builder y `const { data } = ...` daba
+   * "Property 'data' does not exist on type 'SupabaseMariaDB'" en todos los
+   * handlers que leen filas.
+   */
+  then<TResult1 = QueryResult, TResult2 = never>(
+    onfulfilled?: ((value: QueryResult) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+  ): PromiseLike<TResult1 | TResult2>;
 }
 
 type DbResultRow = Record<string, unknown>;
@@ -150,7 +163,7 @@ class MariaDbBuilder implements SupabaseMariaDB {
     } else if (this.limitCount !== null) {
       sql += ` LIMIT ${this.limitCount}`;
     }
-    return query<DbResultRow[]>(sql, this.whereParams);
+    return query<DbResultRow>(sql, this.whereParams);
   }
 
   /** Ejecuta la operación pendiente (select/insert/update/delete). */

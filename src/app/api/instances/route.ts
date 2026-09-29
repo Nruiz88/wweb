@@ -46,7 +46,7 @@ async function selectInstances(userId: string): Promise<{ rows: InstanceRow[]; f
     SELECT ${BASE_COLUMNS}, status_checked_at FROM instances
     WHERE admin_id = ? OR id IN (SELECT instance_id FROM user_instances WHERE user_id = ?)
     ORDER BY created_at DESC`;
-  const rows = await query<InstanceRow[]>(q, [userId, userId]);
+  const rows = await query<InstanceRow>(q, [userId, userId]);
   return { rows: rows || [], freshCheck: true, error: null };
 }
 
