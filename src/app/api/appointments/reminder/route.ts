@@ -149,16 +149,29 @@ async function previewReminders(instanceId: string) {
   return NextResponse.json({ status: "success", data: appointments });
 }
 
-/** Comparte la validación del cron. Fail-CLOSED: sin CRON_SECRET no se ejecuta. */
-function isAuthorizedCron(request: Request): boolean {
+/**
+ * Autorización del disparo de recordatorios.
+ *
+ * Dos caminos válidos:
+ *  1. `Authorization: Bearer <CRON_SECRET>` — lo usan las Schedule Tasks.
+ *  2. Sesión de admin — para disparar a mano desde el panel, sin depender de
+ *     que CRON_SECRET esté configurado en Coolify (que hoy no lo está, y por
+ *     eso el cron automático no corría).
+ *
+ * Fail-CLOSED: sin ninguno de los dos, se rechaza. Con la versión anterior
+ * (sin secret seteado el chequeo se saltaba) cualquier POST anónimo disparaba
+ * WhatsApp a todos los clientes.
+ */
+async function isAuthorizedCron(request: Request): Promise<boolean> {
+  const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
-  // Sin secret configurado, el endpoint queda ABIERTO: cualquier POST anónimo
-  // disparaba WhatsApp a todos los clientes del sistema. Mejor fallar cerrado.
-  if (!cronSecret) {
-    console.error("[reminder] CRON_SECRET no definido — se rechaza el trigger");
-    return false;
-  }
-  return request.headers.get("authorization") === `Bearer ${cronSecret}`;
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) return true;
+
+  const session = await getSession();
+  if (session?.role === "admin") return true;
+
+  console.warn("[reminder] trigger rechazado (sin CRON_SECRET válido y sin sesión admin)");
+  return false;
 }
 
 // GET: Vercel cron calls this every day (with CRON_SECRET)
@@ -181,7 +194,7 @@ export async function GET(request: Request) {
     return previewReminders(instanceId);
   }
 
-  if (!isAuthorizedCron(request)) {
+  if (!(await isAuthorizedCron(request))) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
@@ -193,7 +206,7 @@ export async function GET(request: Request) {
 
 // POST: Manual trigger or legacy cron (with CRON_SECRET)
 export async function POST(request: Request) {
-  if (!isAuthorizedCron(request)) {
+  if (!(await isAuthorizedCron(request))) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 

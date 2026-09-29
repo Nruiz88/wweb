@@ -92,6 +92,20 @@ export async function GET() {
   const webhookEvents = await query<{ n: number }>("SELECT COUNT(*) AS n FROM webhook_logs");
   const logsLast = await query<{ n: number }>("SELECT COUNT(*) AS n FROM response_logs");
 
+  // Estado del cron de recordatorios. `vercel.json` no lo ejecuta Coolify: hay
+  // que crear una Schedule Task en el panel. Sin CRON_SECRET el único camino es
+  // dispararlo a mano con sesión de admin.
+  const pendingReminders = await query<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM appointments WHERE status IN ('pending','confirmed') AND reminder_24h_sent = false"
+  );
+  const cron = {
+    crontabFile: "vercel.json (Coolify lo ignora)",
+    crontaskConfigurado: "No verificable desde la app: crealo en Coolify → Schedule Tasks → /api/appointments/reminder",
+    cronSecret: process.env.CRON_SECRET ? "seteado" : "MISSING (el cron automático no puede dispararse)",
+    disparoManual: "POST /api/appointments/reminder con sesión de admin (sin secret)",
+    turnosPendientesDeRecordatorio: Number(pendingReminders?.[0]?.n ?? -1),
+  };
+
   return NextResponse.json({
     status: broken.length ? "degraded" : "success",
     data: {
@@ -111,6 +125,7 @@ export async function GET() {
         webhook_logs: Number(webhookEvents?.[0]?.n ?? -1),
         response_logs: Number(logsLast?.[0]?.n ?? -1),
       },
+      cron,
       schemaOk: broken.length === 0,
       problems: broken.length
         ? broken.map(([t, v]) => ({
