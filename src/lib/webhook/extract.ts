@@ -2,15 +2,40 @@
 export function extractMessageText(message: Record<string, unknown> | undefined): string {
   if (!message) return "";
 
+  // Evolution a veces manda `data.message` como string plano, no como objeto.
+  if (typeof message === "string") return message;
+
   if (typeof message.conversation === "string") return message.conversation;
 
   const ext = message.extendedTextMessage as Record<string, unknown> | undefined;
   if (typeof ext?.text === "string") return ext.text;
 
+  // Wrappers de "una vez" / efímero: el texto real está un nivel más adentro.
+  for (const wrapper of ["viewOnceMessage", "viewOnceMessageV2", "ephemeralMessage", "ephemeralMessageV2"]) {
+    const inner = message[wrapper] as Record<string, unknown> | undefined;
+    const nested = inner?.message as Record<string, unknown> | undefined;
+    if (nested) {
+      const text = extractMessageText(nested);
+      if (text) return text;
+    }
+  }
+
   const mediaKeys = ["imageMessage", "videoMessage", "documentMessage", "audioMessage"];
   for (const key of mediaKeys) {
     const media = message[key] as Record<string, unknown> | undefined;
     if (typeof media?.caption === "string") return media.caption;
+    // Evolution 2.3.x: documento/audio con caption en documentWithCaptionMessage
+    const withCaption = media?.message as Record<string, unknown> | undefined;
+    if (withCaption) {
+      const text = extractMessageText(withCaption);
+      if (text) return text;
+    }
+  }
+
+  const docWithCaption = message.documentWithCaptionMessage as Record<string, unknown> | undefined;
+  if (docWithCaption) {
+    const text = extractMessageText(docWithCaption.message as Record<string, unknown> | undefined);
+    if (text) return text;
   }
 
   return "";

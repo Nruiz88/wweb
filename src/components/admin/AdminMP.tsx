@@ -1,0 +1,363 @@
+"use client";
+import { useState, useEffect } from "react";
+import { CreditCard, Key, DollarSign, Save, X, Edit3, Shield, Bot, Check } from "lucide-react";
+
+// Convención: los precios se guardan y editan en PESOS ARGENTINOS enteros (sin centavos).
+// Cada plan se edita y se guarda por separado.
+
+const fmt = (pesos: number) => `$${Math.round(Number(pesos || 0)).toLocaleString("es-AR")}`;
+
+interface MPPlanRow {
+  plan_type: string;
+  amount_pesos: number;
+  label?: string;
+  description?: string;
+  max_instances?: number;
+}
+
+interface MPConfigRow {
+  access_token?: string | null;
+  public_key?: string | null;
+  webhook_secret?: string | null;
+  addon_price_pesos?: number | null;
+}
+
+interface MPPayload {
+  status: string;
+  data?: { plans?: MPPlanRow[]; mp_config?: MPConfigRow | null };
+}
+
+type Feedback = { kind: "success" | "error"; message: string } | null;
+
+export default function AdminMP() {
+  const [mp, setMp] = useState<MPPayload | null>(null);
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [editingPlan, setEditingPlan] = useState<string | null>(null);
+  const [editAddon, setEditAddon] = useState(false);
+  const [editingKeys, setEditingKeys] = useState(false);
+  const [savingPlan, setSavingPlan] = useState<string | null>(null);
+  const [savingKeys, setSavingKeys] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [addonPrice, setAddonPrice] = useState<number>(0);
+  const [mpKeys, setMpKeys] = useState({ access_token: "", public_key: "", webhook_secret: "" });
+
+  function load() {
+    fetch("/api/admin/mercado-pago").then(r => r.json()).then(d => {
+      setMp(d);
+      const init: Record<string, number> = {};
+      (d?.data?.plans || []).forEach((p: MPPlanRow) => { init[p.plan_type] = Math.round(p.amount_pesos ?? 0); });
+      setPrices(init);
+      setAddonPrice(Math.round(d?.data?.mp_config?.addon_price_pesos ?? 0));
+      const conf = d?.data?.mp_config;
+      if (conf) setMpKeys({ access_token: conf.access_token || "", public_key: conf.public_key || "", webhook_secret: conf.webhook_secret || "" });
+    }).catch(() => { /* panel keeps defaults; retry on next mount/save */ });
+  }
+
+  useEffect(() => { load(); }, []);
+
+  function flash(next: Feedback) {
+    setFeedback(next);
+    setTimeout(() => setFeedback(null), 3000);
+  }
+
+  /** Guarda UN plan puntual (edición separada por plan). */
+  async function savePlan(planType: string) {
+    setSavingPlan(planType);
+    try {
+      const pesos = Math.round(Number(prices[planType]) || 0);
+      const res = await fetch("/api/admin/mercado-pago", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plans: [{ plan_type: planType, amount_pesos: pesos }] }),
+      });
+      const payload = await res.json();
+      if (payload.status === "success") {
+        flash({ kind: "success", message: `Plan ${planType === "pro" ? "Pro" : "Starter"} guardado: ${fmt(pesos)}/mes` });
+        setEditingPlan(null);
+        load();
+      } else {
+        flash({ kind: "error", message: payload.error || "Error al guardar" });
+      }
+    } catch {
+      flash({ kind: "error", message: "Error de red" });
+    } finally {
+      setSavingPlan(null);
+    }
+  }
+
+  /** Guarda el precio del bot extra (add-on). */
+  async function saveAddon() {
+    setSavingKeys(true);
+    try {
+      const res = await fetch("/api/admin/mercado-pago", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addon_price_pesos: Math.round(Number(addonPrice) || 0) }),
+      });
+      const payload = await res.json();
+      if (payload.status === "success") {
+        flash({ kind: "success", message: `Bot extra guardado: ${fmt(addonPrice)}/mes` });
+        setEditAddon(false);
+        load();
+      } else {
+        flash({ kind: "error", message: payload.error || "Error al guardar" });
+      }
+    } catch {
+      flash({ kind: "error", message: "Error de red" });
+    } finally {
+      setSavingKeys(false);
+    }
+  }
+
+  /** Guarda las claves de Mercado Pago. */
+  async function saveKeys() {
+    setSavingKeys(true);
+    try {
+      const res = await fetch("/api/admin/mercado-pago", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          access_token: mpKeys.access_token,
+          public_key: mpKeys.public_key,
+          webhook_secret: mpKeys.webhook_secret,
+        }),
+      });
+      const payload = await res.json();
+      if (payload.status === "success") {
+        flash({ kind: "success", message: "Claves de Mercado Pago guardadas" });
+        setEditingKeys(false);
+        load();
+      } else {
+        flash({ kind: "error", message: payload.error || "Error al guardar" });
+      }
+    } catch {
+      flash({ kind: "error", message: "Error de red" });
+    } finally {
+      setSavingKeys(false);
+    }
+  }
+
+  const data = mp?.data;
+  const plans = (data?.plans || []).map((p: MPPlanRow) => ({
+    plan_type: p.plan_type,
+    label: p.plan_type === "starter" ? "Starter" : p.plan_type === "pro" ? "Pro" : "Plan",
+    amount_pesos: p.amount_pesos,
+    description: p.description,
+    max_instances: p.max_instances,
+  }));
+
+  return (
+    <div className="space-y-5">
+      {feedback && (
+        <div className={`flex items-center gap-2.5 rounded-2xl px-4 py-3 text-xs font-semibold backdrop-blur-sm transition-all ${feedback.kind === "success" ? "bg-[#00a884]/15 text-[#00a884] border border-[#00a884]/20" : "bg-red-500/15 text-red-400 border border-red-500/20"}`}>
+          {feedback.kind === "success" ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+          {feedback.message}
+        </div>
+      )}
+
+      {/* Config status */}
+      <div className="rounded-3xl border border-white/5 bg-gradient-to-br from-wa-header to-wa-header/80 p-5 shadow-xl shadow-black/10">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500/20 to-rose-500/5">
+              <CreditCard className="h-4.5 w-4.5 text-rose-400" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-wa-text tracking-tight">Configuración Mercado Pago</h2>
+              <p className="text-[10px] text-wa-text-secondary/50 mt-0.5">Estado: {data?.mp_config ? <span className="text-[#00a884] font-bold">Configurado</span> : <span className="text-red-400 font-bold">No configurado</span>}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => { setEditingKeys(!editingKeys); setEditAddon(false); setEditingPlan(null); }}
+            className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition-all duration-200"
+            style={editingKeys
+              ? { backgroundColor: "rgba(239,68,68,0.15)", color: "#ef4444" }
+              : { background: "linear-gradient(135deg, #00a884, #25d366)", color: "white", boxShadow: "0 4px 12px rgba(0,168,132,0.25)" }
+            }
+          >
+            {editingKeys ? <><X className="h-3.5 w-3.5" /> Cancelar</> : <><Edit3 className="h-3.5 w-3.5" /> Editar claves</>}
+          </button>
+        </div>
+      </div>
+
+      {/* Plans & Prices (PESOS, edición separada por plan) */}
+      <div className="rounded-3xl border border-white/5 bg-gradient-to-br from-wa-header to-wa-header/80 p-5 shadow-xl shadow-black/10">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#e6a44e]/20 to-[#e6a44e]/5">
+            <DollarSign className="h-4.5 w-4.5 text-[#e6a44e]" />
+          </div>
+          <h3 className="text-sm font-bold text-wa-text tracking-tight">Planes y precios</h3>
+        </div>
+        <p className="text-[10px] text-wa-text-secondary/50 mb-4 ml-12">Valores mensuales en pesos argentinos ($), sin centavos. Cada plan se edita por separado.</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          {plans.map((plan) => {
+            const isEditing = editingPlan === plan.plan_type;
+            const isSaving = savingPlan === plan.plan_type;
+            return (
+              <div key={plan.plan_type} className="group rounded-2xl border border-white/5 bg-white/[0.02] p-5 transition-all duration-300 hover:border-white/10 hover:bg-white/[0.04] hover:shadow-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-bold text-sm text-wa-text">{plan.label}</h3>
+                  {isEditing ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-wa-text-secondary/50">$</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          autoFocus
+                          className="w-32 h-8 text-sm font-extrabold text-right rounded-xl border border-[#00a884]/40 bg-white/5 px-2 text-wa-text focus:border-[#00a884]/60 focus:outline-none focus:ring-2 focus:ring-[#00a884]/20 transition-all"
+                          value={prices[plan.plan_type] ?? Math.round(plan.amount_pesos)}
+                          onChange={e => setPrices({ ...prices, [plan.plan_type]: Math.round(Number(e.target.value) || 0) })}
+                          onKeyDown={e => { if (e.key === "Enter") void savePlan(plan.plan_type); if (e.key === "Escape") setEditingPlan(null); }}
+                        />
+                      </div>
+                      <button
+                        onClick={() => void savePlan(plan.plan_type)}
+                        disabled={isSaving}
+                        className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-white transition-all disabled:opacity-50"
+                        style={{ background: "linear-gradient(135deg, #00a884, #25d366)" }}
+                      >
+                        <Save className="h-3 w-3" /> {isSaving ? "Guardando…" : "Guardar"}
+                      </button>
+                      <button
+                        onClick={() => setEditingPlan(null)}
+                        className="rounded-lg px-2 py-1.5 text-[11px] font-bold text-red-400 transition-all hover:bg-red-500/10"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg font-extrabold text-[#00a884]">{fmt(plan.amount_pesos)}</span>
+                      <button
+                        onClick={() => { setEditingPlan(plan.plan_type); setEditAddon(false); setEditingKeys(false); }}
+                        className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold text-wa-text-secondary/60 transition-all hover:bg-white/5 hover:text-wa-text"
+                        title={`Editar precio ${plan.label}`}
+                      >
+                        <Edit3 className="h-3 w-3" /> Editar
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-[11px] text-wa-text-secondary/50 mb-3 leading-relaxed">{plan.description || "Sin descripción"}</p>
+                <div className="flex gap-4 text-[11px] text-wa-text-secondary/40 font-medium">
+                  <span>Instancias: <b className="text-wa-text">{plan.max_instances}</b></span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Bot extra (add-on) */}
+      <div className="rounded-3xl border border-white/5 bg-gradient-to-br from-wa-header to-wa-header/80 p-5 shadow-xl shadow-black/10">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#53bdeb]/20 to-[#53bdeb]/5">
+            <Bot className="h-4.5 w-4.5 text-[#53bdeb]" />
+          </div>
+          <h3 className="text-sm font-bold text-wa-text tracking-tight">Bot extra (add-on)</h3>
+        </div>
+        <p className="text-[10px] text-wa-text-secondary/50 mb-4 ml-12">Precio mensual por cada bot adicional, en pesos ($).</p>
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-wa-text">Precio del bot extra</p>
+              <p className="text-[10px] text-wa-text-secondary/50 mt-0.5">Se cobra por cada instancia adicional</p>
+            </div>
+            {editAddon ? (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-wa-text-secondary/50">$</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    autoFocus
+                    className="w-32 h-9 text-sm font-extrabold text-right rounded-xl border border-[#53bdeb]/40 bg-white/5 px-2 text-wa-text focus:border-[#53bdeb]/60 focus:outline-none focus:ring-2 focus:ring-[#53bdeb]/20 transition-all"
+                    value={addonPrice}
+                    onChange={e => setAddonPrice(Math.round(Number(e.target.value) || 0))}
+                    onKeyDown={e => { if (e.key === "Enter") void saveAddon(); if (e.key === "Escape") setEditAddon(false); }}
+                  />
+                </div>
+                <button
+                  onClick={() => void saveAddon()}
+                  disabled={savingKeys}
+                  className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-white transition-all disabled:opacity-50"
+                  style={{ background: "linear-gradient(135deg, #53bdeb, #00a884)" }}
+                >
+                  <Save className="h-3 w-3" /> {savingKeys ? "Guardando…" : "Guardar"}
+                </button>
+                <button
+                  onClick={() => setEditAddon(false)}
+                  className="rounded-lg px-2 py-1.5 text-[11px] font-bold text-red-400 transition-all hover:bg-red-500/10"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-extrabold text-[#53bdeb]">{fmt(addonPrice)}</span>
+                <button
+                  onClick={() => { setEditAddon(true); setEditingPlan(null); setEditingKeys(false); }}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold text-wa-text-secondary/60 transition-all hover:bg-white/5 hover:text-wa-text"
+                >
+                  <Edit3 className="h-3 w-3" /> Editar
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* MP Keys */}
+      <div className="rounded-3xl border border-white/5 bg-gradient-to-br from-wa-header to-wa-header/80 p-5 shadow-xl shadow-black/10">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-violet-500/5">
+            <Key className="h-4.5 w-4.5 text-violet-400" />
+          </div>
+          <h3 className="text-sm font-bold text-wa-text tracking-tight">Claves Mercado Pago</h3>
+        </div>
+        <div className="space-y-3">
+          {[
+            { key: "access_token" as const, label: "Access Token", icon: <Key className="h-3.5 w-3.5" /> },
+            { key: "public_key" as const, label: "Public Key", icon: <Shield className="h-3.5 w-3.5" /> },
+            { key: "webhook_secret" as const, label: "Webhook Secret", icon: <Shield className="h-3.5 w-3.5" /> },
+          ].map((field) => (
+            <div key={field.key} className="flex flex-col gap-1.5">
+              <label className="flex items-center gap-1.5 text-[11px] font-bold text-wa-text-secondary uppercase tracking-wider">
+                {field.icon} {field.label}
+              </label>
+              <input
+                type="password"
+                disabled={!editingKeys}
+                className="w-full h-10 rounded-xl border border-white/10 bg-white/5 px-3.5 text-xs text-wa-text placeholder:text-wa-text-secondary/30 focus:border-[#00a884]/50 focus:outline-none focus:ring-2 focus:ring-[#00a884]/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                value={mpKeys[field.key]}
+                onChange={e => setMpKeys({ ...mpKeys, [field.key]: e.target.value })}
+                placeholder={`Tu ${field.label}`}
+              />
+            </div>
+          ))}
+          {editingKeys && (
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                onClick={() => void saveKeys()}
+                disabled={savingKeys}
+                className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-extrabold text-white shadow-lg shadow-[#00a884]/25 transition-all hover:scale-[1.02] disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #00a884, #25d366)" }}
+              >
+                <Save className="h-3.5 w-3.5" /> {savingKeys ? "Guardando…" : "Guardar claves"}
+              </button>
+              <button
+                onClick={() => setEditingKeys(false)}
+                className="rounded-xl px-4 py-2.5 text-xs font-bold text-red-400 transition-all hover:bg-red-500/10"
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

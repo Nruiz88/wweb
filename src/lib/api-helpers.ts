@@ -5,40 +5,35 @@
 /** Log error server-side and return safe generic message */
 export function safeErrorMessage(error: unknown): string {
   const err = error as { code?: string; message?: string } | null;
-
-  // Log the real error server-side
   if (err) {
     console.error("[api-error]", { code: err.code, message: err.message });
+    if (err.code === "42P01") return "Tabla no encontrada — la migración de DB aún no se aplicó";
+    if (err.code === "42703") return "Columna no encontrada — verificación de esquema necesaria";
+    if (err.message?.includes("violates") || err.message?.includes("constraint")) {
+      return "Datos inválidos — revisá los campos";
+    }
   }
-
-  // Never expose raw DB errors to clients
-  return "An unexpected error occurred";
+  return "Ocurrió un error inesperado";
 }
 
-/**
- * Verify a user has access to an instance (owner or assigned via user_instances).
- * Centralized to avoid IDOR across API routes.
+/** Verify a user has access to an instance (owner or assigned via user_instances).
+ * Uses MariaDB queries directly (no Supabase).
  */
-export async function verifyUserAccess(
-  supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createServerClient>>,
-  userId: string,
-  instanceId: string,
-): Promise<boolean> {
+export async function verifyUserAccess(userId: string, instanceId: string): Promise<boolean> {
+  const { query } = await import("./db");
   // Owner: admin of the instance
-  const { data: adminInstance } = await supabase
-    .from("instances")
-    .select("id")
-    .eq("id", instanceId)
-    .eq("admin_id", userId)
-    .single();
-  if (adminInstance) return true;
+  const instRows = await query(
+    "SELECT 1 FROM instances WHERE id = ? AND admin_id = ? LIMIT 1",
+    [instanceId, userId]
+  );
+  if (instRows.length > 0) return true;
 
   // Assigned user via user_instances
-  const { data: assignment } = await supabase
-    .from("user_instances")
-    .select("id")
-    .eq("instance_id", instanceId)
-    .eq("user_id", userId)
-    .single();
-  return !!assignment;
+  const assignmentRows = await query(
+    "SELECT 1 FROM user_instances WHERE instance_id = ? AND user_id = ? LIMIT 1",
+    [instanceId, userId]
+  );
+  if (assignmentRows.length > 0) return true;
+
+  return false;
 }

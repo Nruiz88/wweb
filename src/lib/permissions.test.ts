@@ -7,20 +7,15 @@ describe("hasAccessToFeature", () => {
     expect(hasAccessToFeature("starter", "menus")).toBe(true);
   });
 
-  it("starter NO tiene calendar ni broadcasts", () => {
+  it("starter NO tiene calendar ni appointments", () => {
     expect(hasAccessToFeature("starter", "calendar")).toBe(false);
-    expect(hasAccessToFeature("starter", "broadcasts")).toBe(false);
+    expect(hasAccessToFeature("starter", "appointments")).toBe(false);
   });
 
   it("pro tiene keywords, menus, calendar, appointments y reminders", () => {
     for (const f of ["keywords", "menus", "calendar", "appointments", "reminders"]) {
       expect(hasAccessToFeature("pro", f)).toBe(true);
     }
-  });
-
-  it("community tiene group_moderation y broadcasts", () => {
-    expect(hasAccessToFeature("community", "group_moderation")).toBe(true);
-    expect(hasAccessToFeature("community", "broadcasts")).toBe(true);
   });
 
   it("feature desconocida devuelve false", () => {

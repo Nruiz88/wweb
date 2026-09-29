@@ -1,149 +1,91 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase/client";
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { LoaderIcon } from "@/components/icons";
 import { Logo } from "@/components/logo";
 
 export default function ResetPasswordConfirmPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [loading, setLoading] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [checking, setChecking] = useState(true);
+  const [error, setError] = useState("");
 
-  // Verify that the user has a valid recovery session
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }: { data: { session: import("@supabase/supabase-js").Session | null } }) => {
-      if (!session) {
-        // No valid recovery token — redirect to reset page
-        router.replace("/reset-password");
-      } else {
-        setChecking(false);
-      }
-    });
-  }, [router]);
-
-  async function handleUpdate(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-    setError(null);
-
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
     if (password !== confirmPassword) {
-      setError("Las contraseñas no coinciden");
-      setLoading(false);
+      setError("Las contraseñas no coinciden.");
       return;
     }
-
     if (password.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres");
-      setLoading(false);
+      setError("La contraseña debe tener al menos 6 caracteres.");
       return;
     }
-
-    const { error: authError } = await supabase.auth.updateUser({
-      password,
-    });
-
-    if (authError) {
-      setError(authError.message);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/reset-password/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: searchParams.get("token") || "", password }),
+      });
+      const data = await res.json();
+      if (data.status === "error") {
+        setError(data.error);
+      } else {
+        router.push("/login?reset=1");
+      }
+    } catch {
+      setError("Error de red. Reintentá más tarde.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setSuccess(true);
-    setLoading(false);
-  }
-
-  if (checking) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <LoaderIcon className="h-8 w-8 animate-spin text-wa-text-secondary/40" />
-      </div>
-    );
-  }
-
-  if (success) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="w-full max-w-sm text-center">
-          <Logo size="lg" className="mx-auto justify-center" />
-          <h1 className="mt-4 text-xl font-semibold text-wa-text">¡Contraseña actualizada!</h1>
-          <p className="mt-2 text-sm text-wa-text-secondary">
-            Tu contraseña fue cambiada exitosamente.
-          </p>
-          <a
-            href="/login"
-            className="mt-6 inline-block rounded-lg bg-[#00a884] px-6 py-2.5 text-sm font-medium text-white hover:bg-[#00a884]/90"
-          >
-            Iniciar sesión
-          </a>
-        </div>
-      </div>
-    );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <Logo size="lg" className="mx-auto justify-center" />
-          <div className="text-center">
-            <p className="text-sm text-wa-text-secondary">Ingresá tu nueva contraseña</p>
-          </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-card/40 to-primary/[0.08] px-4 py-12">
+      <div className="w-full max-w-md">
+        <div className="flex justify-center mb-6">
+          <Logo />
         </div>
+        <div className="rounded-2xl border border-wa-border bg-wa-panel p-8 shadow-xl">
+          <h1 className="text-2xl font-bold text-wa-text mb-2">Nueva contraseña</h1>
+          <p className="text-wa-text-secondary mb-6">
+            Ingresá tu nueva contraseña.
+          </p>
 
-        <form onSubmit={handleUpdate} className="flex flex-col gap-4">
-          {error && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {error}
-            </div>
-          )}
+          {error && <div className="mb-4 rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</div>}
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="password" className="text-xs font-medium text-wa-text-secondary">
-              Nueva contraseña
-            </label>
+          <form onSubmit={handleSubmit} className="space-y-4">
             <input
-              id="password"
               type="password"
-              required
-              autoComplete="new-password"
-              placeholder="Mínimo 6 caracteres"
+              placeholder="Nueva contraseña (mínimo 6 caracteres)"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="input-field"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="confirmPassword" className="text-xs font-medium text-wa-text-secondary">
-              Confirmar contraseña
-            </label>
-            <input
-              id="confirmPassword"
-              type="password"
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded-xl border border-wa-border bg-wa-header px-4 py-3 text-wa-text placeholder-wa-text-secondary focus:outline-none focus:ring-2 focus:ring-wa-accent/50"
               required
-              autoComplete="new-password"
-              placeholder="Repite tu contraseña"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              className="input-field"
+              minLength={6}
             />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex items-center justify-center gap-2 rounded-lg bg-[#00a884] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#00a884]/90 disabled:opacity-50"
-          >
-            {loading ? <LoaderIcon className="h-4 w-4 animate-spin" /> : null}
-            {loading ? "Actualizando..." : "Actualizar contraseña"}
-          </button>
-        </form>
+            <input
+              type="password"
+              placeholder="Confirmar contraseña"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full rounded-xl border border-wa-border bg-wa-header px-4 py-3 text-wa-text placeholder-wa-text-secondary focus:outline-none focus:ring-2 focus:ring-wa-accent/50"
+              required
+              minLength={6}
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-wa-accent py-3 font-semibold text-white hover:bg-wa-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? <LoaderIcon className="h-5 w-5 animate-spin" /> : "Guardar nueva contraseña"}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

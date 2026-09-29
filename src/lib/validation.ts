@@ -102,6 +102,28 @@ export function isValidUUID(value: string): boolean {
 }
 
 /**
+ * Valida un id de recurso de la app.
+ *
+ * La app genera ids con `generateId()` (uuidv4) desde la migración a MariaDB,
+ * pero muchas filas existentes se crearon antes con
+ * `Math.random().toString(36)` × 2 → 30 chars de base36, NO UUID.
+ *
+ * `isValidUUID` solo aceptaba UUID, así que /api/catalog y /api/orders
+ * devolvían 400 para cualquier instancia creada por la propia API
+ * (Catálogo y Pedidos dead), y los botones de recordatorio de los turnos
+ * creados por la API no funcionaban nunca.
+ *
+ * Ambos formatos son seguros contra inyección: se sigue exigiendo un charset
+ * acotado, sin comillas ni espacios.
+ */
+export function isValidId(value: string): boolean {
+  if (!value || typeof value !== "string") return false;
+  if (isValidUUID(value)) return true;
+  // Legacy: 30 chars base36 ([0-9a-z]) generado por la app.
+  return /^[0-9a-z]{20,64}$/.test(value);
+}
+
+/**
  * Sanitize a string input — trim, enforce max length.
  */
 export function sanitizeString(value: unknown, maxLength = 500): string | null {

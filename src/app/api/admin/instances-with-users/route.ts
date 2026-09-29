@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin/auth";
+import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -24,13 +25,11 @@ interface ServerCapacity {
 export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  const { user, supabase } = auth;
 
-  const { data: instances } = await supabase
-    .from("instances")
-    .select("id, instance_name, status, evolution_api_url")
-    .eq("admin_id", user.id)
-    .order("created_at", { ascending: false });
+  const instances = await query<{ id: string; instance_name: string; status: string; evolution_api_url: string }>(
+    "SELECT id, instance_name, status, evolution_api_url FROM instances WHERE admin_id = ? ORDER BY created_at DESC",
+    [auth.user.id]
+  );
 
   if (!instances || instances.length === 0) {
     return NextResponse.json({ status: "success", data: [] });
@@ -38,30 +37,27 @@ export async function GET() {
 
   const instanceIds = instances.map((i) => i.id);
 
-  const { data: assignments } = await supabase
-    .from("user_instances")
-    .select("instance_id, user_id")
-    .in("instance_id", instanceIds);
+  const assignments = await query<{ instance_id: string; user_id: string }>(
+    "SELECT instance_id, user_id FROM user_instances WHERE instance_id IN (" + instanceIds.map(() => "?").join(", ") + ")",
+    instanceIds
+  );
 
-  const userIds = [...new Set((assignments ?? []).map((a) => a.user_id))];
+  const userIds = [...new Set(assignments.map((a) => a.user_id))];
 
-  const usersById = new Map<string, { id: string; email: string; full_name: string | null }>();
-
+  const usersById = new Map();
   if (userIds.length > 0) {
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("id, email, full_name")
-      .in("id", userIds);
-
-    for (const p of profiles ?? []) {
+    const profiles = await query<{ id: string; email: string; full_name: string }>(
+      "SELECT id, email, full_name FROM profiles WHERE id IN (" + userIds.map(() => "?").join(", ") + ")",
+      userIds
+    );
+    for (const p of profiles) {
       usersById.set(p.id, p);
     }
   }
 
-  const servers = new Map<string, ServerCapacity>();
-
+  const servers = new Map();
   for (const inst of instances) {
-    const assigned = (assignments ?? []).filter((a) => a.instance_id === inst.id);
+    const assigned = (assignments || []).filter((a) => a.instance_id === inst.id);
     const users = assigned
       .map((a) => usersById.get(a.user_id))
       .filter((u): u is { id: string; email: string; full_name: string | null } => Boolean(u))

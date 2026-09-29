@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { supabaseConfig } from "@/lib/supabase/config";
-import { getConnectionState } from "@/lib/evolution-multi";
+import { getSession } from "@/lib/auth";
+import { query, generateId } from "@/lib/db";
+import { getConnectionState, testEvolutionConnection } from "@/lib/evolution-multi";
 import { validateEvolutionUrl, sanitizeString } from "@/lib/validation";
 import { safeErrorMessage } from "@/lib/api-helpers";
+import { checkInstanceLimit } from "@/lib/plan-gating";
+import { seedDefaults } from "@/lib/seed-defaults";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +16,10 @@ interface InstanceRow {
   created_at: string;
   evolution_api_url?: string;
   evolution_api_key?: string;
+  status_checked_at?: string | null;
 }
+
+type ServiceClient = any;
 
 function sanitizeInstance(instance: InstanceRow) {
   return {
@@ -25,167 +30,104 @@ function sanitizeInstance(instance: InstanceRow) {
   };
 }
 
-// Caché del estado en vivo: evita llamar a Evolution API en cada request.
-// Solo se refresca si el dato tiene mas de TTL_MS de antiguedad.
 const statusCache = new Map<string, { status: string; at: number }>();
-const STATUS_TTL_MS = 10_000;
+const STATUS_TTL_MS = 60_000;
+const BASE_COLUMNS = "id, instance_name, status, created_at, evolution_api_url, evolution_api_key";
 
-async function withLiveStatus(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
-  instances: InstanceRow[]
-) {
-  const now = Date.now();
-
-  return Promise.all(
-    instances.map(async (instance) => {
-      if (!instance.evolution_api_url || !instance.evolution_api_key) {
-        return sanitizeInstance(instance);
-      }
-
-      const cacheKey = `${instance.evolution_api_url}|${instance.instance_name}`;
-      const cached = statusCache.get(cacheKey);
-
-      if (cached && now - cached.at < STATUS_TTL_MS) {
-        return sanitizeInstance({ ...instance, status: cached.status });
-      }
-
-      const state = await getConnectionState(
-        instance.evolution_api_url,
-        instance.evolution_api_key,
-        instance.instance_name
-      );
-
-      if (state.ok && state.data) {
-        statusCache.set(cacheKey, { status: state.data, at: Date.now() });
-        try {
-          await supabase
-            .from("instances")
-            .update({ status: state.data })
-            .eq("id", instance.id);
-        } catch {
-          // Non-critical: keep serving even if DB update fails
-        }
-        return sanitizeInstance({ ...instance, status: state.data });
-      }
-
-      return sanitizeInstance(instance);
-    })
-  );
+/**
+ * Instancias visibles para el usuario: las que ES dueño (instances.admin_id)
+ * UNION las que tiene ASIGNADAS (user_instances).
+ *
+ * Antes solo se listaban las propias, así que un usuario con una instancia
+ * asignada veía "Sin instancias" en /calendar y los turnos agendados por el
+ * link público (que sí resuelve por user_instances) nunca aparecían.
+ */
+async function selectInstances(userId: string): Promise<{ rows: InstanceRow[]; freshCheck: boolean; error: unknown }> {
+  const q = `
+    SELECT ${BASE_COLUMNS}, status_checked_at FROM instances
+    WHERE admin_id = ? OR id IN (SELECT instance_id FROM user_instances WHERE user_id = ?)
+    ORDER BY created_at DESC`;
+  const rows = await query<InstanceRow>(q, [userId, userId]);
+  return { rows: rows || [], freshCheck: true, error: null };
 }
 
-// GET: List instances
-export async function GET() {
-  // Use SSR client to read session from request cookies
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
+async function persistStatus(id: string, status: string) {
+  try {
+    await query("UPDATE instances SET status = ?, status_checked_at = NOW() WHERE id = ?", [status, id]);
+  } catch {
+    // Non-critical
+  }
+}
 
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
+async function withLiveStatus(instances: InstanceRow[], freshCheck: boolean) {
+  const now = Date.now();
+  const results = await Promise.all(instances.map(async (instance) => {
+    if (!instance.evolution_api_url || !instance.evolution_api_key) {
+      return sanitizeInstance(instance);
+    }
+    if (freshCheck && instance.status_checked_at) {
+      const checkedAt = new Date(instance.status_checked_at).getTime();
+      if (!Number.isNaN(checkedAt) && now - checkedAt < STATUS_TTL_MS) {
+        return sanitizeInstance(instance);
+      }
+    }
+    const cacheKey = `${instance.evolution_api_url}|${instance.instance_name}`;
+    const cached = statusCache.get(cacheKey);
+    if (cached && now - cached.at < STATUS_TTL_MS) {
+      return sanitizeInstance({ ...instance, status: cached.status });
+    }
+    const state = await getConnectionState(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name);
+    if (state.ok && state.data) {
+      statusCache.set(cacheKey, { status: state.data, at: Date.now() });
+      await persistStatus(instance.id, state.data);
+      return sanitizeInstance({ ...instance, status: state.data });
+    }
+    return sanitizeInstance(instance);
+  }));
+  return results;
+}
 
-  const { data: { user } } = await sessionClient.auth.getUser();
-
-  if (!user) {
+export async function GET(request: Request) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
+  const lite = new URL(request.url).searchParams.get("lite") === "1";
 
-  // Use service role for DB queries
-  const supabase = await createServerClient();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role === "admin") {
-    const { data: instances, error } = await supabase
-      .from("instances")
-      .select("id, instance_name, status, created_at, evolution_api_url, evolution_api_key")
-      .eq("admin_id", user.id)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-    }
-
-    const live = await withLiveStatus(supabase, instances as InstanceRow[]);
-    return NextResponse.json({ status: "success", data: live, role: "admin" });
-  }
-
-  const { data: assignments } = await supabase
-    .from("user_instances")
-    .select("instance_id")
-    .eq("user_id", user.id);
-
-  if (!assignments || assignments.length === 0) {
-    return NextResponse.json({ status: "success", data: [], role: "user" });
-  }
-
-  const { data: instances, error } = await supabase
-    .from("instances")
-    .select("id, instance_name, status, created_at, evolution_api_url, evolution_api_key")
-    .in("id", assignments.map((a) => a.instance_id));
-
+  const { rows: instances, freshCheck, error } = await selectInstances(session.userId);
   if (error) {
     return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
   }
 
-  const live = await withLiveStatus(supabase, instances as InstanceRow[]);
-  return NextResponse.json({ status: "success", data: live, role: "user" });
+  // `role` estaba hardcodeado a "admin" para todos. No era un hole (el gating
+  // real es server-side) pero el frontend lo leía: /whatsapp auto-seleccionaba
+  // la instancia para cualquiera y /settings mostraba el botón "Nueva
+  // instancia" y el badge Admin a usuarios normales.
+  const me = await query<{ role: string }>("SELECT role FROM profiles WHERE id = ? LIMIT 1", [session.userId]);
+  const role = me?.[0]?.role === "admin" ? "admin" : "user";
+
+  if (lite) {
+    return NextResponse.json({ status: "success", data: instances.map(sanitizeInstance), role });
+  }
+  const live = await withLiveStatus(instances, freshCheck);
+  return NextResponse.json({ status: "success", data: live, role });
 }
 
-// POST: Create new instance (admin only)
 export async function POST(request: Request) {
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
-
-  const { data: { user } } = await sessionClient.auth.getUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
-    return NextResponse.json({ status: "error", error: "Only admins can create instances" }, { status: 403 });
-  }
-
   let body: unknown;
-  try { body = await request.json(); } catch {
-    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
-  }
+  try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
 
-  const { instanceName, evolutionApiUrl, evolutionApiKey } = (body ?? {}) as {
-    instanceName?: string;
-    evolutionApiUrl?: string;
-    evolutionApiKey?: string;
-  };
+  const { instanceName, evolutionApiUrl, evolutionApiKey } = body as { instanceName?: string; evolutionApiUrl?: string; evolutionApiKey?: string };
 
   const cleanName = sanitizeString(instanceName, 50);
   if (!cleanName) {
     return NextResponse.json({ status: "error", error: "Instance name is required" }, { status: 400 });
   }
-
   if (!evolutionApiUrl || !evolutionApiKey) {
     return NextResponse.json({ status: "error", error: "All fields are required" }, { status: 400 });
   }
@@ -195,54 +137,92 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: urlCheck.error }, { status: 400 });
   }
 
-  const { data: instance, error } = await supabase
-    .from("instances")
-    .insert({ admin_id: user.id, instance_name: cleanName, evolution_api_url: urlCheck.normalized || evolutionApiUrl.trim(), evolution_api_key: evolutionApiKey })
-    .select("id, instance_name, status, created_at")
-    .single();
+  const normalizedUrl = urlCheck.normalized || evolutionApiUrl.trim();
 
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+  // Gating por plan: límite de instancias según suscripción activa + add-ons.
+  const limit = await checkInstanceLimit(session.userId);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { status: "error", error: limit.reason, code: limit.code, used: limit.used, max: limit.max },
+      { status: 403 }
+   );
   }
 
-  return NextResponse.json({ status: "success", data: instance });
+  const serverCheck = await testEvolutionConnection(normalizedUrl, evolutionApiKey);
+  if (!serverCheck.ok) {
+    const hint = serverCheck.status === 401 || serverCheck.status === 403 ? " (API key global de Evolution inválida)" : serverCheck.status === 404 ? " (URL mal)" : "";
+    return NextResponse.json({ status: "error", error: `Servidor no responde: ${serverCheck.message}${hint}` }, { status: 400 });
+  }
+
+  // `instances.id` es VARCHAR sin AUTO_INCREMENT → `insertId` de mysql2 siempre
+  // da 0. Se generaba el id a mano y se devolvía `insertId` (0), así que el
+  // admin recibía instanceId: 0 y la asignación posterior fallaba siempre.
+  const id = generateId();
+  await query(
+    "INSERT INTO instances (id, admin_id, instance_name, evolution_api_url, evolution_api_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'connecting', NOW(), NOW())",
+    [id, session.userId, cleanName, normalizedUrl, evolutionApiKey]
+  );
+
+  // Seed de respuestas base + menú. Va acá y no en el registro porque
+  // auto_responses.instance_id es NOT NULL con FK: el registro todavía no
+  // tiene instancia. Es idempotente, así que un fallo acá no rompe la creación.
+  let seeded = 0;
+  let seededSkipped = false;
+  try {
+    const business = await getBusinessNameFor(session.userId);
+    const result = await seedDefaults(id, session.userId, business);
+    seeded = result.created;
+    seededSkipped = result.skipped;
+  } catch (e) {
+    console.error("[instances] no se pudieron crear las respuestas por defecto", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  return NextResponse.json({
+    status: "success",
+    data: {
+      id,
+      instance_name: cleanName,
+      status: "connecting",
+      created_at: new Date().toISOString(),
+      seeded_responses: seeded,
+      seeded_skipped: seededSkipped,
+    },
+    message: "Servidor verificado — instancia lista. El usuario debe vincular QR en Mi WhatsApp para pasar a conectada.",
+  });
 }
 
-// DELETE: Delete instance (admin only)
+/** business_name del dueño, para personalizar el contenido inicial. */
+async function getBusinessNameFor(userId: string): Promise<string> {
+  const rows = await query<{ business_name: string | null; full_name: string | null }>(
+    "SELECT business_name, full_name FROM profiles WHERE id = ? LIMIT 1",
+    [userId]
+  );
+  const p = rows?.[0];
+  return (p?.business_name ?? "").trim() || (p?.full_name ?? "").trim() || "";
+}
+
 export async function DELETE(request: Request) {
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
-
-  const { data: { user } } = await sessionClient.auth.getUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
-
   if (!id) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const { data: instance } = await supabase.from("instances").select("id, admin_id").eq("id", id).single();
-
-  if (!instance || instance.admin_id !== user.id) {
+  const inst = await query<{ id: string; admin_id: string }>(
+    "SELECT id, admin_id FROM instances WHERE id = ? LIMIT 1",
+    [id]
+  );
+  if (!inst.length || inst[0].admin_id !== session.userId) {
     return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
   }
 
-  const { error } = await supabase.from("instances").delete().eq("id", id);
-  if (error) return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-
+  await query("DELETE FROM instances WHERE id = ?", [id]);
   return NextResponse.json({ status: "success" });
 }

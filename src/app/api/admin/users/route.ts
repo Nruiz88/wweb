@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin/auth";
 import { safeErrorMessage } from "@/lib/api-helpers";
+import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -8,16 +9,13 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  const { supabase } = auth;
 
-  const { data: users, error } = await supabase
-    .from("profiles")
-    .select("id, email, full_name, role, created_at")
-    .order("created_at", { ascending: false });
+  const users = await query<{ id: string; email: string; full_name: string; role: string; created_at: string }>(
+    "SELECT id, email, full_name, role, created_at FROM profiles ORDER BY created_at DESC"
+  );
 
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+  if (users.length) {
+    return NextResponse.json({ status: "success", data: users });
   }
-
-  return NextResponse.json({ status: "success", data: users });
+  return NextResponse.json({ status: "success", data: [] });
 }

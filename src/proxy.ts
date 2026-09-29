@@ -1,9 +1,14 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getUserSession } from "./lib/auth";
 
-// Rutas publicas (no requieren sesion)
-const PUBLIC_PATHS = ["/login", "/register", "/reset-password", "/agendar"];
-const PUBLIC_API = ["/api/webhook", "/api/health", "/api/public", "/api/appointments/slots"];
+const PUBLIC_PATHS = ["/login", "/register", "/reset-password", "/reset-password/confirm", "/privacidad", "/terminos"];
+
+// Rutas 100% públicas: se sirven siempre, sin sesión y sin redirigir
+// a usuarios autenticados (a diferencia de PUBLIC_PATHS).
+// - /agendar: página pública de reservas que los negocios comparten.
+// - Imágenes de metadata de Next (OG/Twitter/icons): las deben poder
+//   descargar los crawlers de redes sociales sin sesión.
+const FULLY_PUBLIC_PATHS = ["/agendar", "/opengraph-image", "/twitter-image", "/apple-icon", "/icon"];
 
 function withSecurityHeaders(response: NextResponse): NextResponse {
   response.headers.set("X-Frame-Options", "DENY");
@@ -11,13 +16,8 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
 
-  // Next.js 16 inyecta scripts inline (bootstrap RSC y flight payload) en páginas
-  // estáticas. Sin 'unsafe-inline' en script-src, el navegador los bloquea y la
-  // app nunca hidrata (React error #412). NO usar 'strict-dynamic' junto con
-  // 'unsafe-inline': los browsers CSP3 ignoran 'unsafe-inline' cuando hay
-  // 'strict-dynamic'. Se requiere 'unsafe-eval' solo en dev (Fast Refresh).
   const isDev = process.env.NODE_ENV !== "production";
-  const scriptSrc = "script-src 'self' 'unsafe-inline'" + (isDev ? " 'unsafe-eval'; " : "; ");
+  const scriptSrc = "script-src 'self' 'unsafe-inline'" + (isDev ? " 'unsafe-eval'; " : " ; ");
 
   response.headers.set(
     "Content-Security-Policy",
@@ -34,69 +34,63 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
   return response;
 }
 
+/**
+ * Middleware de auth: protege las rutas del dashboard.
+ * - Usuario autenticado → permite el acceso
+ * - Usuario sin sesión en /login o /register → permite ver el formulario
+ * - Usuario sin sesión en el dashboard → redirige a /login
+ */
 export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  // IMPORTANTE: refresh de sesion en cada request
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   const { pathname } = request.nextUrl;
 
-  // API routes
+  // API routes: rutas públicas están definidas en cada handler (ver PUBLIC_API)
   if (pathname.startsWith("/api")) {
-    if (PUBLIC_API.some((p) => pathname.startsWith(p))) {
-      return withSecurityHeaders(response);
-    }
-    if (!user) {
-      return withSecurityHeaders(
-        NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 })
-      );
-    }
-    return withSecurityHeaders(response);
+    return withSecurityHeaders(NextResponse.next({ request }));
   }
 
-  // Pages: authenticated user on public paths -> dashboard
-  if (user && PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    return withSecurityHeaders(NextResponse.redirect(new URL("/dashboard", request.url)));
+  // Rutas 100% públicas (no dependen de sesión)
+  if (FULLY_PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    return withSecurityHeaders(NextResponse.next({ request }));
   }
 
-  // Pages: unauthenticated user on protected paths -> login
-  // Landing page (/) is always public
-  const isLandingPage = pathname === "/";
-  if (!user && !isLandingPage && !PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+  // Pages
+  const session = await getUserSession();
+
+  // Landing y rutas públicas del auth
+  const isLanding = pathname === "/";
+  if (isLanding || PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+    if (session) {
+      // Usuario autenticado en ruta pública → redirige al dashboard
+      return withSecurityHeaders(NextResponse.redirect(new URL("/dashboard", request.url)));
+    }
+    return withSecurityHeaders(NextResponse.next({ request }));
+  }
+
+  // Dashboard protegido
+  if (!session) {
     const redirectUrl = new URL("/login", request.url);
     redirectUrl.searchParams.set("next", pathname);
     return withSecurityHeaders(NextResponse.redirect(redirectUrl));
   }
 
-  return withSecurityHeaders(response);
+  // Si no es admin, el usuario solo puede usar sus instancias asignadas
+  if (session.role !== "admin") {
+    const { query } = await import("./lib/db");
+    const rows = await query(
+      "SELECT ui.id FROM user_instances ui JOIN instances i ON ui.instance_id = i.id WHERE ui.user_id = ? LIMIT 1",
+      [session.userId]
+    );
+    // Sin instancias asignadas solo puede navegar el dashboard (evita loop de redirección)
+    if (!rows.length && pathname !== "/dashboard") {
+      return withSecurityHeaders(NextResponse.redirect(new URL("/dashboard", request.url)));
+    }
+  }
+
+  return withSecurityHeaders(NextResponse.next({ request }));
 }
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)",
   ],
 };

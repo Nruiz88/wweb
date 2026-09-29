@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { supabaseConfig } from "@/lib/supabase/config";
+import { getSession } from "@/lib/auth";
+import { query } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import {
   connectInstance,
@@ -12,34 +12,19 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// Evolution regenera el QR en cada /instance/connect.
-// Cachear el QR evita invalidarlo con cada polling del panel.
 const qrCache = new Map<string, { base64: string; at: number }>();
 const QR_TTL_MS = 20000;
+const recentLogout = new Map<string, number>();
+const LOGOUT_GRACE_MS = 15000;
 
-// Cada instancia = una conexion WhatsApp (RAM en Railway).
-// Al preparar una instancia la registramos en Evolution (si falta) y
-// configuramos su webhook para que las auto-respuestas funcionen.
-async function prepareInstance(
-  baseUrl: string,
-  apiKey: string,
-  instanceName: string,
-  webhookUrl: string
-) {
+/** Valores permitidos por el CHECK de `instances.status`. */
+const INSTANCE_STATUSES = new Set(["open", "close", "connecting", "qrcode"]);
+
+async function prepareInstance(baseUrl: string, apiKey: string, instanceName: string, webhookUrl: string) {
   await createInstance(baseUrl, apiKey, instanceName);
-
   const secret = process.env.WEBHOOK_SECRET;
-  const result = await setWebhook(
-    baseUrl,
-    apiKey,
-    instanceName,
-    webhookUrl,
-    ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
-    secret ? { "x-webhook-secret": secret } : {}
-  );
-
+  const result = await setWebhook(baseUrl, apiKey, instanceName, webhookUrl, ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"], secret ? { "x-webhook-secret": secret } : {});
   if (!result.ok && result.status === 401) {
-    // La instancia puede no soportar /webhook/set con esta clave; no es bloqueante.
     return;
   }
 }
@@ -47,11 +32,9 @@ async function prepareInstance(
 function buildWebhookUrl(request: Request): string {
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
   const proto = request.headers.get("x-forwarded-proto") ?? "https";
-
   if (host.includes("localhost") || host.startsWith("127.") || host.startsWith("192.168.")) {
     return "";
   }
-
   return `${proto}://${host}/api/webhook`;
 }
 
@@ -67,134 +50,129 @@ interface ResolvedInstance {
   status?: string;
 }
 
-// Resuelve la instancia del usuario:
-// - Admin: la primera que creo (admin_id)
-// - User: la asignada via user_instances
+/**
+ * Resuelve la instancia sobre la que opera el usuario.
+ *
+ * `ownerOnly` es lo que impide que un usuario merelyamente ASIGNADO
+ * (user_instances) desconecte o fuerce el QR de la instancia de otro: el
+ * fallback a `user_instances` de la versión anterior devolvía la
+ * `evolution_api_key` del owner, así que `DELETE /api/whatsapp` deslogueaba
+ * el WhatsApp de otra persona.
+ */
 async function resolveInstance(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
   userId: string,
-  selectedInstanceId?: string | null
+  selectedInstanceId?: string | null,
+  ownerOnly = false,
 ): Promise<ResolvedInstance | null> {
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", userId)
-    .single();
-
-  if (profile?.role === "admin") {
-    let query = supabase
-      .from("instances")
-      .select("id, instance_name, evolution_api_url, evolution_api_key, status")
-      .eq("admin_id", userId)
-      .order("created_at", { ascending: false });
-
-    if (selectedInstanceId) {
-      query = query.eq("id", selectedInstanceId);
-    }
-
-    const { data: instances } = await query.limit(1);
-    return instances?.[0] ?? null;
+  const instances = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
+    `SELECT id, instance_name, evolution_api_url, evolution_api_key, status FROM instances WHERE admin_id = ? ${selectedInstanceId ? "AND id = ?" : ""} ORDER BY created_at DESC LIMIT 1`,
+    selectedInstanceId ? [userId, selectedInstanceId] : [userId]
+  );
+  if (instances?.length) {
+    return {
+      id: instances[0].id,
+      instance_name: instances[0].instance_name,
+      evolution_api_url: instances[0].evolution_api_url,
+      evolution_api_key: instances[0].evolution_api_key,
+      status: instances[0].status,
+    };
   }
 
-  const { data: assignment } = await supabase
-    .from("user_instances")
-    .select("instance_id, instances(id, instance_name, evolution_api_url, evolution_api_key, status)")
-    .eq("user_id", userId)
-    .single();
+  if (ownerOnly) return null;
 
-  if (!assignment || typeof assignment !== "object") return null;
+  if (selectedInstanceId) {
+    const specific = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
+      `SELECT i.id, i.instance_name, i.evolution_api_url, i.evolution_api_key, i.status
+       FROM instances i JOIN user_instances ui ON ui.instance_id = i.id
+       WHERE ui.user_id = ? AND i.id = ? LIMIT 1`,
+      [userId, selectedInstanceId]
+    );
+    if (specific?.length) {
+      return {
+        id: specific[0].id,
+        instance_name: specific[0].instance_name,
+        evolution_api_url: specific[0].evolution_api_url,
+        evolution_api_key: specific[0].evolution_api_key,
+        status: specific[0].status,
+      };
+    }
+    return null;
+  }
 
-  const nested = (assignment as unknown as { instances?: ResolvedInstance | null }).instances;
-  return nested ?? null;
+  const assignment = await query<{ instance_id: string }>(
+    "SELECT instance_id FROM user_instances WHERE user_id = ? LIMIT 1",
+    [userId]
+  );
+  if (!assignment?.length) return null;
+
+  const inst = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
+    "SELECT id, instance_name, evolution_api_url, evolution_api_key, status FROM instances WHERE id = ? LIMIT 1",
+    [assignment[0].instance_id]
+  );
+  if (!inst?.length) return null;
+
+  return {
+    id: inst[0].id,
+    instance_name: inst[0].instance_name,
+    evolution_api_url: inst[0].evolution_api_url,
+    evolution_api_key: inst[0].evolution_api_key,
+    status: inst[0].status,
+  };
 }
 
 async function getAuthUser() {
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-  const sessionClient = createSSRClient(
-    supabaseConfig.url,
-    supabaseConfig.anonKey,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-  const {
-    data: { user },
-  } = await sessionClient.auth.getUser();
-  return user;
+  const session = await getSession();
+  return session?.userId;
 }
 
 // GET: Get instance status + QR code
 export async function GET(request: Request) {
   const webhookUrl = buildWebhookUrl(request);
-  const user = await getAuthUser();
-  if (!user) {
-    return NextResponse.json(
-      { status: "error", error: "Unauthorized" },
-      { status: 401 }
-    );
+  const userId = await getAuthUser();
+  if (!userId) {
+    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-  const { searchParams } = new URL(request.url);
-  const selectedInstanceId = searchParams.get("instanceId");
-
-  const instance = await resolveInstance(supabase, user.id, selectedInstanceId);
-
+  // El selector de /whatsapp manda ?instanceId=, pero la ruta lo ignoraba y
+  // siempre operaba sobre la más reciente (ORDER BY created_at DESC LIMIT 1).
+  const selectedId = new URL(request.url).searchParams.get("instanceId");
+  const instance = await resolveInstance(userId, selectedId);
   if (!instance) {
-    return NextResponse.json(
-      { status: "error", error: "No tienes una instancia asignada" },
-      { status: 404 }
-    );
+    return NextResponse.json({ status: "error", error: "No tienes una instancia asignada" }, { status: 404 });
   }
 
-  // Check connection state with Evolution API
-  const stateResult = await getConnectionState(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name
-  );
-
+  const stateResult = await getConnectionState(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name);
   let currentState = instance.status;
   if (stateResult.ok) {
-    currentState = stateResult.data;
-    // Update status in DB
-    await supabase
-      .from("instances")
-      .update({ status: stateResult.data })
-      .eq("id", instance.id);
+    const key = cacheKey(instance.evolution_api_url, instance.instance_name);
+    const justLoggedOut = recentLogout.has(key) && Date.now() - (recentLogout.get(key) ?? 0) < LOGOUT_GRACE_MS;
+    if (justLoggedOut && stateResult.data === "open" && instance.status === "close") {
+      currentState = "close";
+    } else {
+      currentState = stateResult.data;
+      // `instances.status` tiene CHECK (open, close, connecting, qrcode).
+      // `getConnectionState` devuelve "unknown" (o cualquier string crudo de
+      // Evolution) cuando no parsea el estado → el UPDATE violaba el CHECK,
+      // reventaba sin catch y el polling del QR devolvía 500.
+      const persistable = INSTANCE_STATUSES.has(stateResult.data) ? stateResult.data : "connecting";
+      await query("UPDATE instances SET status = ? WHERE id = ?", [persistable, instance.id]);
+    }
+    if (justLoggedOut && Date.now() - (recentLogout.get(key) ?? 0) >= LOGOUT_GRACE_MS) {
+      recentLogout.delete(key);
+    }
   }
 
-  // If state is qrcode or close, try to connect and get QR
   let qrCode: string | null = null;
   if (currentState === "close" || currentState === "qrcode" || currentState === "connecting") {
     const key = cacheKey(instance.evolution_api_url, instance.instance_name);
     const cached = qrCache.get(key);
-
     if (cached && Date.now() - cached.at < QR_TTL_MS) {
       qrCode = cached.base64;
     } else {
       if (webhookUrl) {
-        await prepareInstance(
-          instance.evolution_api_url,
-          instance.evolution_api_key,
-          instance.instance_name,
-          webhookUrl
-        );
+        await prepareInstance(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name, webhookUrl);
       }
-
-      const qrResult = await connectInstance(
-        instance.evolution_api_url,
-        instance.evolution_api_key,
-        instance.instance_name
-      );
-
+      const qrResult = await connectInstance(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name);
       if (qrResult.ok && qrResult.data) {
         qrCode = qrResult.data.base64 || qrResult.data.b64 || null;
         if (qrCode && !qrCode.startsWith("data:")) {
@@ -220,130 +198,75 @@ export async function GET(request: Request) {
 
 // POST: Connect instance (get QR)
 export async function POST(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "whatsapp-connect", {
-    maxRequests: 20,
-    windowMs: 60_000,
-  });
+  const rateLimitErr = await rateLimitResponse(request, "whatsapp-connect", { maxRequests: 20, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
   const webhookUrl = buildWebhookUrl(request);
-
-  const user = await getAuthUser();
-  if (!user) {
-    return NextResponse.json(
-      { status: "error", error: "Unauthorized" },
-      { status: 401 }
-    );
+  const userId = await getAuthUser();
+  if (!userId) {
+    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-  const { searchParams } = new URL(request.url);
-  const selectedInstanceId = searchParams.get("instanceId");
-
-  const instance = await resolveInstance(supabase, user.id, selectedInstanceId);
-
+  // ownerOnly: conectar/fuerzar el QR modifica el estado del WhatsApp, así que
+  // solo el dueño de la instancia (instances.admin_id) puede hacerlo.
+  const selectedId = new URL(request.url).searchParams.get("instanceId");
+  const instance = await resolveInstance(userId, selectedId, true);
   if (!instance) {
-    return NextResponse.json(
-      { status: "error", error: "No tienes una instancia asignada" },
-      { status: 404 }
-    );
+    return NextResponse.json({ status: "error", error: "No tenés una instancia propia" }, { status: 404 });
   }
 
   if (webhookUrl) {
-    await prepareInstance(
-      instance.evolution_api_url,
-      instance.evolution_api_key,
-      instance.instance_name,
-      webhookUrl
-    );
+    await prepareInstance(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name, webhookUrl);
   }
 
-  const result = await connectInstance(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name
-  );
-
+  const result = await connectInstance(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name);
   if (!result.ok) {
-    return NextResponse.json(
-      { status: "error", error: result.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ status: "error", error: result.message }, { status: 500 });
   }
 
-  // Update status
-  await supabase
-    .from("instances")
-    .update({ status: "qrcode" })
-    .eq("id", instance.id);
+  await query("UPDATE instances SET status = 'qrcode' WHERE id = ?", [instance.id]);
 
   let qrCode = result.data?.base64 || result.data?.b64 || null;
   if (qrCode && !qrCode.startsWith("data:")) {
     qrCode = `data:image/png;base64,${qrCode}`;
   }
-
   if (qrCode) {
-    qrCache.set(
-      cacheKey(instance.evolution_api_url, instance.instance_name),
-      { base64: qrCode, at: Date.now() }
-    );
+    qrCache.set(cacheKey(instance.evolution_api_url, instance.instance_name), { base64: qrCode, at: Date.now() });
   }
 
-  return NextResponse.json({
-    status: "success",
-    data: { qrCode },
-  });
+  return NextResponse.json({ status: "success", data: { qrCode } });
 }
 
 // DELETE: Logout instance
 export async function DELETE(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "whatsapp-logout", {
-    maxRequests: 20,
-    windowMs: 60_000,
-  });
+  const rateLimitErr = await rateLimitResponse(request, "whatsapp-logout", { maxRequests: 20, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getAuthUser();
-  if (!user) {
-    return NextResponse.json(
-      { status: "error", error: "Unauthorized" },
-      { status: 401 }
-    );
+  const userId = await getAuthUser();
+  if (!userId) {
+    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerClient();
-  const { searchParams } = new URL(request.url);
-  const selectedInstanceId = searchParams.get("instanceId");
-
-  const instance = await resolveInstance(supabase, user.id, selectedInstanceId);
-
+  // ownerOnly: desloguear deja sin WhatsApp a la persona. Antes un usuario
+  // merelyamente ASIGNADO podía desloguear la instancia del owner.
+  const selectedId = new URL(request.url).searchParams.get("instanceId");
+  const instance = await resolveInstance(userId, selectedId, true);
   if (!instance) {
-    return NextResponse.json(
-      { status: "error", error: "No tienes una instancia asignada" },
-      { status: 404 }
-    );
+    return NextResponse.json({ status: "error", error: "No tenés una instancia propia" }, { status: 404 });
   }
 
-  const result = await logoutInstance(
-    instance.evolution_api_url,
-    instance.evolution_api_key,
-    instance.instance_name
-  );
+  const result = await logoutInstance(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name);
+
+  // Always mark as disconnected locally
+  await query("UPDATE instances SET status = 'close' WHERE id = ?", [instance.id]);
+
+  const key = cacheKey(instance.evolution_api_url, instance.instance_name);
+  qrCache.delete(key);
+  recentLogout.set(key, Date.now());
 
   if (!result.ok) {
-    return NextResponse.json(
-      { status: "error", error: result.message },
-      { status: 500 }
-    );
+    console.warn("[whatsapp] logout Evolution falló pero se marcó close", { instance: instance.instance_name, status: result.status, message: result.message });
   }
-
-  // Update status
-  await supabase
-    .from("instances")
-    .update({ status: "close" })
-    .eq("id", instance.id);
-
-  qrCache.delete(cacheKey(instance.evolution_api_url, instance.instance_name));
 
   return NextResponse.json({ status: "success" });
 }

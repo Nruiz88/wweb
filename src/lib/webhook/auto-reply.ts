@@ -1,9 +1,10 @@
-import { sendTextMessage } from "@/lib/evolution-multi";
-import { isWithinSchedule, matchKeyword, matchRegex } from "@/lib/webhook-matching";
+import { query, generateId } from "../db";
+import { sendTextMessage } from "../evolution-multi";
+import { isWithinSchedule, matchKeyword, matchRegex } from "../webhook-matching";
+import { sendMenuResponse } from "./menus";
 import type { WebhookContext } from "./context";
 
-/**
- * Regular keyword/regex auto-reply matching.
+/** Regular keyword/regex auto-reply matching.
  * The core feature of the Starter plan.
  * Requires: Starter plan
  */
@@ -13,12 +14,11 @@ export async function handleAutoReply(ctx: WebhookContext) {
   const autoResponses = ctx.autoResponses;
   if (!autoResponses || autoResponses.length === 0) return { status: "no_match" as const };
 
-  let matched = null;
+  let matched: any = null;
   let matchedKeyword = "";
 
   for (const ar of autoResponses) {
     if (!isWithinSchedule(ar.schedule)) continue;
-    if (ar.response_type === "menu") continue; // menus respond to button taps, not text
 
     if (ar.keyword && matchKeyword(effectiveText, ar.keyword)) {
       matched = ar;
@@ -38,6 +38,26 @@ export async function handleAutoReply(ctx: WebhookContext) {
     return { status: "no_match" as const };
   }
 
+  // Un menú que matchea por keyword se DIBUJA. Antes había un
+  // `if (ar.response_type === "menu") continue` que hacía los menús
+  // inalcanzables: solo se entraba a un menu tocando un botón de otro menu,
+  // y como los botones tampoco llegan (viewOnce), los menus interactivos
+  // eran inalcanzables por completo.
+  if (matched.response_type === "menu" && matched.menu_config) {
+    const ok = await sendMenuResponse(
+      instance.evolution_api_url,
+      instance.evolution_api_key,
+      instance.instance_name,
+      phoneNumber,
+      matched.menu_config,
+    );
+    if (!ok) return { status: "error" as const, error: "No se pudo enviar el menú" };
+    try {
+      await logMatch(matched, instance.id, remoteJid, effectiveText, matchedKeyword);
+    } catch { /* non-critical */ }
+    return { status: "success" as const, matched: matchedKeyword, response: "[menú]" };
+  }
+
   const sendResult = await sendTextMessage(
     instance.evolution_api_url, instance.evolution_api_key,
     instance.instance_name, phoneNumber, matched.response_text, 1500,
@@ -51,14 +71,7 @@ export async function handleAutoReply(ctx: WebhookContext) {
   }
 
   try {
-    await supabase.from("response_logs").insert({
-      instance_id: instance.id,
-      auto_response_id: matched.id,
-      user_id: matched.user_id,
-      incoming_phone: remoteJid,
-      incoming_message: effectiveText,
-      matched_keyword: matchedKeyword,
-    });
+    await logMatch(matched, instance.id, remoteJid, effectiveText, matchedKeyword);
   } catch (logErr) {
     console.error("[webhook] error guardando log", { instance: instanceName, error: logErr });
   }
@@ -69,4 +82,19 @@ export async function handleAutoReply(ctx: WebhookContext) {
     matched: matchedKeyword,
     response: matched.response_type === "menu" ? "[menú]" : matched.response_text,
   };
+}
+
+/** Registra el match en response_logs. */
+async function logMatch(
+  ar: { id: string; user_id: string },
+  instanceId: string,
+  remoteJid: string,
+  incomingMessage: string,
+  keyword: string,
+) {
+  await query(
+    `INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, sent_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [generateId(), instanceId, ar.id, ar.user_id, remoteJid, incomingMessage, keyword]
+  );
 }

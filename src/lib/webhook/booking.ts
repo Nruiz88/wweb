@@ -1,16 +1,200 @@
-import { sendTextMessage, sendButtonMessage } from "@/lib/evolution-multi";
+import { sendTextMessage as sendTextMessageRaw, sendButtonMessage } from "@/lib/evolution-multi";
 import type { ButtonItem } from "@/lib/evolution-multi";
 import type { WebhookContext } from "./context";
 import { slugify } from "@/lib/slug";
+import { query } from "@/lib/db";
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
-// Business timezone. Vercel functions run in UTC, so "today"/"now" must be
-// computed in the business's local time or the "Libre hoy" filter will drop
-// valid afternoon slots (server is 3h ahead of Argentina). Configurable via
-// BUSINESS_TIMEZONE env; defaults to Buenos Aires.
-const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/Argentina/Buenos_Aires";
+/**
+ * Envía un texto y REGISTRA el fallo si Evolution no lo entrega.
+ * Antes se ignoraba el resultado: el webhook devolvía 200 "success" y el
+ * usuario no veía nada, sin ninguna señal en los logs (API key vencida, URL
+ * vieja, timeout de 40s, JID inválido...).
+ */
+async function sendTextMessage(
+  baseUrl: string,
+  apiKey: string,
+  instanceName: string,
+  number: string,
+  text: string,
+  delay?: number,
+) {
+  try {
+    const res = await sendTextMessageRaw(baseUrl, apiKey, instanceName, number, text, delay);
+    if (!res.ok) {
+      console.error("[booking] Evolution NO envío el mensaje", {
+        instance: instanceName,
+        to: number,
+        status: res.status,
+        error: res.message,
+      });
+    }
+    return res;
+  } catch (err) {
+    console.error("[booking] excepción enviando a Evolution", {
+      instance: instanceName,
+      to: number,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, status: 0, message: String(err) } as any;
+  }
+}
+
+// ─── UI de la agenda (menú y slots) ────────────────────────────────────────
+
+/** Horarios por página en el listado de texto. */
+const SLOTS_PER_PAGE = 8;
+
+/**
+ * Los botones interactivos de Evolution NO llegan al usuario en esta
+ * instancia, así que la agenda va con texto formateado.
+ *
+ * `sendButtons` responde 200 con un `interactiveMessage` envuelto en
+ * `viewOnceMessage` (verificado contra la API), o sea que Evolution lo acepta
+ * pero queda marcado "ver una vez" y no se renderiza. `sendList` directamente
+ * no devuelve nada.
+ *
+ * Con `AGENDA_USE_BUTTONS=1` se reactivan, por si el server de Evolution se
+ * actualiza. while Eso no pase, el texto es el camino fiable.
+ */
+const USE_BUTTONS = process.env.AGENDA_USE_BUTTONS === "1";
+
+/** Menú principal de la agenda. */
+async function sendAgendaMenuButtons(ctx: WebhookContext): Promise<boolean> {
+  if (!USE_BUTTONS) return false;
+  const { instance, phoneNumber } = ctx;
+  const business = await getBusinessName(instance.id, instance.instance_name);
+  const res = await sendButtonMessage(
+    instance.evolution_api_url,
+    instance.evolution_api_key,
+    instance.instance_name,
+    phoneNumber,
+    `🗓️  *Turnos — ${business}*`,
+    "¿Qué querés ver?",
+    [
+      { type: "reply", displayText: "🕐 Libre hoy", id: "agenda_hoy" },
+      { type: "reply", displayText: "⏭️ Más próximo", id: "agenda_proximo" },
+      { type: "reply", displayText: "📅 Agenda completa", id: "agenda_completa" },
+    ],
+    business,
+    800,
+  );
+  return res.ok;
+}
+
+/** Menú principal en texto (el camino que sí llega: los botones no). */
+async function sendAgendaMenuText(ctx: WebhookContext): Promise<void> {
+  const { instance, phoneNumber } = ctx;
+  const business = await getBusinessName(instance.id, instance.instance_name);
+  await sendTextMessage(
+    instance.evolution_api_url,
+    instance.evolution_api_key,
+    instance.instance_name,
+    phoneNumber,
+    "╭━━━━━━━━━━━━━━━━━━━━━╮\n" +
+      `  🗓️  *${business}*\n` +
+      "╰━━━━━━━━━━━━━━━━━━━━━╯\n\n" +
+      "  _Turnos — elegí una opción_ 👇\n\n" +
+      "  ┌─────────────────────┐\n" +
+      "  │ 1️⃣  🕐  *Libre hoy*\n" +
+      "  │ 2️⃣  ⏭️  *Más próximo*\n" +
+      "  │ 3️⃣  📅  *Agenda completa*\n" +
+      "  └─────────────────────┘",
+    1200,
+  );
+}
+
+/** Listado de horarios en texto, paginado. El usuario responde con el número. */
+async function sendSlotsAsText(
+  ctx: WebhookContext,
+  title: string,
+  slots: string[],
+  page: number,
+  totalPages: number,
+): Promise<void> {
+  const { instance, phoneNumber } = ctx;
+  const start = page * SLOTS_PER_PAGE;
+  const pageSlots = slots.slice(start, start + SLOTS_PER_PAGE);
+  const list = pageSlots.map((t, i) => `  ┣ ${String(start + i + 1).padStart(2)}. 🕐  *${t}* hs`).join("\n");
+
+  const more =
+    page < totalPages - 1
+      ? `\n\n  ➡️ Respondé *${start + pageSlots.length + 1}* para ver más horarios`
+      : "";
+
+  const pageLabel = totalPages > 1 ? `   _pág. ${page + 1}/${totalPages}_` : "";
+  const business = await getBusinessName(instance.id, instance.instance_name);
+
+  await sendTextMessage(
+    instance.evolution_api_url,
+    instance.evolution_api_key,
+    instance.instance_name,
+    phoneNumber,
+    `${title}${pageLabel}\n` +
+      "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+      "  _Respondé con el número:_\n\n" +
+      `${list}${more}\n\n` +
+      `  0️⃣  🔙 Volver · ${business}`,
+    1200,
+  );
+}
+
+/** Lista los horarios. Botones si están habilitados, texto si no. */
+async function sendSlotMenu(
+  ctx: WebhookContext,
+  title: string,
+  dateIso: string,
+  slots: string[],
+  page = 0,
+): Promise<void> {
+  if (USE_BUTTONS) {
+    const { instance, phoneNumber } = ctx;
+    const totalPages = Math.max(1, Math.ceil(slots.length / 3));
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const start = safePage * 3;
+    const pageSlots = slots.slice(start, start + 3);
+    const res = await sendButtonMessage(
+      instance.evolution_api_url,
+      instance.evolution_api_key,
+      instance.instance_name,
+      phoneNumber,
+      title,
+      "Tocá tu horario 👇",
+      pageSlots.map((t) => ({
+        type: "reply" as const,
+        displayText: `🕐 ${t}`,
+        id: `slot_${dateIso}_${t}`,
+      })),
+      "Turnos",
+      800,
+    );
+    if (res.ok) return;
+  }
+  await sendSlotsAsText(ctx, title, slots, page, Math.max(1, Math.ceil(slots.length / SLOTS_PER_PAGE)));
+}
+
+/** Handler del botón "Ver más" (solo si hay botones habilitados). */
+export async function handleSlotsMore(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
+  const { effectiveText } = ctx;
+  if (!effectiveText.startsWith("slots_more_")) return null;
+
+  const m = /^slots_more_(\d{4}-\d{2}-\d{2})_(\d{1,3})$/.exec(effectiveText);
+  if (!m) return null;
+  const dateIso = m[1];
+
+  const { slots, hours } = await getAvailableSlots(ctx, dateIso);
+  if (!hours) return null;
+
+  await sendSlotMenu(ctx, `🕐 *Horarios* — ${formatDateStr(dateIso)}`, dateIso, slots, 0);
+  return { status: "success", matched: "[turno ver más horarios]" };
+}
+
+
+import { BUSINESS_TIMEZONE } from "@/lib/timezone";
+import { getBusinessName } from "@/lib/business-name";
+import { Redis } from "@upstash/redis";
 
 function localDateStr(now: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -33,24 +217,68 @@ function localTimeMinutes(now: Date): number {
   return h * 60 + m;
 }
 
-// In-memory state: remember the date shown to a user so that when they reply
-// with a slot number ("1", "2"...) we know which date to book. Keyed by
-// instance:phone. Note: ephemeral across serverless restarts; used only to
-// bridge the immediate follow-up message.
-const pendingDate = new Map<string, string>();
-const PENDING_TTL_MS = 10 * 60 * 1000;
+// Redis distribuido para agenda/pending (serverless-safe) con fallback en memoria
+const redis =
+  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+    ? new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN })
+    : null;
 
-function rememberDate(ctx: WebhookContext, date: string): void {
-  const key = `${ctx.instance.id}:${ctx.remoteJid}`;
-  pendingDate.set(key, date);
-  setTimeout(() => pendingDate.delete(key), PENDING_TTL_MS);
+const pendingDateFallback = new Map<string, string>();
+const agendaActiveFallback = new Map<string, boolean>();
+const PENDING_TTL_MS = 10 * 60 * 1000;
+const AGENDA_TTL_MS = 15 * 60 * 1000;
+
+function agendaKey(ctx: WebhookContext): string {
+  return `${ctx.instance.id}:${ctx.remoteJid}`;
 }
 
-function getPendingDate(ctx: WebhookContext): string | null {
-  const key = `${ctx.instance.id}:${ctx.remoteJid}`;
-  const date = pendingDate.get(key) ?? null;
-  if (date) pendingDate.delete(key);
-  return date;
+async function markAgendaActive(ctx: WebhookContext): Promise<void> {
+  const key = `agenda:${agendaKey(ctx)}`;
+  if (redis) await redis.set(key, "1", { ex: Math.ceil(AGENDA_TTL_MS / 1000) });
+  else {
+    agendaActiveFallback.set(key, true);
+    setTimeout(() => agendaActiveFallback.delete(key), AGENDA_TTL_MS);
+  }
+}
+
+async function clearAgendaActive(ctx: WebhookContext): Promise<void> {
+  const key = `agenda:${agendaKey(ctx)}`;
+  if (redis) await redis.del(key);
+  else agendaActiveFallback.delete(key);
+}
+
+/** True si el usuario está dentro del flujo de agenda (menú visible). */
+export async function isAgendaActive(ctx: WebhookContext): Promise<boolean> {
+  const key = `agenda:${agendaKey(ctx)}`;
+  if (redis) return (await redis.get(key)) === "1";
+  return agendaActiveFallback.get(key) === true;
+}
+
+async function rememberDate(ctx: WebhookContext, date: string): Promise<void> {
+  const key = `pending:${agendaKey(ctx)}`;
+  if (redis) await redis.set(key, date, { ex: Math.ceil(PENDING_TTL_MS / 1000) });
+  else {
+    pendingDateFallback.set(key, date);
+    setTimeout(() => pendingDateFallback.delete(key), PENDING_TTL_MS);
+  }
+}
+
+async function peekPendingDate(ctx: WebhookContext): Promise<string | null> {
+  const key = `pending:${agendaKey(ctx)}`;
+  if (redis) return (await redis.get(key)) as string | null;
+  return pendingDateFallback.get(key) ?? null;
+}
+
+async function getPendingDate(ctx: WebhookContext): Promise<string | null> {
+  const key = `pending:${agendaKey(ctx)}`;
+  if (redis) {
+    const v = (await redis.get(key)) as string | null;
+    if (v) await redis.del(key);
+    return v;
+  }
+  const v = pendingDateFallback.get(key) ?? null;
+  if (v) pendingDateFallback.delete(key);
+  return v;
 }
 
 function formatDateStr(dateStr: string): string {
@@ -101,7 +329,7 @@ async function getAvailableSlots(
     .eq("appointment_date", date)
     .in("status", ["pending", "confirmed"]);
 
-  const bookedSet = new Set((booked || []).map((b) => b.appointment_time));
+  const bookedSet = new Set((booked || []).map((b: { appointment_time: string }) => b.appointment_time));
 
   const now = new Date();
   const todayStr = localDateStr(now);
@@ -131,6 +359,10 @@ async function getAvailableSlots(
 export async function handleAgendaMenu(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
   const { effectiveText } = ctx;
 
+  // Mientras se muestra cualquier opción del menú de agenda, la sesión está
+  // activa (permite responder con 1/2/3 o con un número de horario).
+  await markAgendaActive(ctx);
+
   if (effectiveText === "agenda_hoy") {
     return handleAgendaHoy(ctx);
   }
@@ -142,16 +374,12 @@ export async function handleAgendaMenu(ctx: WebhookContext): Promise<{ status: s
   }
 
   const { instance, phoneNumber } = ctx;
-  await sendTextMessage(
-    instance.evolution_api_url, instance.evolution_api_key,
-    instance.instance_name, phoneNumber,
-    "🗓️ *¿Qué querés ver?*\n\n" +
-      "1️⃣ 🕐 *Libre hoy*\n" +
-      "2️⃣ ⏭️ *Libre más próximo*\n" +
-      "3️⃣ 📅 *Agenda completa*\n\n" +
-      "Respondé con el número o la opción 👇",
-    1500,
-  );
+  // Botones si el server los soporta; texto numerado si no.
+  if (await sendAgendaMenuButtons(ctx)) {
+    return { status: "success", matched: "[turno menú agenda]" };
+  }
+  console.warn("[booking] botones de menú no salieron, fallback a texto", { instance: instance.instance_name });
+  await sendAgendaMenuText(ctx);
   return { status: "success", matched: "[turno menú agenda]" };
 }
 
@@ -165,9 +393,11 @@ async function handleAgendaHoy(ctx: WebhookContext): Promise<{ status: string; m
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
-      "❌ Hoy no hay horarios configurados. Respondé 2 para ver el próximo día o 3 para la agenda completa.",
-      1500,
+      "😴 *Hoy no atendemos.*\n\n" +
+        "Probá el *más próximo* 👇",
+      1200,
     );
+    await sendAgendaMenuButtons(ctx).catch(() => sendAgendaMenuText(ctx));
     return { status: "success", matched: "[turno hoy sin agenda]" };
   }
 
@@ -175,21 +405,16 @@ async function handleAgendaHoy(ctx: WebhookContext): Promise<{ status: string; m
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
-      "❌ Hoy no quedan horarios libres. Respondé 2 para ver el próximo día o 3 para la agenda completa.",
-      1500,
+      "🈵 *Hoy no quedan horarios libres.*\n\n" +
+        "Mirá el *más próximo* 👇",
+      1200,
     );
+    await sendAgendaMenuButtons(ctx).catch(() => sendAgendaMenuText(ctx));
     return { status: "success", matched: "[turno hoy sin slots]" };
   }
 
-  const dateStr = formatDateStr(today);
-  const list = slots.map((t, i) => `${i + 1}. ${t}`).join("\n");
-  await sendTextMessage(
-    instance.evolution_api_url, instance.evolution_api_key,
-    instance.instance_name, phoneNumber,
-    `🕐 Horarios libres HOY (${dateStr}):\n\n${list}\n\nRespondé con el número del horario que querés.`,
-    1500,
-  );
-  rememberDate(ctx, today);
+  await sendSlotMenu(ctx, `🕐 *Libre HOY* — ${formatDateStr(today)}`, today, slots);
+  await rememberDate(ctx, today);
   return { status: "success", matched: "[turno hoy]" };
 }
 
@@ -204,15 +429,8 @@ async function handleAgendaProximo(ctx: WebhookContext): Promise<{ status: strin
     const dateStr = localDateStr(d);
     const { slots } = await getAvailableSlots(ctx, dateStr);
     if (slots.length > 0) {
-      const dateStr2 = formatDateStr(dateStr);
-      const list = slots.map((t, idx) => `${idx + 1}. ${t}`).join("\n");
-      await sendTextMessage(
-        instance.evolution_api_url, instance.evolution_api_key,
-        instance.instance_name, phoneNumber,
-        `⏭️ Próximo día con horarios libres: ${dateStr2}\n\n${list}\n\nRespondé con el número del horario que querés.`,
-        1500,
-      );
-      rememberDate(ctx, dateStr);
+      await sendSlotMenu(ctx, `⏭️ *Libre* — ${formatDateStr(dateStr)}`, dateStr, slots);
+      await rememberDate(ctx, dateStr);
       return { status: "success", matched: "[turno próximo]" };
     }
   }
@@ -220,8 +438,9 @@ async function handleAgendaProximo(ctx: WebhookContext): Promise<{ status: strin
   await sendTextMessage(
     instance.evolution_api_url, instance.evolution_api_key,
     instance.instance_name, phoneNumber,
-    "No encontré disponibilidad en los próximos 14 días. Escribí más tarde.",
-    1500,
+    "🗓️ *No encontré disponibilidad* en los próximos 14 días.\n\n" +
+      "Escreibinos y te buscamos un lugar 🙂",
+    1200,
   );
   return { status: "success", matched: "[turno sin disponibilidad]" };
 }
@@ -317,7 +536,10 @@ export async function handleAppointmentConfirm(ctx: WebhookContext): Promise<{ s
   // Authorization: only confirm/cancel appointments belonging to this instance
   if (appt.instance_id !== instance.id) return null;
 
-  await supabase.from("appointments").update({ status: newStatus }).eq("id", apptId).eq("instance_id", instance.id);
+  await query(
+    "UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ? AND instance_id = ?",
+    [newStatus, apptId, instance.id]
+  );
 
   const dateStr = formatDateStr(appt.appointment_date);
   const [h, m] = appt.appointment_time.split(":");
@@ -390,11 +612,19 @@ export async function handleSlotSelect(ctx: WebhookContext): Promise<{ status: s
   if (newAppt) {
     const dateStr = formatDateStr(slotDate);
     const [h, m] = slotTime.split(":");
+    // Cabecera de "ticket" para que el turno se vea reservado de una.
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
-      `✅ ¡Turno agendado!\n\n📅 ${dateStr} a las ${h}:${m}\n\nTe enviaremos un recordatorio 24 horas antes. ¡Nos vemos!`,
-      1500,
+      "╭───────────────────╮\n" +
+        "   ✅  *¡TURNO AGENDADO!*\n" +
+        "╰───────────────────╯\n\n" +
+        `📅  *${dateStr}*\n` +
+        `🕐  *${h}:${m} hs*\n` +
+        `📍  ${pushName || "Tu nombre"}\n` +
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n" +
+        "Te recordamos 24 h antes. ¡Nos vemos! 🎉",
+      1200,
     );
     return { status: "success", matched: "[turno agendado]" };
   }
@@ -413,12 +643,52 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
   const clean = effectiveText.trim();
   if (!/^\d{1,2}$/.test(clean)) return null;
   const index = parseInt(clean, 10);
-  if (index < 1 || index > 30) return null;
 
-  const date = getPendingDate(ctx);
+  // "0" → volver al menú de agenda (consume el estado de la fecha)
+  if (index === 0) {
+    const date = await getPendingDate(ctx);
+    if (date) {
+      if (!(await sendAgendaMenuButtons(ctx))) {
+        await sendAgendaMenuText(ctx);
+      }
+      return { status: "success", matched: "[turno volver]" };
+    }
+    return null;
+  }
+
+  if (index < 1 || index > 200) return null;
+
+  // Peek (no consume): un intento inválido no rompe el flujo del usuario.
+  const date = await peekPendingDate(ctx);
   if (!date) return null;
 
   const { slots } = await getAvailableSlots(ctx, date);
+
+  // El número es más allá de la página actual → mostrar la siguiente en vez de
+  //	error. El listado avisa "respondé N para ver más".
+  const totalPages = Math.max(1, Math.ceil(slots.length / SLOTS_PER_PAGE));
+  const page = Math.floor((index - 1) / SLOTS_PER_PAGE);
+  if (page >= totalPages) {
+    await sendTextMessage(
+      instance.evolution_api_url, instance.evolution_api_key,
+      instance.instance_name, phoneNumber,
+      `❌ Ese número no corresponde a un horario.\n\n` +
+        `Hay *${slots.length}* horarios libres ese día. Escribí *turno* para empezar de nuevo.`,
+      1200,
+    );
+    return { status: "success", matched: "[turno num inválido]" };
+  }
+  if ((index - 1) % SLOTS_PER_PAGE === 0 && index > 1) {
+    await sendSlotMenu(
+      ctx,
+      `🕐 *Horarios* — ${formatDateStr(date)}`,
+      date,
+      slots,
+      page,
+    );
+    return { status: "success", matched: "[turno paginación]" };
+  }
+
   const chosen = slots[index - 1];
   if (!chosen) {
     await sendTextMessage(
@@ -464,13 +734,25 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
     .single();
 
   if (newAppt) {
+    // Turno agendado → el flujo de agenda TERMINA. Los números posteriores
+    // ya no deben re-disparar el menú; se vuelve a empezar con la palabra clave.
+    await getPendingDate(ctx);
+    await clearAgendaActive(ctx);
     const dateStr = formatDateStr(date);
     const [h, m] = chosen.split(":");
+    const business = await getBusinessName(instance.id, instance.instance_name);
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
-      `✅ ¡Turno agendado!\n\n📅 ${dateStr} a las ${h}:${m}\n\nTe enviaremos un recordatorio 24 horas antes. ¡Nos vemos!`,
-      1500,
+      "╭━━━━━━━━━━━━━━━━━━━━━╮\n" +
+        "   ✅  *¡TURNO AGENDADO!*\n" +
+        "╰━━━━━━━━━━━━━━━━━━━━━╯\n\n" +
+        `📅  *${dateStr}*\n` +
+        `🕐  *${h}:${m} hs*\n` +
+        `📍  ${business}\n` +
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n" +
+        `Te recordamos desde ${business} 24 h antes. ¡Nos vemos! 🎉`,
+      1200,
     );
     return { status: "success", matched: "[turno agendado]" };
   }
@@ -526,11 +808,11 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
     .eq("appointment_date", slotDate)
     .in("status", ["pending", "confirmed"]);
 
-  const bookedSet = new Set((booked || []).map((b) => b.appointment_time));
+  const bookedSet = new Set((booked || []).map((b: { appointment_time: string }) => b.appointment_time));
 
   const now = new Date();
-  const isToday = slotDate === now.toISOString().slice(0, 10);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const isToday = slotDate === localDateStr(now);
+  const nowMinutes = localTimeMinutes(now);
 
   const availableSlots: string[] = [];
   for (let m = startMin; m + dur <= endMin; m += dur) {
@@ -553,21 +835,8 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
   }
 
   const dateStr = formatDateStr(slotDate);
-  const timeButtons: ButtonItem[] = availableSlots.slice(0, 3).map((t) => ({
-    type: "reply",
-    displayText: t,
-    id: `slot_${slotDate}_${t}`,
-  }));
-
-  await sendButtonMessage(
-    instance.evolution_api_url, instance.evolution_api_key,
-    instance.instance_name, phoneNumber,
-    `Horarios disponibles - ${dateStr}`,
-    "Elegí un horario:",
-    timeButtons,
-    undefined,
-    1500,
-  );
+  await sendSlotMenu(ctx, `🕐 *Horarios* — ${dateStr}`, slotDate, availableSlots);
+  await rememberDate(ctx, slotDate);
   return { status: "success", matched: "[turno selección hora]" };
 }
 
@@ -593,10 +862,15 @@ export async function handleBookingIntent(ctx: WebhookContext): Promise<{ status
     .limit(1);
 
   if (!bizHours || bizHours.length === 0) {
+    console.warn("[booking] agenda pedida pero sin business_hours", {
+      instance: instance.instance_name,
+      instanceId: instance.id,
+    });
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, ctx.phoneNumber,
-      "Lo siento, la agenda no está configurada todavía. Escribí más tarde.",
+      "Todavía no hay horarios de atención cargados. ⏰\n\n" +
+      "En cuanto los configuremos vas a poder sacar tu turno por acá.",
       1500,
     );
     return { status: "success", matched: "[turno sin agenda]" };
