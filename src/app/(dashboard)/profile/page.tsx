@@ -5,7 +5,6 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Profile } from "@/lib/db/types";
-import { slugify } from "@/lib/slug";
 import { Card, CardHeader, CardContent, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,10 +74,16 @@ function InfoCard({ icon, label, value }: { icon: React.ReactNode; label: string
 }
 
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<Profile & { subscription?: { plan_type: string; status: string; max_instances: number; used_instances: number; addons: number; updated_at: string | null } } | null>(null);
+  /* El tipo ya no lleva `subscription`: la API no lo manda. Antes sí, y
+     por eso la página tenía una tarjeta "Mi Plan" que murió con los
+     planes de Nexo Studio. */
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [email, setEmail] = useState("");
+  /* El slug del bot, para el enlace público. Viene de la API: aquí no se
+     calcula nada, porque cualquier slug inventado da un enlace roto. */
+  const [slug, setSlug] = useState("");
   const [copied, setCopied] = useState(false);
   const [upcoming, setUpcoming] = useState<{ date: string; time: string; name: string | null }[] | null>(null);
 
@@ -104,10 +109,22 @@ export default function ProfilePage() {
     return () => clearTimeout(t);
   }, []);
 
+  /* El enlace público de la agenda.
+
+     ANTES se armaba aquí con `slugify(nombre del negocio) || slugify(email)`
+     y la forma `/agendar?business=<eso>`. Las dos cosas estaban mal: la
+     ruta correcta es `/agendar/<slug>` sin query, y ese slug no era el del
+     bot, sino uno improvisado aquí. Que coincidieran era casualidad, y si
+     no coincidían el cliente copiaba un enlace que devolvía 404 a sus
+     clientes. No había forma de que se notara hasta que alguien lo abría.
+
+     Ahora el slug viene de `/api/profile`, que lo saca de la fila del bot
+     con RLS. Si no hay bot, no hay enlace: es mejor no mostrar uno que
+     mostrar uno roto. */
   const publicAgendaLink = useMemo(() => {
-    const identifier = watchedBusinessName.trim() ? slugify(watchedBusinessName) : slugify(email);
-    return origin && identifier ? `${origin}/agendar?business=${encodeURIComponent(identifier)}` : null;
-  }, [origin, watchedBusinessName, email]);
+    if (!origin || !slug) return null;
+    return `${origin}/agendar/${encodeURIComponent(slug)}`;
+  }, [origin, slug]);
 
   async function copyLink() {
     if (!publicAgendaLink) return;
@@ -133,6 +150,7 @@ export default function ProfilePage() {
         setProfile(p);
         reset({ full_name: p.full_name || "", business_name: p.business_name || "", phone: p.phone || "", address: p.address || "" });
         setEmail(p.email || "");
+        setSlug(p.slug || "");
         setUpcoming(Array.isArray(p.upcoming) ? p.upcoming : []);
       }
     } catch {
@@ -239,49 +257,18 @@ export default function ProfilePage() {
               <InfoCard icon={<Phone className="h-4 w-4" />} label="Teléfono" value={watchedPhone} />
             </motion.div>
 
-            {/* Plan card */}
-            {profile?.subscription && (
-              <motion.div variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }}>
-                <Card className="rounded-2xl">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="flex items-center gap-2 text-sm">
-                      <Sparkles className="h-4 w-4 text-primary" />
-                      Mi Plan
-                    </CardTitle>
-                    <Badge
-                      variant={profile.subscription.plan_type === "pro" ? "default" : "secondary"}
-                      className="rounded-full text-[10px] font-bold uppercase tracking-wide"
-                    >
-                      {profile.subscription.plan_type === "starter" ? "Starter" : "Pro"}
-                    </Badge>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                      <div className="rounded-xl bg-muted/50 p-3 text-center">
-                        <p className="text-lg font-bold">
-                          {profile.subscription.used_instances}/{profile.subscription.max_instances}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">Bots</p>
-                      </div>
-                      <div className="rounded-xl bg-muted/50 p-3 text-center">
-                        <p className="text-lg font-bold">{profile.subscription.addons}</p>
-                        <p className="text-[10px] text-muted-foreground">Add-ons</p>
-                      </div>
-                      <div className="rounded-xl bg-muted/50 p-3 text-center">
-                        <p className={cn("text-lg font-bold", profile.subscription.status === "active" ? "text-emerald-600" : "text-red-500")}>
-                          {profile.subscription.status === "active" ? "Activo" : "Inactivo"}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">Estado</p>
-                      </div>
-                    </div>
-                    <p className="mt-3 text-[11px] text-muted-foreground/60">
-                      {profile.subscription.plan_type === "starter" && "Auto-respuestas por keywords y menú de botones"}
-                      {profile.subscription.plan_type === "pro" && "Calendario, agenda de turnos y recordatorios"}
-                    </p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            )}
+            {/* La tarjeta de "Mi Plan" se eliminó entera.
+
+               Estaba metida en un `profile?.subscription && ...` y
+               /api/profile dejó de devolver `subscription` cuando los
+               planes pasaron a Nexo Studio. Eso la dejaba en código
+               muerto: nunca se veía, pero seguía ahí con sus referencias
+               a `plan_type`, `addons` y `max_instances`, listas para
+               volver a aparecer si alguien tocaba la API.
+
+               Si algún día hay que mostrar el plan, sale de
+               `suscripciones` y se lee aquí: no de un campo que el bot
+               ya no tiene. */}
 
             {/* Public agenda card */}
             <motion.div variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0 } }}>
@@ -309,7 +296,16 @@ export default function ProfilePage() {
                       </div>
                     </>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Cargá el nombre de tu negocio arriba para generar el link de agenda.</p>
+                    <>
+                      {/* Antes decía "cargá el nombre de tu negocio", que era lo que pasaba
+                          cuando el slug se armaba aquí. Ahora el enlace depende del bot: si no
+                          hay bot, no hay agenda pública que enlazar, y el nombre del negocio
+                          no cambia nada. */}
+                      <p className="text-xs text-muted-foreground">
+                        Tu enlace aparece cuando tu bot esté creado. Nexo Studio lo prepara al
+                        activar la suscripción.
+                      </p>
+                    </>
                   )}
                 </CardContent>
               </Card>

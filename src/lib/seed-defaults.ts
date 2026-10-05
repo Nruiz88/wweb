@@ -1,4 +1,4 @@
-import { query, generateId } from "@/lib/db";
+import { query, generateId, getAdmin } from "@/lib/db";
 
 /**
  * Respuestas automáticas y menú base que se crean cuando se crea una
@@ -79,7 +79,7 @@ export async function seedDefaults(
   // Idempotencia: si ya hay algo cargado para esta instancia, no se toca.
   // Nadie quiere que un redeploy pise el trabajo del merchant.
   const existing = await query<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM auto_responses WHERE instance_id = ?",
+    "SELECT COUNT(*) AS n FROM bots_responses WHERE bot_id = ?",
     [instanceId]
   );
   if (Number(existing?.[0]?.n ?? 0) > 0) {
@@ -125,27 +125,35 @@ export async function seedDefaults(
 
   const inserted: string[] = [];
 
-  // Todos los valores van como placeholder (nada de literales inline en el
-  // VALUES): mantiene el mapeo columna→parámetro verificable y evita que un
-  // cambio de columnas desalinee los datos en silencio.
+  /* El id se genera AQUÍ, no en la base, y es a propósito.
+
+     El menú de abajo referencia estas respuestas por `target_id`
+     (ids.turno, ids.productos, ids.humano). Si la base generase los
+     ids, esos punteros apuntarían a filas que no existen: el menú se
+     crearía roto y sin ningún error que lo delatara. */
   for (const t of texts) {
-    await query(
-      `INSERT INTO auto_responses
-         (id, instance_id, user_id, keyword, response_text, response_type, is_active, priority, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [t.id, instanceId, ownerUserId, t.keyword, t.text, "text", true, t.priority]
-    );
+    await getAdmin().from("bots_responses").insert({
+      id: t.id,
+      bot_id: instanceId,
+      keyword: t.keyword,
+      response_text: t.text,
+      response_type: "text",
+      is_active: true,
+      priority: t.priority,
+    });
     inserted.push(t.keyword);
   }
 
   for (const d of drafts(business)) {
-    const id = generateId();
-    await query(
-      `INSERT INTO auto_responses
-         (id, instance_id, user_id, keyword, response_text, response_type, is_active, priority, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [id, instanceId, ownerUserId, d.keyword, d.text, "text", true, d.priority]
-    );
+    await getAdmin().from("bots_responses").insert({
+      id: generateId(),
+      bot_id: instanceId,
+      keyword: d.keyword,
+      response_text: d.text,
+      response_type: "text",
+      is_active: true,
+      priority: d.priority,
+    });
     inserted.push(d.keyword);
   }
 
@@ -161,12 +169,17 @@ export async function seedDefaults(
     ],
   };
 
-  await query(
-    `INSERT INTO auto_responses
-       (id, instance_id, user_id, keyword, response_text, response_type, menu_config, is_active, priority, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-    [ids.menu, instanceId, ownerUserId, "menu", "[menú base]", "menu", JSON.stringify(menuConfig), true, 15]
-  );
+  await getAdmin().from("bots_responses").insert({
+    id: ids.menu,
+    bot_id: instanceId,
+    keyword: "menu",
+    response_text: "[menú base]",
+    response_type: "menu",
+    // jsonb: se pasa el objeto, no un JSON.stringify.
+    menu_config: menuConfig,
+    is_active: true,
+    priority: 15,
+  });
   inserted.push("menu");
 
   return { created: inserted.length, skipped: false, responses: inserted };

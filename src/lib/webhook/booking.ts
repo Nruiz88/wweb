@@ -311,9 +311,9 @@ async function getAvailableSlots(
   const dayOfWeek = dateObj.getDay();
 
   const { data: hours } = await supabase
-    .from("business_hours")
+    .from("bots_business_hours")
     .select("start_time, end_time, slot_duration_min")
-    .eq("instance_id", instance.id)
+    .eq("bot_id", instance.id)
     .eq("day_of_week", dayOfWeek)
     .eq("is_active", true)
     .single();
@@ -323,9 +323,9 @@ async function getAvailableSlots(
   const all = generateSlots(hours.start_time, hours.end_time, hours.slot_duration_min);
 
   const { data: booked } = await supabase
-    .from("appointments")
+    .from("bots_appointments")
     .select("appointment_time")
-    .eq("instance_id", instance.id)
+    .eq("bot_id", instance.id)
     .eq("appointment_date", date)
     .in("status", ["pending", "confirmed"]);
 
@@ -459,14 +459,26 @@ async function handleAgendaCompleta(ctx: WebhookContext): Promise<{ status: stri
     return { status: "success", matched: "[turno sin link]" };
   }
 
-  // Resolve the owner user (the business) so the link references their agenda.
-  const { data: inst } = await supabase
-    .from("instances")
-    .select("admin_id")
-    .eq("id", instance.id)
-    .single();
+  // El nombre del negocio y el enlace público de su agenda.
+  //
+  // Antes eran dos consultas más un slug derivado del dueño del bot y
+  // de su nombre, y una URL con ?business=. Todo eso desapareció: el
+  // dueño de un bot es ahora un cliente de Nexo Studio y su nombre está
+  // en `clients.nombre`.
+  //
+  // La URL pasa a `/agendar/<slug del bot>` porque el bot ya tiene un slug
+  // único en su fila. Con la anterior había que derivarlo del nombre del
+  // negocio, y como el nombre puede cambiar, un enlace ya enviado se
+  // quedaba roto.
+  const { data: cliente } = await supabase
+    .from("clients")
+    .select("nombre")
+    .eq("id", instance.client_id)
+    .maybeSingle();
 
-  if (!inst?.admin_id) {
+  const businessName = (cliente?.nombre ?? "").trim();
+
+  if (!businessName) {
     await sendTextMessage(
       instance.evolution_api_url, instance.evolution_api_key,
       instance.instance_name, phoneNumber,
@@ -476,28 +488,8 @@ async function handleAgendaCompleta(ctx: WebhookContext): Promise<{ status: stri
     return { status: "success", matched: "[turno sin link]" };
   }
 
-  const { data: owner } = await supabase
-    .from("profiles")
-    .select("business_name, email")
-    .eq("id", inst.admin_id)
-    .single();
-
-  const businessName = owner?.business_name?.trim() || "";
-  if (!owner || (!businessName && !owner.email)) {
-    await sendTextMessage(
-      instance.evolution_api_url, instance.evolution_api_key,
-      instance.instance_name, phoneNumber,
-      "Lo siento, no pudimos generar el link de agenda. Escribí 'turno' para ver horarios.",
-      1500,
-    );
-    return { status: "success", matched: "[turno sin link]" };
-  }
-
-  // Public link uses the business name (slug) so it's friendly and stable;
-  // fall back to the email slug if no business name is set.
-  const identifier = businessName ? slugify(businessName) : slugify(owner.email!);
-  const link = `${baseUrl}/agendar?business=${encodeURIComponent(identifier)}`;
-  console.log("[agenda] link generado", { link, appUrl: baseUrl, identifier });
+  const identifier = instance.slug;
+  const link = `${baseUrl}/agendar/${identifier}`;
   await sendTextMessage(
     instance.evolution_api_url, instance.evolution_api_key,
     instance.instance_name, phoneNumber,
@@ -510,7 +502,7 @@ async function handleAgendaCompleta(ctx: WebhookContext): Promise<{ status: stri
 /**
  * Handle confirm/cancel button taps from appointment reminders.
  * Button IDs: confirm_<apptId> or cancel_<apptId>
- * Requires: Pro plan
+ * (ya no hay gating por plan: lo decide `tiene_modulo()` en Nexo Studio)
  */
 export async function handleAppointmentConfirm(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
   const { supabase, instance, phoneNumber, effectiveText } = ctx;
@@ -526,20 +518,27 @@ export async function handleAppointmentConfirm(ctx: WebhookContext): Promise<{ s
   }
 
   const { data: appt } = await supabase
-    .from("appointments")
-    .select("id, instance_id, customer_name, appointment_date, appointment_time")
+    .from("bots_appointments")
+    .select("id, bot_id, customer_name, appointment_date, appointment_time")
     .eq("id", apptId)
     .single();
 
   if (!appt) return null;
 
   // Authorization: only confirm/cancel appointments belonging to this instance
-  if (appt.instance_id !== instance.id) return null;
+  if (appt.bot_id !== instance.id) return null;
 
-  await query(
-    "UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ? AND instance_id = ?",
-    [newStatus, apptId, instance.id]
-  );
+  /* Con el cliente, no con `query()`.
+
+     `query()` va a `ejecutar_sql`, que es de SOLO LECTURA (ver
+     012_ejecutar_sql.sql en el panel): un UPDATE por ahí ya no se
+     ejecutaría. Además `updated_at` no hace falta ponerlo: lo pone el
+     trigger `bot_touch_updated_at`. */
+  await supabase
+    .from("bots_appointments")
+    .update({ status: newStatus })
+    .eq("id", apptId)
+    .eq("bot_id", instance.id);
 
   const dateStr = formatDateStr(appt.appointment_date);
   const [h, m] = appt.appointment_time.split(":");
@@ -558,7 +557,7 @@ export async function handleAppointmentConfirm(ctx: WebhookContext): Promise<{ s
 /**
  * Handle time slot selection from appointment booking.
  * Button ID: slot_<YYYY-MM-DD>_<HH:MM>
- * Requires: Pro plan
+ * (ya no hay gating por plan: lo decide `tiene_modulo()` en Nexo Studio)
  */
 export async function handleSlotSelect(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
   const { supabase, instance, phoneNumber, remoteJid, effectiveText, pushName } = ctx;
@@ -577,9 +576,9 @@ export async function handleSlotSelect(ctx: WebhookContext): Promise<{ status: s
 
   // Check conflict
   const { data: conflict } = await supabase
-    .from("appointments")
+    .from("bots_appointments")
     .select("id")
-    .eq("instance_id", instance.id)
+    .eq("bot_id", instance.id)
     .eq("appointment_date", slotDate)
     .eq("appointment_time", slotTime)
     .in("status", ["pending", "confirmed"])
@@ -597,9 +596,9 @@ export async function handleSlotSelect(ctx: WebhookContext): Promise<{ status: s
 
   // Create appointment
   const { data: newAppt } = await supabase
-    .from("appointments")
+    .from("bots_appointments")
     .insert({
-      instance_id: instance.id,
+      bot_id: instance.id,
       customer_phone: remoteJid,
       customer_name: pushName || null,
       appointment_date: slotDate,
@@ -702,9 +701,9 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
 
   // Check conflict
   const { data: conflict } = await supabase
-    .from("appointments")
+    .from("bots_appointments")
     .select("id")
-    .eq("instance_id", instance.id)
+    .eq("bot_id", instance.id)
     .eq("appointment_date", date)
     .eq("appointment_time", chosen)
     .in("status", ["pending", "confirmed"])
@@ -721,9 +720,9 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
   }
 
   const { data: newAppt } = await supabase
-    .from("appointments")
+    .from("bots_appointments")
     .insert({
-      instance_id: instance.id,
+      bot_id: instance.id,
       customer_phone: remoteJid,
       customer_name: pushName || null,
       appointment_date: date,
@@ -763,7 +762,7 @@ export async function handleNumericSlotSelect(ctx: WebhookContext): Promise<{ st
 /**
  * Handle date selection from appointment booking.
  * Button ID: date_<YYYY-MM-DD>
- * Requires: Pro plan
+ * (ya no hay gating por plan: lo decide `tiene_modulo()` en Nexo Studio)
  */
 export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
   const { supabase, instance, phoneNumber, effectiveText } = ctx;
@@ -777,9 +776,9 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
   const dayOfWeek = dateObj.getDay();
 
   const { data: hours } = await supabase
-    .from("business_hours")
+    .from("bots_business_hours")
     .select("start_time, end_time, slot_duration_min")
-    .eq("instance_id", instance.id)
+    .eq("bot_id", instance.id)
     .eq("day_of_week", dayOfWeek)
     .eq("is_active", true)
     .single();
@@ -802,9 +801,9 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
   const endMin = eh * 60 + em;
 
   const { data: booked } = await supabase
-    .from("appointments")
+    .from("bots_appointments")
     .select("appointment_time")
-    .eq("instance_id", instance.id)
+    .eq("bot_id", instance.id)
     .eq("appointment_date", slotDate)
     .in("status", ["pending", "confirmed"]);
 
@@ -842,7 +841,7 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
 
 /**
  * Handle "turno" keyword: show the agenda menu (hoy / próximo / completa).
- * Requires: Pro plan
+ * (ya no hay gating por plan: lo decide `tiene_modulo()` en Nexo Studio)
  */
 export async function handleBookingIntent(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
   const { effectiveText } = ctx;
@@ -855,9 +854,9 @@ export async function handleBookingIntent(ctx: WebhookContext): Promise<{ status
   // Verify the agenda is configured at all before offering options
   const { supabase, instance } = ctx;
   const { data: bizHours } = await supabase
-    .from("business_hours")
+    .from("bots_business_hours")
     .select("id")
-    .eq("instance_id", instance.id)
+    .eq("bot_id", instance.id)
     .eq("is_active", true)
     .limit(1);
 

@@ -1,11 +1,11 @@
 import { query } from "../db";
 import { sendTextMessage } from "../evolution-multi";
 import { BUSINESS_TIMEZONE } from "../timezone";
-import type { WebhookContext } from "./context";
+import { registrarRespuesta, type WebhookContext } from "./context";
 
 /** Outside hours auto-reply.
  * Sends a message when the user writes outside business hours.
- * Requires: Starter plan
+ * (ya no hay gating por plan: lo decide `tiene_modulo()` en Nexo Studio)
  */
 export async function handleOutsideHours(ctx: WebhookContext) {
   const { supabase, instance, phoneNumber, remoteJid, effectiveText, instanceName } = ctx;
@@ -32,7 +32,7 @@ export async function handleOutsideHours(ctx: WebhookContext) {
   }).format(now);
 
   const bizHours = await query<{ start_time: string; end_time: string }>(
-    "SELECT start_time, end_time FROM business_hours WHERE instance_id = ? AND day_of_week = ? AND is_active = true LIMIT 1",
+    "SELECT start_time, end_time FROM bots_business_hours WHERE bot_id = ? AND day_of_week = ? AND is_active = true LIMIT 1",
     [instance.id, dayOfWeek]
   );
 
@@ -53,13 +53,11 @@ export async function handleOutsideHours(ctx: WebhookContext) {
         instance.instance_name, phoneNumber,
         instance.outside_hours_message, 1500,
       );
-      try {
-        await query(
-          `INSERT INTO response_logs (id, instance_id, user_id, incoming_phone, incoming_message, matched_keyword, sent_at)
-           VALUES (?, ?, NULL, ?, ?, 'fuera de horario', NOW())`,
-          [String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)), instance.id, remoteJid, effectiveText]
-        );
-      } catch { /* non-critical */ }
+      await registrarRespuesta(ctx, {
+        telefono: remoteJid,
+        mensaje: effectiveText,
+        coincidencia: "fuera de horario",
+      });
 
       if (outsideResult.ok) {
         console.log("[webhook] fuera de horario", { instance: instanceName, from: remoteJid });

@@ -1,125 +1,48 @@
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import { cookies } from "next/headers";
-import { pool, query } from "./db";
+/* =========================================================
+   Nexo Studio — Auth del bot
+   ---------------------------------------------------------
+   ESTE FICHERO ESTÁ VACÍO A PROPÓSITO. No lo borres sin leer esto.
 
-const JWT_SECRET = process.env.JWT_SECRET || "wweb-secret-dev-change-me";
-export const COOKIE_NAME = "wweb_session";
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 días
+   ANTES
+   -----
+   Aquí estaba todo el sistema de identidad del bot: bcrypt para las
+   contraseñas, JWT firmado con `JWT_SECRET`, una cookie
+   `wweb_session` de 30 días, y las consultas a la tabla `profiles` de
+   MariaDB para crear y leer usuarios.
 
-export type AuthError =
-  | { status: 400; message: string }        // credenciales inválidas
-  | { status: 401; message: string };        // usuario no encontrado
+   AHORA
+   -----
+   Nada de eso. El bot no tiene usuarios propios:
+     · la entrada es `src/lib/sesion.ts` (cookie `nexo_bot`)
+     · el ticket se valida en `src/lib/tickets.ts`
+     · la comprobación de "de quién son estos datos" la hace RLS
 
-export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 10);
-}
+   El archivo se conserva vacío para que quien lo encuentre y pregunte
+   por qué no hay nada, lea la respuesta aquí en vez de tener que
+   buscar en el historial de git.
 
-export async function verifyPassword(
-  password: string,
-  hash: string
-): Promise<boolean> {
-  return bcrypt.compare(password, hash);
-}
+   Lo mismo con `src/lib/auth/client.ts`, `src/lib/auth/server.ts` y
+   `src/lib/auth/middleware.ts`: quedan vacíos por la misma razón.
 
-export function signToken(userId: string): string {
-  return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: "30d" });
-}
+   QUÉ PASÓ CON LOS USUARIOS
+   -------------------------
+   Los usuarios del bot ahora son los clientes de Nexo Studio. Antes un
+   cliente del bot era un usuario aparte, con su propia contraseña en su
+   propia tabla, y podía no coincidir con el que tenía en el panel: dos
+   sitios donde perder el acceso y dos sesiones que nadie knew unlink.
 
-export function parseToken(token: string): any {
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch {
-    return null;
-  }
-}
+   Y el sistema de planes entero (`plans`, `subscriptions`,
+   `plan_config`, `mercado_pago_config`) desapareció por lo mismo: el
+   cobro lo hace Nexo Studio, en su tabla `suscripciones`. Un producto
+   que cobra dos veces por lo mismo.
 
-export async function getUserByEmail(email: string): Promise<
-  | { id: string; email: string; password_hash: string; full_name: string; role: string }
-  | null
-> {
-  const rows = await query(
-    "SELECT id, email, password_hash, full_name, role FROM profiles WHERE email = ?",
-    [email]
-  );
-  return rows[0] || null;
-}
+   ⚠️  LO QUE FALTA TODAVÍA
+   -----------------------
+   Este fichero estaba vacío pero SUS DEPENDIENTES (las rutas de
+   `src/app/api/*` y las páginas de `(dashboard)`) todavía lo
+   importaban, y ahora usan `getSession()` de `sesion.ts`. Quedan por
+   migrar, así que el panel del bot todavía no arranca de punta a
+   punta. Ver PENDIENTES.md.
+   ========================================================= */
 
-export async function getUserById(id: string): Promise<
-  | { id: string; email: string; password_hash: string; full_name: string; role: string }
-  | null
-> {
-  const rows = await query(
-    "SELECT id, email, password_hash, full_name, role FROM profiles WHERE id = ?",
-    [id]
-  );
-  return rows[0] || null;
-}
-
-export async function createUser(
-  id: string,
-  email: string,
-  password: string,
-  full_name: string
-): Promise<{ id: string; email: string; full_name: string; role: string }> {
-  const passwordHash = await hashPassword(password);
-  const [result] = await pool.execute(
-    `INSERT INTO profiles (id, email, password_hash, full_name, role, created_at)
-     VALUES (?, ?, ?, ?, 'user', NOW())`,
-    [id, email, passwordHash, full_name]
-  );
-  return {
-    id,
-    email,
-    full_name,
-    role: "user",
-  };
-}
-
-export async function setUserRole(
-  userId: string,
-  role: "admin" | "user"
-): Promise<void> {
-  await pool.execute(
-    "UPDATE profiles SET role = ? WHERE id = ?",
-    [role, userId]
-  );
-}
-
-export async function getUserSession(): Promise<
-  | { userId: string; email: string; role: string }
-  | null
-> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(COOKIE_NAME)?.value;
-  if (!token) return null;
-
-  const payload = parseToken(token);
-  if (!payload || !payload.sub) return null;
-
-  const user = await getUserById(payload.sub);
-  if (!user) return null;
-
-  return { userId: user.id, email: user.email, role: user.role };
-}
-
-export async function getSession(): Promise<
-  | { userId: string; email: string; role: string }
-  | null
-> {
-  return getUserSession();
-}
-
-
-export async function login(email: string, password: string): Promise<{ status: number; message: string; token?: string }> {
-  const user = await getUserByEmail(email);
-  if (!user) {
-    return { status: 401, message: "Usuario o contraseña inválidos" };
-  }
-  const valid = await verifyPassword(password, user.password_hash);
-  if (!valid) {
-    return { status: 401, message: "Usuario o contraseña inválidos" };
-  }
-  const token = signToken(user.id);
-  return { status: 200, message: "OK", token };
-}
+export {};

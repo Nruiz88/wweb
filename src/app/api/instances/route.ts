@@ -1,228 +1,202 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
-import { query, generateId } from "@/lib/db";
-import { getConnectionState, testEvolutionConnection } from "@/lib/evolution-multi";
-import { validateEvolutionUrl, sanitizeString } from "@/lib/validation";
-import { safeErrorMessage } from "@/lib/api-helpers";
-import { checkInstanceLimit } from "@/lib/plan-gating";
-import { seedDefaults } from "@/lib/seed-defaults";
+import { getSession, botDeLaSesion, clienteDeLaSesion } from "@/lib/sesion";
+import { getConnectionState } from "@/lib/evolution-multi";
+import { getAdmin } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-interface InstanceRow {
+/* =========================================================
+   Estado del bot
+   ---------------------------------------------------------
+   ESTA RUTA ANTES HACÍA TRES COSAS, Y AHORA SOLO UNA
+   ----------------------------------------------
+   Antes: listar instancias, CREARLAS (POST) y BORRARLAS (DELETE),
+   cada una con su propia conexión a Evolution (url + clave).
+
+   Ahora solo lista. Y no es que se haya hecho la vista gorda:
+
+   · El cliente no puede crear su bot. `bots` no tiene política de
+     INSERT ni de DELETE a propósito (migración 011 del panel): el alta
+     la hace el equipo de Nexo Studio, porque crear una conexión
+     significa tocar un servidor de Evolution compartido. Un cliente
+     que pudiera insertarse un bot apuntando al servidor de otro
+     tendría el bot de otro.
+
+   · Tampoco puede borrarlo: si pudiera, se quedaría sin servicio y sin
+     histórico, y no habría forma de deshacerlo.
+
+   · La url y la clave ya no están en su fila. Viven en
+     `evolution_servers`, que no tiene ninguna política RLS: solo la
+     alcanza el servidor con la secret key. Por eso aquí se consulta el
+     estado con la secret key y al cliente solo se le devuelve el
+     RESULTADO, nunca las credenciales.
+
+     Antes se llamaba a `sanitizeInstance()`, que quitaba url y clave de
+     la respuesta. Ya no hace falta quitar nada porque nunca se
+     cargan: es una defensa mejor no traerlas.
+   ========================================================= */
+
+/** Cuánto se considera fresco un estado antes de volver a preguntar a Evolution. */
+const STATUS_TTL_MS = 60_000;
+
+/**
+ * Cache en memoria del estado de Evolution.
+ *
+ * Es por petición/proceso: en Coolify hay una sola instancia, así que
+ * sirve. Con varias, cada una tendría la suya y se frescos un poco más
+ * a menudo. No es un problema: el TTL es de un minuto.
+ */
+const statusCache = new Map<string, { status: string; at: number }>();
+
+/** Lo que se devuelve al cliente. Nunca incluye url ni clave. */
+interface BotPublico {
   id: string;
+  name: string;
   instance_name: string;
+  slug: string;
   status: string;
-  created_at: string;
-  evolution_api_url?: string;
-  evolution_api_key?: string;
-  status_checked_at?: string | null;
+  status_checked_at: string | null;
+  welcome_message: string | null;
+  outside_hours_message: string | null;
 }
 
-type ServiceClient = any;
-
-function sanitizeInstance(instance: InstanceRow) {
+function publico(b: Record<string, unknown>): BotPublico {
   return {
-    id: instance.id,
-    instance_name: instance.instance_name,
-    status: instance.status,
-    created_at: instance.created_at,
+    id: b.id as string,
+    name: b.name as string,
+    instance_name: b.instance_name as string,
+    slug: b.slug as string,
+    status: (b.status as string) ?? "close",
+    status_checked_at: (b.status_checked_at as string) ?? null,
+    welcome_message: (b.welcome_message as string) ?? null,
+    outside_hours_message: (b.outside_hours_message as string) ?? null,
   };
 }
 
-const statusCache = new Map<string, { status: string; at: number }>();
-const STATUS_TTL_MS = 60_000;
-const BASE_COLUMNS = "id, instance_name, status, created_at, evolution_api_url, evolution_api_key";
-
-/**
- * Instancias visibles para el usuario: las que ES dueño (instances.admin_id)
- * UNION las que tiene ASIGNADAS (user_instances).
- *
- * Antes solo se listaban las propias, así que un usuario con una instancia
- * asignada veía "Sin instancias" en /calendar y los turnos agendados por el
- * link público (que sí resuelve por user_instances) nunca aparecían.
- */
-async function selectInstances(userId: string): Promise<{ rows: InstanceRow[]; freshCheck: boolean; error: unknown }> {
-  const q = `
-    SELECT ${BASE_COLUMNS}, status_checked_at FROM instances
-    WHERE admin_id = ? OR id IN (SELECT instance_id FROM user_instances WHERE user_id = ?)
-    ORDER BY created_at DESC`;
-  const rows = await query<InstanceRow>(q, [userId, userId]);
-  return { rows: rows || [], freshCheck: true, error: null };
-}
-
-async function persistStatus(id: string, status: string) {
-  try {
-    await query("UPDATE instances SET status = ?, status_checked_at = NOW() WHERE id = ?", [status, id]);
-  } catch {
-    // Non-critical
-  }
-}
-
-async function withLiveStatus(instances: InstanceRow[], freshCheck: boolean) {
-  const now = Date.now();
-  const results = await Promise.all(instances.map(async (instance) => {
-    if (!instance.evolution_api_url || !instance.evolution_api_key) {
-      return sanitizeInstance(instance);
-    }
-    if (freshCheck && instance.status_checked_at) {
-      const checkedAt = new Date(instance.status_checked_at).getTime();
-      if (!Number.isNaN(checkedAt) && now - checkedAt < STATUS_TTL_MS) {
-        return sanitizeInstance(instance);
-      }
-    }
-    const cacheKey = `${instance.evolution_api_url}|${instance.instance_name}`;
-    const cached = statusCache.get(cacheKey);
-    if (cached && now - cached.at < STATUS_TTL_MS) {
-      return sanitizeInstance({ ...instance, status: cached.status });
-    }
-    const state = await getConnectionState(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name);
-    if (state.ok && state.data) {
-      statusCache.set(cacheKey, { status: state.data, at: Date.now() });
-      await persistStatus(instance.id, state.data);
-      return sanitizeInstance({ ...instance, status: state.data });
-    }
-    return sanitizeInstance(instance);
-  }));
-  return results;
-}
-
+// GET /api/instances?lite=1
 export async function GET(request: Request) {
   const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+
   const lite = new URL(request.url).searchParams.get("lite") === "1";
 
-  const { rows: instances, freshCheck, error } = await selectInstances(session.userId);
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+  const db = clienteDeLaSesion(session);
+  if (!db) return NextResponse.json({ status: "error", error: "Sesión caducada" }, { status: 401 });
+
+  /* Con RLS: solo se ve su propio bot. La consulta va por el cliente de
+     la sesión a propósito, aunque `botDeLaSesion` ya lo asegure. */
+  const { data: fila, error } = await db
+    .from("bots")
+    .select("id, name, instance_name, slug, status, status_checked_at, welcome_message, outside_hours_message")
+    .eq("client_id", session.clientId)
+    .maybeSingle();
+
+  if (error) return NextResponse.json({ status: "error", error: "No se pudo leer el bot" }, { status: 500 });
+  if (!fila) return NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 });
+
+  const bot = publico(fila as unknown as Record<string, unknown>);
+
+  if (lite) return NextResponse.json({ status: "success", data: [bot] });
+
+  /* Estado en vivo: se pregunta a Evolution si el último dato es viejo.
+
+     El JOIN trae url y clave, que están en `evolution_servers`. Van con
+     la secret key: esa tabla no tiene políticas RLS a propósito, así
+     que el cliente NUNCA puede leerla por sí mismo. Aquí solo las usa
+     el servidor para hablar con Evolution, y no se devuelven.
+
+     El hint `evolution_servers:server_id` es obligatorio: sin él
+     PostgREST no sabe por qué columna se enlaza (la FK se llama
+     `server_id`, no `evolution_servers_id`). */
+  const { data: conCredenciales } = await getAdmin()
+    .from("bots")
+    .select("instance_name, evolution_servers:server_id(url, api_key)")
+    .eq("id", bot.id)
+    .maybeSingle();
+
+  /* PostgREST devuelve el JOIN anidado como OBJETO cuando la relación es
+   "many-to-one" (un bot pertenece a un servidor), pero devuelve ARRAY si
+   no sabe la cardinalidad. Por eso se normaliza: con un tipo explícito
+   queda claro, y no hay un `as` dentro de paréntesis que el parser de
+   TypeScript confunde. */
+type ServidorUnido = { evolution_servers: { url: string; api_key: string } | null };
+type ServidorUnidoArray = { evolution_servers: Array<{ url: string; api_key: string }> };
+
+const unido = conCredenciales as unknown as Partial<ServidorUnido & ServidorUnidoArray>;
+const nodo = Array.isArray(unido.evolution_servers) ? unido.evolution_servers[0] : unido.evolution_servers;
+const url = nodo?.url;
+const clave = nodo?.api_key;
+
+if (!url || !clave) return NextResponse.json({ status: "success", data: [bot] });
+
+  /* Fresco o cacheado: no se pregunta a Evolution en cada recarga de
+     la página, que sería una llamada externa por render. */
+  const ahora = Date.now();
+  if (bot.status_checked_at) {
+    const t = new Date(bot.status_checked_at).getTime();
+    if (!Number.isNaN(t) && ahora - t < STATUS_TTL_MS) {
+      return NextResponse.json({ status: "success", data: [bot] });
+    }
   }
 
-  // `role` estaba hardcodeado a "admin" para todos. No era un hole (el gating
-  // real es server-side) pero el frontend lo leía: /whatsapp auto-seleccionaba
-  // la instancia para cualquiera y /settings mostraba el botón "Nueva
-  // instancia" y el badge Admin a usuarios normales.
-  const me = await query<{ role: string }>("SELECT role FROM profiles WHERE id = ? LIMIT 1", [session.userId]);
-  const role = me?.[0]?.role === "admin" ? "admin" : "user";
-
-  if (lite) {
-    return NextResponse.json({ status: "success", data: instances.map(sanitizeInstance), role });
-  }
-  const live = await withLiveStatus(instances, freshCheck);
-  return NextResponse.json({ status: "success", data: live, role });
-}
-
-export async function POST(request: Request) {
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  const cacheKey = `${url}|${bot.instance_name}`;
+  const cached = statusCache.get(cacheKey);
+  if (cached && ahora - cached.at < STATUS_TTL_MS) {
+    return NextResponse.json({ status: "success", data: [{ ...bot, status: cached.status }] });
   }
 
-  let body: unknown;
-  try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
+  const estado = await getConnectionState(url, clave, bot.instance_name);
+  if (estado.ok && estado.data) {
+    statusCache.set(cacheKey, { status: estado.data, at: Date.now() });
 
-  const { instanceName, evolutionApiUrl, evolutionApiKey } = body as { instanceName?: string; evolutionApiUrl?: string; evolutionApiKey?: string };
+    const marca = new Date().toISOString();
+    /* El estado se guarda para la próxima. Si falla, da igual: es
+       informativo y no debe romper la respuesta. */
+    await getAdmin()
+      .from("bots")
+      .update({ status: estado.data, status_checked_at: marca })
+      .eq("id", bot.id);
 
-  const cleanName = sanitizeString(instanceName, 50);
-  if (!cleanName) {
-    return NextResponse.json({ status: "error", error: "Instance name is required" }, { status: 400 });
-  }
-  if (!evolutionApiUrl || !evolutionApiKey) {
-    return NextResponse.json({ status: "error", error: "All fields are required" }, { status: 400 });
-  }
-
-  const urlCheck = validateEvolutionUrl(evolutionApiUrl);
-  if (!urlCheck.valid) {
-    return NextResponse.json({ status: "error", error: urlCheck.error }, { status: 400 });
-  }
-
-  const normalizedUrl = urlCheck.normalized || evolutionApiUrl.trim();
-
-  // Gating por plan: límite de instancias según suscripción activa + add-ons.
-  const limit = await checkInstanceLimit(session.userId);
-  if (!limit.allowed) {
-    return NextResponse.json(
-      { status: "error", error: limit.reason, code: limit.code, used: limit.used, max: limit.max },
-      { status: 403 }
-   );
-  }
-
-  const serverCheck = await testEvolutionConnection(normalizedUrl, evolutionApiKey);
-  if (!serverCheck.ok) {
-    const hint = serverCheck.status === 401 || serverCheck.status === 403 ? " (API key global de Evolution inválida)" : serverCheck.status === 404 ? " (URL mal)" : "";
-    return NextResponse.json({ status: "error", error: `Servidor no responde: ${serverCheck.message}${hint}` }, { status: 400 });
-  }
-
-  // `instances.id` es VARCHAR sin AUTO_INCREMENT → `insertId` de mysql2 siempre
-  // da 0. Se generaba el id a mano y se devolvía `insertId` (0), así que el
-  // admin recibía instanceId: 0 y la asignación posterior fallaba siempre.
-  const id = generateId();
-  await query(
-    "INSERT INTO instances (id, admin_id, instance_name, evolution_api_url, evolution_api_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'connecting', NOW(), NOW())",
-    [id, session.userId, cleanName, normalizedUrl, evolutionApiKey]
-  );
-
-  // Seed de respuestas base + menú. Va acá y no en el registro porque
-  // auto_responses.instance_id es NOT NULL con FK: el registro todavía no
-  // tiene instancia. Es idempotente, así que un fallo acá no rompe la creación.
-  let seeded = 0;
-  let seededSkipped = false;
-  try {
-    const business = await getBusinessNameFor(session.userId);
-    const result = await seedDefaults(id, session.userId, business);
-    seeded = result.created;
-    seededSkipped = result.skipped;
-  } catch (e) {
-    console.error("[instances] no se pudieron crear las respuestas por defecto", {
-      message: e instanceof Error ? e.message : String(e),
+    return NextResponse.json({
+      status: "success",
+      data: [{ ...bot, status: estado.data, status_checked_at: marca }],
     });
   }
 
-  return NextResponse.json({
-    status: "success",
-    data: {
-      id,
-      instance_name: cleanName,
-      status: "connecting",
-      created_at: new Date().toISOString(),
-      seeded_responses: seeded,
-      seeded_skipped: seededSkipped,
+  return NextResponse.json({ status: "success", data: [bot] });
+}
+
+/* ---------------------------------------------------------------------
+   POST y DELETE ya no existen
+   ---------------------------------------------------------------------
+   El alta de un bot la hace el equipo de Nexo Studio desde el panel
+   (crear el bot, apuntarlo a un servidor de Evolution y darlo de alta),
+   y el borrado también, con su historial.
+
+   Decir 405 con dónde hacerlo es mejor que devolver un 403 de RLS sin
+   explicación: el cliente vería "prohibido" y no sabría que la
+   operación existe y se hace en otro sitio. */
+
+// POST /api/instances
+export async function POST() {
+  return NextResponse.json(
+    {
+      status: "error",
+      error:
+        "El alta de bots la hace el equipo de Nexo Studio. Escríbenos y lo montamos.",
     },
-    message: "Servidor verificado — instancia lista. El usuario debe vincular QR en Mi WhatsApp para pasar a conectada.",
-  });
+    { status: 405 }
+  );
 }
 
-/** business_name del dueño, para personalizar el contenido inicial. */
-async function getBusinessNameFor(userId: string): Promise<string> {
-  const rows = await query<{ business_name: string | null; full_name: string | null }>(
-    "SELECT business_name, full_name FROM profiles WHERE id = ? LIMIT 1",
-    [userId]
+// DELETE /api/instances
+export async function DELETE() {
+  return NextResponse.json(
+    {
+      status: "error",
+      error:
+        "Un bot no se puede borrar desde aquí: se quedaría sin servicio y sin historial.",
+    },
+    { status: 405 }
   );
-  const p = rows?.[0];
-  return (p?.business_name ?? "").trim() || (p?.full_name ?? "").trim() || "";
-}
-
-export async function DELETE(request: Request) {
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get("id");
-  if (!id) {
-    return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
-  }
-
-  const inst = await query<{ id: string; admin_id: string }>(
-    "SELECT id, admin_id FROM instances WHERE id = ? LIMIT 1",
-    [id]
-  );
-  if (!inst.length || inst[0].admin_id !== session.userId) {
-    return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
-  }
-
-  await query("DELETE FROM instances WHERE id = ?", [id]);
-  return NextResponse.json({ status: "success" });
 }

@@ -1,7 +1,7 @@
 import { sendTextMessage } from "@/lib/evolution-multi";
 import type { WebhookContext } from "./context";
 import type { CatalogItem } from "@/lib/db/types";
-import { query, generateId } from "../db";
+import { query, generateId, getAdmin } from "../db";
 import { sendMenuResponse } from "./menus";
 import { getBusinessName } from "@/lib/business-name";
 
@@ -138,27 +138,32 @@ export async function syncCatalogMenus(
   if (menus.length === 0) return null;
 
   // Remove old catalog menus for this instance
-  const old = await query<{ id: string }>(
-    "SELECT id FROM auto_responses WHERE instance_id = ? AND response_type = 'menu' AND keyword LIKE ?",
-    [instanceId, `catalog_menu_%`]
-  );
-  if (old && old.length > 0) {
-    await query("DELETE FROM auto_responses WHERE id IN (" + old.map(() => "?").join(", ") + ")", old.map((o) => o.id));
-  }
+  /* Con el cliente, no con `query()`: ese va a `ejecutar_sql`, que es
+     de SOLO LECTURA, así que el DELETE no se ejecutaría. */
+  await getAdmin()
+    .from("bots_responses")
+    .delete()
+    .eq("bot_id", instanceId)
+    .eq("response_type", "menu")
+    .like("keyword", "catalog_menu_%");
 
-  // Insert each page as auto_response with keyword catalog_menu_pN.
-  // `auto_responses.user_id` y `response_text` son NOT NULL (y user_id es FK a
-  // profiles) → mandar null/vacío daba ER 1048 y la página nunca se creaba.
-  // Para un menú, `response_text` es un placeholder: la respuesta real sale de
-  // `menu_config`.
+  /* `user_id` desaparece: esa columna ya no está en el esquema. El
+     "quién" es el teléfono que escribe, no el usuario de Nexo Studio.
+     Y `response_text` sigue siendo NOT NULL: para un menú es un
+     placeholder, porque la respuesta real sale de `menu_config`. */
   for (let i = 0; i < menus.length; i++) {
     const menu = menus[i];
-    const id = generateId();
-    await query(
-      `INSERT INTO auto_responses (id, instance_id, user_id, response_type, keyword, response_text, menu_config, is_active, priority, created_at, updated_at)
-       VALUES (?, ?, ?, 'menu', ?, ?, ?, true, 10, NOW(), NOW())`,
-      [id, instanceId, ownerUserId, `catalog_menu_p${i + 1}`, `[catálogo p${i + 1}]`, menu]
-    );
+    await getAdmin()
+      .from("bots_responses")
+      .insert({
+        bot_id: instanceId,
+        response_type: "menu",
+        keyword: `catalog_menu_p${i + 1}`,
+        response_text: `[catalogo p${i + 1}]`,
+        menu_config: menu,
+        is_active: true,
+        priority: 10,
+      });
   }
 
   return `catalog_menu_p1`;
@@ -220,7 +225,7 @@ export async function handleCatalogIntent(ctx: WebhookContext): Promise<{ status
   if (ownMenu) return null;
 
   const items = await query<CatalogItem>(
-    "SELECT id, label, description, price_cents, active, sort_order, category, image_url FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+    "SELECT id, label, description, price_cents, active, sort_order, category, image_url FROM bots_catalog_items WHERE bot_id = ? AND active = true ORDER BY sort_order ASC",
     [instance.id]
   );
 
@@ -262,7 +267,7 @@ export async function handleCatalogPage(ctx: WebhookContext): Promise<{ status: 
   if (!Number.isFinite(page) || page < 1) return null;
 
   const items = await query<CatalogItem>(
-    "SELECT id, label, description, price_cents, active, sort_order, category, image_url FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+    "SELECT id, label, description, price_cents, active, sort_order, category, image_url FROM bots_catalog_items WHERE bot_id = ? AND active = true ORDER BY sort_order ASC",
     [instance.id]
   );
   if (!items?.length) return null;
@@ -319,9 +324,9 @@ export async function handleCatalogPage(ctx: WebhookContext): Promise<{ status: 
  * Handle selection of a catalog item → creates order and confirms.
  */
 export async function handleOrderSelect(ctx: WebhookContext, itemId: string): Promise<{ status: string; matched: string } | null> {
-  const { instance, phoneNumber } = ctx;
+  const { supabase, instance, phoneNumber } = ctx;
   const items = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
-    "SELECT id, label, price_cents, active FROM catalog_items WHERE id = ? AND active = true",
+    "SELECT id, label, price_cents, active FROM bots_catalog_items WHERE id = ? AND active = true",
     [itemId]
   );
   const item = items?.[0];
@@ -340,20 +345,19 @@ export async function handleOrderSelect(ctx: WebhookContext, itemId: string): Pr
   // `orders.id` es VARCHAR sin AUTO_INCREMENT → `insertId` siempre era 0, así
   // que el `if (insertId)` de abajo NUNCA entraba: el pedido se guardaba pero
   // el cliente nunca recibía el "✅ Pedido registrado".
-  const orderId = generateId();
-  await query(
-    "INSERT INTO orders (id, instance_id, user_id, customer_phone, customer_name, catalog_item_id, option_label, price_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
-    [
-      orderId,
-      instance.id,
-      null,
-      phoneNumber,
-      ctx.pushName || null,
-      item.id,
-      item.label,
-      item.price_cents,
-    ]
-  );
+  /* Con el cliente, no con `query()` (solo lectura). El id lo pone la
+     base, así que ya no hace falta `generateId()` ni vigilar el
+     `insertId` de mysql2, que siempre daba 0 y por eso el aviso de
+     "pedido registrado" nunca llegaba. */
+  await supabase.from("bots_orders").insert({
+    bot_id: instance.id,
+    customer_phone: phoneNumber,
+    customer_name: ctx.pushName || null,
+    catalog_item_id: item.id,
+    option_label: item.label,
+    price_cents: item.price_cents,
+    status: "pending",
+  });
   await sendTextMessage(
     instance.evolution_api_url, instance.evolution_api_key,
     instance.instance_name, phoneNumber,

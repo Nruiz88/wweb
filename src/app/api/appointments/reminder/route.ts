@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
-import { sendTextMessage } from "@/lib/evolution-multi";
-import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
-import { getSession } from "@/lib/auth";
+import { getSession, botDeLaSesion } from "@/lib/sesion";
 import { getBusinessName } from "@/lib/business-name";
 import { BUSINESS_TIMEZONE } from "@/lib/timezone";
+import { query } from "@/lib/db";
+import { sendTextMessage } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +39,7 @@ async function processReminders() {
 
   const appointments = await query<{
     id: string;
-    instance_id: string;
+    bot_id: string;
     customer_phone: string;
     customer_name: string | null;
     appointment_date: string;
@@ -50,7 +49,7 @@ async function processReminders() {
   }>(
     `SELECT id, instance_id, customer_phone, customer_name,
             appointment_date, appointment_time, status, reminder_24h_sent
-     FROM appointments
+     FROM bots_appointments
      WHERE status IN ('pending','confirmed')
        AND reminder_24h_sent = false
        AND appointment_date >= ? AND appointment_date <= ?
@@ -62,27 +61,30 @@ async function processReminders() {
     return { status: "success" as const, processed: 0, failed: 0, total: 0, message: "No reminders to send" };
   }
 
-  const instanceIds = [...new Set(appointments.map((a) => a.instance_id))];
-  const instances = await query<{
+  const instanceIds = [...new Set(appointments.map((a) => a.bot_id))];
+  const bots = await query<{
     id: string;
     instance_name: string;
     evolution_api_url: string;
     evolution_api_key: string;
-    status: string;
-    status_checked_at: string | null;
   }>(
-    "SELECT id, instance_name, evolution_api_url, evolution_api_key FROM instances WHERE id IN (" + instanceIds.map(() => "?").join(", ") + ")",
+    `SELECT b.id, b.instance_name, s.url AS evolution_api_url, s.api_key AS evolution_api_key
+       FROM bots b
+       JOIN evolution_servers s ON s.id = b.server_id
+      WHERE b.id IN (${instanceIds.map(() => "?").join(", ")})`,
     instanceIds
   );
-
-  const instanceMap = new Map((instances || []).map((i) => [i.id, i]));
+  const instanceMap = new Map<string, (typeof bots)[number]>((bots || []).map((i) => [i.id, i]));
 
   let processed = 0;
   let failed = 0;
 
   for (const appt of appointments) {
-    const instance = instanceMap.get(appt.instance_id);
+const instance = instanceMap.get(appt.bot_id);
     if (!instance) { failed++; continue; }
+    /* Las url y la clave salen del JOIN con evolution_servers. No se
+       devuelven en la respuesta: esto es una ruta de servidor, y la clave
+       no tiene por qué salir de aquí ni por log. */
 
     // `appointment_date` (DATE) y `appointment_time` (TIME) llegan como
     // "YYYY-MM-DD" y "HH:MM:SS" (pool con dateStrings). Con Timezone se
@@ -151,7 +153,7 @@ async function previewReminders(instanceId: string) {
     reminder_24h_sent: boolean;
   }>(
     `SELECT id, customer_phone, customer_name, appointment_date, appointment_time, status, reminder_24h_sent
-     FROM appointments
+     FROM bots_appointments
      WHERE instance_id = ? AND status IN ('pending','confirmed')
        AND appointment_date >= ? AND appointment_date <= ?
      ORDER BY appointment_date ASC, appointment_time ASC`,
@@ -186,7 +188,10 @@ async function isAuthorizedCron(request: Request): Promise<boolean> {
   if (cronSecret && authHeader === `Bearer ${cronSecret}`) return true;
 
   const session = await getSession();
-  if (session?.role === "admin") return true;
+  /* session.rol y no session.role: la sesión del bot usa los nombres de
+     Nexo Studio ('staff' | 'client'). Con 'role' la comparación era
+     siempre falsa y una sesión válida no pasaba el control. */
+  if (session?.rol === "staff") return true;
 
   console.warn("[reminder] trigger rechazado (sin CRON_SECRET válido y sin sesión admin)");
   return false;
@@ -196,20 +201,23 @@ async function isAuthorizedCron(request: Request): Promise<boolean> {
 // GET with ?instanceId=... returns a preview (requires session + instance access)
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const instanceId = searchParams.get("instanceId");
+  /* La rama de preview devolvía customer_phone y customer_name de TODOS los
+     turnos de cualquier instancia sin sesión, sin CRON_SECRET y sin comprobar
+     el acceso: fuga de PII trivial desde fuera.
 
-  // La rama de preview devolvía customer_phone y customer_name de TODOS los
-  // turnos de cualquier instancia sin sesión, sin CRON_SECRET y sin
-  // verifyUserAccess(): fuga de PII trivial desde fuera.
-  if (instanceId) {
+     Ahora no se pide un instanceId (que era un id que alguien podía poner
+     en la URL y()), sino ?preview=1, y el bot sale de la sesión: solo hay
+     una vista previa, la del propio cliente. */
+  if (searchParams.get("preview") === "1") {
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
     }
-    if (!(await verifyUserAccess(session.userId, instanceId))) {
-      return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
+    const bot = await botDeLaSesion(session);
+    if (!bot) {
+      return NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 });
     }
-    return previewReminders(instanceId);
+    return previewReminders(bot.id);
   }
 
   if (!(await isAuthorizedCron(request))) {

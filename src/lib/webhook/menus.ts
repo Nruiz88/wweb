@@ -1,7 +1,7 @@
 import { sendTextMessage, sendButtonMessage } from "@/lib/evolution-multi";
 import type { ButtonItem } from "@/lib/evolution-multi";
 import type { MenuConfig } from "@/lib/db/types";
-import type { WebhookContext } from "./context";
+import { registrarRespuesta, type WebhookContext } from "./context";
 import { query, generateId } from "../db";
 import { isValidId } from "@/lib/validation";
 import { buildCatalogMenus, buildCategoryMenu } from "./catalog";
@@ -175,8 +175,8 @@ export async function handleMenuTextReply(ctx: WebhookContext) {
     const catalogResult = await handleCatalogTarget(ctx, option.target_id);
     if (catalogResult) return catalogResult;
 
-    const targets = await query<{ id: string; response_text: string; response_type: string; menu_config: any; user_id: string }>(
-      "SELECT id, response_text, response_type, menu_config, user_id FROM auto_responses WHERE id = ? AND is_active = true",
+    const targets = await query<{ id: string; response_text: string; response_type: string; menu_config: any }>(
+      "SELECT id, response_text, response_type, menu_config FROM bots_responses WHERE id = ? AND is_active = true",
       [option.target_id]
     );
     const target = targets?.[0];
@@ -194,20 +194,13 @@ export async function handleMenuTextReply(ctx: WebhookContext) {
           instance.instance_name, phoneNumber, target.response_text, 1500,
         );
         ok = r.ok;
-      }          try {
-            await query(
-              "INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())",
-              [
-                String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
-                instance.id,
-                target.id,
-                target.user_id,
-                remoteJid,
-                effectiveText,
-                `[botón: ${effectiveText}]`,
-              ]
-            );
-          } catch { /* non-critical */ }
+      }
+              await registrarRespuesta(ctx, {
+                respuestaId: target.id,
+                telefono: remoteJid,
+                mensaje: effectiveText,
+                coincidencia: `[boton: ${effectiveText}]`,
+              });
           return ok ? { status: "success", matched: `[botón: ${effectiveText}]` } : null;
         }
       }
@@ -231,11 +224,11 @@ export async function createCatalogOrder(
   itemId: string,
   quantity = 1,
 ): Promise<{ ok: boolean; label?: string; totalCents?: number; orderId?: string }> {
-  const { instance, phoneNumber, pushName } = ctx;
+  const { supabase, instance, phoneNumber, pushName } = ctx;
   if (!isValidId(itemId)) return { ok: false };
 
   const items = await query<{ id: string; label: string; price_cents: number; active: boolean }>(
-    "SELECT id, label, price_cents, active FROM catalog_items WHERE id = ? AND active = true",
+    "SELECT id, label, price_cents, active FROM bots_catalog_items WHERE id = ? AND active = true",
     [itemId]
   );
   const item = items?.[0];
@@ -245,16 +238,42 @@ export async function createCatalogOrder(
   // `orders.id` es VARCHAR sin AUTO_INCREMENT → `insertId` daba 0 y el
   // `if (insertId)` caía al branch de "Producto no disponible": el pedido se
   // guardaba pero el cliente recibía un error.
-  const orderId = generateId();
-  await query(
-    `INSERT INTO orders (id, instance_id, user_id, customer_phone, customer_name,
-                        catalog_item_id, option_label, quantity, price_cents, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())`,
-    [
-      orderId, instance.id, null, phoneNumber, pushName || null,
-      item.id, item.label, qty, item.price_cents,
-    ]
-  );
+  /* Con el cliente, no con `query()` (que es de solo lectura).
+
+     El id lo pone la base (`uuid default gen_random_uuid()`) y se pide
+     con `.select("id")`, porque `confirmOrder` necesita devolverlo para
+     el "confirmar" del cliente.
+
+     Antes se fabricaba con `generateId()` y el `insertId` de mysql2
+     daba siempre 0, así que el `if (insertId)` de abajo nunca entraba:
+     el pedido se guardaba pero el cliente recibía "Producto no
+     disponible". El comentario sobre eso se queda porque describe un
+     fallo real que ya no puede volver a pasar de esa forma. */
+  const { data: pedido, error: errorPedido } = await supabase
+    .from("bots_orders")
+    .insert({
+      bot_id: instance.id,
+      customer_phone: phoneNumber,
+      customer_name: pushName || null,
+      catalog_item_id: item.id,
+      option_label: item.label,
+      quantity: qty,
+      price_cents: item.price_cents,
+      status: "pending",
+    })
+    .select("id")
+    .single();
+
+  const orderId = pedido?.id;
+
+  if (errorPedido) {
+    console.error("[webhook] no se pudo crear el pedido", {
+      bot: instance.instance_name,
+      item: item.label,
+      error: errorPedido.message,
+    });
+    return { ok: false, label: item.label };
+  }
 
   return { ok: true, label: item.label, totalCents: item.price_cents * qty, orderId };
 }
@@ -302,7 +321,7 @@ async function handleCatalogTarget(
   if (catMatch) {
     const category = catMatch[1];
     const items = await query<CatalogItem>(
-      "SELECT id, label, description, price_cents, active, sort_order, category FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+      "SELECT id, label, description, price_cents, active, sort_order, category FROM bots_catalog_items WHERE bot_id = ? AND active = true ORDER BY sort_order ASC",
       [ctx.instance.id]
     );
     if (!items?.length) return null;
@@ -341,7 +360,7 @@ async function handleCatalogTarget(
   if (catNext) {
     const page = Number(catNext[1]);
     const items = await query<CatalogItem>(
-      "SELECT id, label, description, price_cents, active, sort_order, category FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+      "SELECT id, label, description, price_cents, active, sort_order, category FROM bots_catalog_items WHERE bot_id = ? AND active = true ORDER BY sort_order ASC",
       [ctx.instance.id]
     );
     const cats = [...new Set((items || []).map((i) => i.category).filter(Boolean))] as string[];
@@ -379,7 +398,7 @@ async function handleCatalogTarget(
 /** Reconstruye la página N del catálogo (para la navegación). */
 async function catalogPageMenus(ctx: WebhookContext, page: number) {
   const items = await query<CatalogItem>(
-    "SELECT id, label, description, price_cents, active, sort_order, category FROM catalog_items WHERE instance_id = ? AND active = true ORDER BY sort_order ASC",
+    "SELECT id, label, description, price_cents, active, sort_order, category FROM bots_catalog_items WHERE bot_id = ? AND active = true ORDER BY sort_order ASC",
     [ctx.instance.id]
   );
   if (!items?.length) return null;
@@ -390,7 +409,7 @@ async function catalogPageMenus(ctx: WebhookContext, page: number) {
 /**
  * Handle button/list tap responses from interactive menus.
  * Looks up the tapped button text in menu_config.buttons.
- * Requires: Starter plan
+ * (ya no hay gating por plan: lo decide `tiene_modulo()` en Nexo Studio)
  */
 export async function handleMenuTap(ctx: WebhookContext) {
   const { supabase, instance, phoneNumber, remoteJid, effectiveText, instanceName, rawButtonId } = ctx;
@@ -429,8 +448,8 @@ export async function handleMenuTap(ctx: WebhookContext) {
 
     if (tappedBtn) {
       if (tappedBtn.target_id) {
-        const targets = await query<{ id: string; response_text: string; response_type: string; menu_config: any; user_id: string }>(
-          "SELECT id, response_text, response_type, menu_config, user_id FROM auto_responses WHERE id = ? AND is_active = true",
+        const targets = await query<{ id: string; response_text: string; response_type: string; menu_config: any }>(
+          "SELECT id, response_text, response_type, menu_config FROM bots_responses WHERE id = ? AND is_active = true",
           [tappedBtn.target_id]
         );
         const target = targets?.[0];
@@ -451,20 +470,12 @@ export async function handleMenuTap(ctx: WebhookContext) {
             sendOk = r.ok;
           }
 
-          try {
-            await query(
-              "INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())",
-              [
-                String(Math.random().toString(36).slice(2, 15) + Math.random().toString(36).slice(2, 15)),
-                instance.id,
-                target.id,
-                target.user_id,
-                remoteJid,
-                effectiveText,
-                `[botón: ${effectiveText}]`,
-              ]
-            );
-          } catch { /* non-critical */ }
+              await registrarRespuesta(ctx, {
+                respuestaId: target.id,
+                telefono: remoteJid,
+                mensaje: effectiveText,
+                coincidencia: `[boton: ${effectiveText}]`,
+              });
 
           if (sendOk) {
             console.log("[webhook] respuesta a botón enviada", { instance: instanceName, from: remoteJid, button: effectiveText });

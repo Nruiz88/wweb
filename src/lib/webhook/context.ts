@@ -1,266 +1,132 @@
-import type { PlanType } from "@/lib/db/types";
-import { query, generateId } from "@/lib/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getAdmin } from "../db";
 
 /**
- * Query builder mínimo estilo Supabase sobre mysql2 (MariaDB).
- * Implementa el subconjunto usado por los handlers del webhook:
- * from / select / insert / update / delete / eq / neq / in / like / order / limit /
- * range / single / maybeSingle. Todo con placeholders parametrizados (sin inyección).
+ * Contexto que comparten todos los handlers del webhook.
  *
- * Cada llamada a `from()` devuelve un builder NUEVO (sin estado compartido),
- * y el builder es thenable: se puede hacer `await supabase.from(t).select(...).eq(...)`
- * igual que con el cliente de Supabase.
+ * QUÉ CAMBIÓ Y POR QUÉ
+ * --------------------
+ * Antes este fichero tenía dentro un `MariaDbBuilder` de 297 líneas que
+ * imitating el cliente de Supabase sobre mysql2: `from().select().eq()
+ * .single()` construido a mano con SQL. Se quitó entero.
+ *
+ * El motivo no es que sobrara, es que ahora el cliente DE VERDAD está
+ * disponible y el builder era un intermediario que además escribía con
+ * SQL crudo (saltándose RLS). Con el cliente real, las políticas las
+ * aplica Postgres.
+ *
+ * Los handlers usan `ctx.supabase.from(...)`, así que cambiar el tipo
+ * de `supabase` de un builder a un `SupabaseClient` no les toca una
+ * línea: la API encadenada es la misma. `await builder` también
+ * funciona, porque `PostgrestBuilder` de supabase-js es thenable, que
+ * es lo que hace falta para los `await supabase.from(...)...` sin
+ * `.single()` al final (los hay: booking.ts:579 y 704).
+ *
+ *
+ * ⚠️  SOBRE EL ROL QUE USA ESTE CONTEXTO
+ * -------------------------------------
+ * El webhook de Evolution entra SIN sesión de usuario: es Evolution quien
+ * llama, no un cliente. Por eso va con la secret key y salta RLS.
+ *
+ * Eso significa que la única garantía de que un bot no se mezcle con
+ * otro la tiene que hacer el código, en `resuelve_bots_de_webhook()`
+ * (src/app/api/webhook/route.ts), que resuelve la instancia y comprueba
+ * que existe. NO hay un `es_dueno_de_bot()` detrás de cada consulta
+ * como la hay en el panel: aquí es una comprobación al inicio, y el
+ * resto del webhook va con la sesión ya resuelta.
+ *
+ * Es la diferencia real entre las dos entradas: el panel lo protege
+ * RLS fila a fila; el webhook entra por la puerta de atrás, con
+ * credenciales de servidor, y por eso solo puede entrar por el webhook
+ * (que exige la firma de Evolution) y nunca por una URL de navegador.
  */
-/** Resultado de ejecutar el builder. */
-export type QueryResult = { data: any; error?: Error };
-
-export interface SupabaseMariaDB {
-  /** Start a query on a table. Returns a fresh builder. */
-  from<T = any>(table: string): SupabaseMariaDB;
-  select<T = any>(columns: string): SupabaseMariaDB;
-  insert(data: Record<string, unknown>): SupabaseMariaDB;
-  update(data: Record<string, unknown>): SupabaseMariaDB;
-  delete(): SupabaseMariaDB;
-  eq(column: string, value: unknown): SupabaseMariaDB;
-  neq(column: string, value: unknown): SupabaseMariaDB;
-  in(column: string, values: unknown[]): SupabaseMariaDB;
-  like(column: string, pattern: string): SupabaseMariaDB;
-  order(column: string, options: { ascending: boolean }): SupabaseMariaDB;
-  limit(n: number): SupabaseMariaDB;
-  range(from: number, to: number): SupabaseMariaDB;
-  single(): Promise<QueryResult>;
-  maybeSingle(): Promise<{ data: any | null; error?: Error }>;
-  /**
-   * El builder es thenable. Sin esta firma, `await supabase.from(...).eq(...)`
-   * resolvía al propio builder y `const { data } = ...` daba
-   * "Property 'data' does not exist on type 'SupabaseMariaDB'" en todos los
-   * handlers que leen filas.
-   */
-  then<TResult1 = QueryResult, TResult2 = never>(
-    onfulfilled?: ((value: QueryResult) => TResult1 | PromiseLike<TResult1>) | null,
-    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-  ): PromiseLike<TResult1 | TResult2>;
+export function createBotDb(): SupabaseClient {
+  return getAdmin();
 }
 
-type DbResultRow = Record<string, unknown>;
+/* `hasPlan(actual, requerido)` desapareció con los planes.
 
-const IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+   Devolvía `true` siempre desde que la decisión pasó a Nexo Studio, y ya
+   no la importa nadie: quedaba como una puerta que parecía filtrar
+   funciones y no filtraba nada. Si algún día hacen falta módulos
+   distintos dentro del bot, el sitio para comprobarlo es
+   `tiene_modulo()` en el panel, no un plan dentro del bot. */
 
-function safeIdent(name: string): string {
-  if (!IDENT_RE.test(name)) throw new Error(`Identificador SQL inválido: ${name}`);
-  return `\`${name}\``;
-}
-
-/** Sanitiza la lista de columnas del .select("a, b, c") — viene del código, no del usuario. */
-function safeColumnList(cols: string): string {
-  const parts = cols.split(",").map((p) => p.trim()).filter(Boolean);
-  if (!parts.length) return "*";
-  return parts.map((p) => (p === "*" ? "*" : safeIdent(p))).join(", ");
-}
-
-class MariaDbBuilder implements SupabaseMariaDB {
-  constructor(private table: string) {}
-
-  // ---- builder chain ----
-
-  from(table: string): SupabaseMariaDB {
-    return new MariaDbBuilder(table);
+/**
+ * Anota en el histórico que el bot contestó algo.
+ *
+ * Antes esto era el mismo `INSERT INTO bots_response_logs` copiado en cinco
+ * ficheros (auto-reply, menus ×2, outside-hours, welcome), cada uno con
+ * su `String(Math.random()...)` para el id. Todo eso pasa a ser una
+ * llamada.
+ *
+ * Dos cosas que cambian al venir aquí:
+ *
+ * · El id lo pone la base (`uuid default gen_random_uuid()`). Los cinco
+ *   sitios fabricaban un id de 26 caracteres, que no era un UUID y por
+ *   tanto no valía como clave foránea.
+ * · Se escribe con el CLIENTE, no con SQL crudo. `query()` es de solo
+ *   lectura a propósito (ver 012_ejecutar_sql.sql), así que un INSERT
+ *   por ahí ya no se ejecutaría.
+ *
+ * Nunca lanza: si falla el registro de un mensaje que ya se envió, lo
+ * que se quiere es que el bot siga contestando, no que un 500 tumbe la
+ * conversación entera.
+ */
+export async function registrarRespuesta(
+  ctx: WebhookContext,
+  datos: {
+    respuestaId?: string | null;
+    telefono: string;
+    mensaje: string;
+    coincidencia: string;
   }
-
-  select(columns: string): SupabaseMariaDB {
-    this.selectCols = safeColumnList(columns);
-    return this;
-  }
-  private selectCols = "*";
-
-  insert(data: Record<string, unknown>): SupabaseMariaDB {
-    this.insertData = data;
-    return this;
-  }
-  private insertData: Record<string, unknown> | null = null;
-  private insertedId: string | null = null;
-
-  update(data: Record<string, unknown>): SupabaseMariaDB {
-    this.updateData = data;
-    return this;
-  }
-  private updateData: Record<string, unknown> | null = null;
-
-  delete(): SupabaseMariaDB {
-    this.isDelete = true;
-    return this;
-  }
-  private isDelete = false;
-
-  // ── BUG CRÍTICO (arreglado) ────────────────────────────────────────────
-  // `whereClauses` y `whereParams` se USABAN en eq/neq/in/like y en execSelect
-  // (17 usos) pero NUNCA se declararon ni inicializaron → `this.whereClauses`
-  // era `undefined` y el primer `.eq()` tiraba:
-  //   TypeError: Cannot read properties of undefined (reading 'push')
-  // O sea: el builder NUNCA funcionó. Todos los handlers del webhook que usan
-  // `ctx.supabase.from(...).eq(...)` reventaban, y por eso el bot no
-  // respondía "turno" ni auto-respuestas ni menús. TypeScript lo reportaba
-  // (TS2339) y estaba escondido entre los ~100 errores preexistentes del repo.
-  private whereClauses: string[] = [];
-  private whereParams: unknown[] = [];
-
-  eq(column: string, value: unknown): SupabaseMariaDB {
-    this.whereClauses.push(`${safeIdent(column)} = ?`);
-    this.whereParams.push(value);
-    return this;
-  }
-
-  neq(column: string, value: unknown): SupabaseMariaDB {
-    this.whereClauses.push(`${safeIdent(column)} != ?`);
-    this.whereParams.push(value);
-    return this;
-  }
-
-  in(column: string, values: unknown[]): SupabaseMariaDB {
-    if (!values || values.length === 0) {
-      this.whereClauses.push("1 = 0"); // .in vacío → ninguna fila (semántica Supabase)
-      return this;
-    }
-    this.whereClauses.push(`${safeIdent(column)} IN (${values.map(() => "?").join(", ")})`);
-    this.whereParams.push(...values);
-    return this;
-  }
-
-  like(column: string, pattern: string): SupabaseMariaDB {
-    this.whereClauses.push(`${safeIdent(column)} LIKE ?`);
-    this.whereParams.push(pattern);
-    return this;
-  }
-
-  order(column: string, options: { ascending: boolean }): SupabaseMariaDB {
-    this.orderBy = { col: column, asc: options?.ascending !== false };
-    return this;
-  }
-  private orderBy: { col: string; asc: boolean } | null = null;
-
-  limit(n: number): SupabaseMariaDB {
-    this.limitCount = Math.max(0, Math.floor(Number(n) || 0));
-    return this;
-  }
-  private limitCount: number | null = null;
-
-  range(from: number, to: number): SupabaseMariaDB {
-    this.rangeFrom = Math.max(0, Math.floor(Number(from) || 0));
-    this.rangeTo = Math.max(0, Math.floor(Number(to) || 0));
-    return this;
-  }
-  private rangeFrom: number | null = null;
-  private rangeTo: number | null = null;
-
-  // ---- ejecución ----
-
-  private async execSelect(): Promise<DbResultRow[]> {
-    let sql = `SELECT ${this.selectCols} FROM ${safeIdent(this.table)}`;
-    if (this.whereClauses.length) sql += " WHERE " + this.whereClauses.join(" AND ");
-    if (this.orderBy) sql += ` ORDER BY ${safeIdent(this.orderBy.col)} ${this.orderBy.asc ? "ASC" : "DESC"}`;
-    if (this.rangeFrom !== null && this.rangeTo !== null) {
-      sql += ` LIMIT ${this.rangeFrom}, ${this.rangeTo - this.rangeFrom + 1}`;
-    } else if (this.limitCount !== null) {
-      sql += ` LIMIT ${this.limitCount}`;
-    }
-    return query<DbResultRow>(sql, this.whereParams);
-  }
-
-  /** Ejecuta la operación pendiente (select/insert/update/delete). */
-  private async exec(): Promise<{ data: any; error?: Error }> {
-    try {
-      if (!this.table) throw new Error("Query sin tabla: falta .from(table)");
-
-      if (this.insertData) {
-        const cols = Object.keys(this.insertData);
-        const id = generateId();
-        const allCols = [...cols, "id"];
-        const allVals = [...cols.map((c) => this.insertData![c]), id];
-        const sql = `INSERT INTO ${safeIdent(this.table)} (${allCols.map(safeIdent).join(", ")}) VALUES (${allCols.map(() => "?").join(", ")})`;
-        await query(sql, allVals);
-        this.insertedId = id;
-        return { data: { id, ...this.insertData } };
-      }
-
-      if (this.updateData) {
-        if (!this.whereClauses.length) throw new Error("UPDATE sin condiciones (falta .eq(...))");
-        const sets = Object.keys(this.updateData).map((c) => `${safeIdent(c)} = ?`);
-        const vals = Object.values(this.updateData);
-        const sql = `UPDATE ${safeIdent(this.table)} SET ${sets.join(", ")} WHERE ${this.whereClauses.join(" AND ")}`;
-        await query(sql, [...vals, ...this.whereParams]);
-        return { data: null };
-      }
-
-      if (this.isDelete) {
-        if (!this.whereClauses.length) throw new Error("DELETE sin condiciones (falta .eq(...))");
-        const sql = `DELETE FROM ${safeIdent(this.table)} WHERE ${this.whereClauses.join(" AND ")}`;
-        await query(sql, this.whereParams);
-        return { data: null };
-      }
-
-      const rows = await this.execSelect();
-      return { data: rows };
-    } catch (e) {
-      return { data: null, error: e instanceof Error ? e : new Error(String(e)) };
-    }
-  }
-
-  /** Hace el builder thenable: `await builder` ejecuta la operación pendiente. */
-  then<TResult1 = { data: any; error?: Error }, TResult2 = never>(
-    onfulfilled?: ((value: { data: any; error?: Error }) => TResult1 | PromiseLike<TResult1>) | null,
-    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-  ): PromiseLike<TResult1 | TResult2> {
-    return this.exec().then(onfulfilled, onrejected);
-  }
-
-  single(): Promise<{ data: any; error?: Error }> {
-    return this.exec().then((r) => {
-      if (r.error) return { data: null, error: r.error };
-      if (Array.isArray(r.data)) {
-        if (r.data.length === 0) return { data: null, error: new Error("Row not found") };
-        return { data: r.data[0] };
-      }
-      return { data: r.data };
+): Promise<void> {
+  try {
+    await ctx.supabase.from("bots_response_logs").insert({
+      bot_id: ctx.instance.id,
+      auto_response_id: datos.respuestaId ?? null,
+      incoming_phone: datos.telefono,
+      incoming_message: datos.mensaje,
+      matched_keyword: datos.coincidencia,
     });
-  }
-
-  maybeSingle(): Promise<{ data: any | null; error?: Error }> {
-    return this.exec().then((r) => {
-      if (r.error) return { data: null, error: r.error };
-      if (Array.isArray(r.data)) return { data: r.data[0] ?? null };
-      return { data: r.data ?? null };
+  } catch (e) {
+    console.error("[webhook] no se pudo registrar la respuesta", {
+      bot: ctx.instance.instance_name,
+      error: e instanceof Error ? e.message : String(e),
     });
   }
 }
 
-/** Crea el adaptador compartido del contexto del webhook. Stateless: cada .from() devuelve un builder nuevo. */
-export function createSupabaseMariaDB(): SupabaseMariaDB {
-  return new MariaDbBuilder("");
-}
-
-const PLAN_HIERARCHY: Record<string, number> = { starter: 1, pro: 2 };
-
-/** True si el plan actual alcanza el plan requerido (starter < pro). */
-export function hasPlan(current: PlanType, required: PlanType): boolean {
-  return (PLAN_HIERARCHY[current] ?? 0) >= (PLAN_HIERARCHY[required] ?? 0);
-}
-
-/** Shared context passed to every webhook handler.
- *  Contains the instance data and plan info. supabase is a MariaDB
- *  query builder (not the Supabase client). The handler calls
- *  ctx.supabase.from(...).select(...).insert(...) etc.
- */
+/** Contexto que recibe cada handler del webhook. */
 export interface WebhookContext {
-  supabase: SupabaseMariaDB;
+  /** Cliente de Supabase. API encadenada: `.from().select().eq()...` */
+  supabase: SupabaseClient;
+
+  /**
+   * El bot, con los datos de su servidor de Evolution ya resueltos.
+   *
+   * `evolution_api_url` y `evolution_api_key` NO están en la tabla
+   * `bots`: viven en `evolution_servers`, porque si estuvieran en la
+   * fila del cliente, este podría leer la clave compartida del servidor
+   * y manejar los bots de los demás clientes de ese servidor.
+   *
+   * Aquí se hace el join una vez, al resolver el webhook, y se deja el
+   * objeto plano. Así los 2.300 líneas de los handlers no saben nada
+   * del cambio: siguen leyendo `instance.evolution_api_key`.
+   */
   instance: {
     id: string;
+    client_id: string;
+    /** URL pública de reservas: /agendar/<slug>. Único en base de datos. */
+    slug: string;
     instance_name: string;
     evolution_api_url: string;
     evolution_api_key: string;
     welcome_message: string | null;
     outside_hours_message: string | null;
   };
-  plan: PlanType;
+
   instanceName: string;
   remoteJid: string;
   phoneNumber: string;
@@ -272,7 +138,7 @@ export interface WebhookContext {
   senderJid?: string;
   /** Raw selectedButtonId when the message is a button tap. */
   rawButtonId?: string;
-  /** Pre-fetched auto-responses for this instance (loaded once, shared) */
+  /** Pre-fetched auto-responses for this bot (loaded once, shared) */
   autoResponses?: AutoResponseRow[];
 }
 
@@ -286,10 +152,11 @@ export interface AutoResponseRow {
   response_media_url: string | null;
   priority: number;
   schedule: { from?: string; to?: string } | null;
-  user_id: string;
+  /* Sin user_id: el "quién" es el teléfono que escribe, no el usuario
+     de Nexo Studio. Ese campo ya no existe en el esquema. */
 }
 
-/** Result from a webhook handler */
+/** Resultado de un handler del webhook. */
 export interface HandlerResult {
   status: string;
   matched?: string;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { pool, query } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin/auth";
+import { getSession } from "@/lib/sesion";
 
 export const dynamic = "force-dynamic";
 
@@ -33,14 +33,22 @@ const EXPECTED: Record<string, string[]> = {
 };
 
 export async function GET() {
-  const auth = await requireAdmin();
-  if ("error" in auth) return auth.error;
+  /* Solo staff.
+
+     Antes era requireAdmin(), del panel de administración del bot, que ya no
+     existe: las incidencias las mira el equipo de Nexo Studio desde su
+     propio panel, con su sesión. */
+  const sesion = await getSession();
+  if (!sesion || sesion.rol !== "staff") {
+    return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
+  }
 
   const env = {
-    MARIADB_URL: process.env.MARIADB_URL ? "set" : "MISSING",
+    SUPABASE_URL: process.env.SUPABASE_URL ? "set" : "MISSING",
+    SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY ? "set" : "MISSING",
+    SERVICE_SECRET: process.env.SERVICE_SECRET ? "set" : "MISSING",
     WEBHOOK_SECRET: process.env.WEBHOOK_SECRET ? "set" : "MISSING",
     CRON_SECRET: process.env.CRON_SECRET ? "set" : "MISSING",
-    JWT_SECRET: process.env.JWT_SECRET ? "set" : "MISSING",
     BUSINESS_TIMEZONE: process.env.BUSINESS_TIMEZONE ?? "(default America/Argentina/Buenos_Aires)",
     APP_URL: process.env.APP_URL ?? "MISSING",
   };
@@ -48,7 +56,14 @@ export async function GET() {
   if (!pool) {
     return NextResponse.json({
       status: "error",
-      data: { env, pool: null, hint: "MARIADB_URL no definida o inválida → el pool quedó null y TODO el backend falla" },
+      data: {
+        env,
+        pool: null,
+        hint:
+          "Faltan SUPABASE_URL o SUPABASE_SECRET_KEY: sin ellas no se puede leer " +
+          "ni escribir en la base y TODO el backend falla. Se declaran en .env y " +
+          "en el panel de Coolify (cambiar variables exige redesplegar).",
+      },
     });
   }
 
@@ -124,12 +139,21 @@ export async function GET() {
       pool: "ok",
       db: dbOk ? "ok" : "no responde",
       timezoneOffsetMin: new Date().getTimezoneOffset(),
+      /* Antes esto miraba si el pool de MariaDB devolvía las fechas como
+         string o como Date (dependía de la opción `dateStrings` de
+         mysql2). Con Postgres no hay ese problema: `date` y `time`
+         llegan SIEMPRE como texto "YYYY-MM-DD" y "HH:MM", porque así los
+         define el driver.
+
+         El motivo de mirar esto sigue siendo real, pero el síntoma
+         cambió: si un campo llega como Date en vez de texto, es que
+         alguien puso un `timestamptz` donde iba un `date`. */
       typeSample: {
         appointment_date: typeOf(typeSample?.[0]?.appointment_date),
         appointment_date_value: valueOf(typeSample?.[0]?.appointment_date),
         appointment_time: typeOf(typeSample?.[0]?.appointment_time),
         appointment_time_value: valueOf(typeSample?.[0]?.appointment_time),
-        note: "esperado: string / string (pool con dateStrings). Si date es 'object', el dateStrings no aplicó",
+        note: "esperado: string / string. Si sale 'object', alguien metio un timestamptz donde iba un date",
       },
       counts: {
         tables: tables.length,

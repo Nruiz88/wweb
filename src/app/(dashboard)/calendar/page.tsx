@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Appointment, BusinessHours } from "@/lib/db/types";
-import { useUserPlan } from "@/hooks/useUserPlan";
-import PlanPaywall from "@/components/PlanPaywall";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,8 +56,10 @@ const hoursFormSchema = z.object({
 type HoursFormValues = z.infer<typeof hoursFormSchema>;
 
 export default function CalendarPage() {
-  const { plan, isAdmin, loading: planLoading } = useUserPlan();
-  const canEdit = isAdmin || plan === "pro";
+  /* No hay plan: entrar aquí ya significa que el bot está contratado, así
+     que siempre se puede editar. canEdit se conserva porque se usa en
+     varios sitios y dejar el nombre hace el JSX legible. */
+  const canEdit = true;
   const [instanceId, setInstanceId] = useState<string | null>(null);
   const [instances, setInstances] = useState<{ id: string; instance_name: string }[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -311,27 +311,10 @@ export default function CalendarPage() {
 
   const activeHoursCount = businessHours.filter((h) => h.is_active).length;
 
-  if (!planLoading && !canEdit) {
-    return (
-      <PlanPaywall
-        requiredPlan="pro"
-        currentPlan={plan}
-        isAdmin={isAdmin}
-        featureName="Calendario y Turnos"
-        description="Gestioná agenda, turnos y recordatorios automáticos para tu negocio"
-      />
-    );
-  }
 
   return (
     <div className="flex h-full flex-col bg-gradient-to-b from-wa-panel via-wa-panel to-wa-header/40">
       {/* Read-only banner */}
-      {!planLoading && plan && !isAdmin && (
-        <div className="mx-4 mt-4 flex items-center gap-2 rounded-xl border border-[#53bdeb]/30 bg-[#53bdeb]/10 px-4 py-2.5 text-xs font-medium text-[#53bdeb]">
-          <Shield className="h-3.5 w-3.5 shrink-0" />
-          Modo solo lectura — upgradeá a <strong>Pro</strong> para editar horarios y gestionar turnos
-        </div>
-      )}
 
       {/* Header */}
       <div className="px-4 sm:px-6 pt-4 pb-4">

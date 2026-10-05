@@ -1,203 +1,222 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
-import { query, generateId } from "@/lib/db";
+import { getSession, botDeLaSesion, clienteDeLaSesion } from "@/lib/sesion";
 import { rateLimitResponse } from "@/lib/rate-limit";
-import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
-import { requireProFeature, planForbiddenResponse } from "@/lib/plan-gating";
+import { isValidId } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
-// GET: List appointments (optionally filtered by date range or status)
-export async function GET(request: Request) {
+/* =========================================================
+   Citas del bot
+   ---------------------------------------------------------
+   El bot sale de `botDeLaSesion()` (RLS), no de `?instanceId=`.
+
+   El double-booking ya no se comprueba en el código: hay un
+   `EXCLUDE USING gist` en `bots_appointments` (migración 011 del
+   panel) que lo impide en la propia base. Antes era un SELECT previo,
+   y dos peticiones simultáneas se colaban las dos. Aquí el INSERT que
+   pisa un hueco falla con 23P01 y se traduce a 409.
+
+   ⚠️  DELETE NO EXISTE, Y ES A PROPÓSITO
+   ------------------------------------
+   `bots_appointments` no tiene política de borrado: el cliente lee,
+   crea y edita, pero no borra. El histórico de una agenda no se puede
+   reescribir a posteriori; si se pudiera, un problema de citas quedaría
+   sin rastro y no se podría auditar nunca. Por eso DELETE responde
+   405 y explica que se cancele.
+   ========================================================= */
+
+const ESTADOS = ["pending", "confirmed", "canceled", "completed"];
+
+const COLUMNAS =
+  "id, customer_phone, customer_name, appointment_date, appointment_time, duration_min, status, notes, created_at";
+
+async function contexto() {
   const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  if (!session) return { error: NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 }) };
+
+  const db = clienteDeLaSesion(session);
+  if (!db) {
+    return { error: NextResponse.json({ status: "error", error: "Sesión caducada" }, { status: 401 }) };
   }
 
-  const { searchParams } = new URL(request.url);
-  const instanceId = searchParams.get("instanceId");
-  const status = searchParams.get("status");
-  const dateFrom = searchParams.get("from");
-  const dateTo = searchParams.get("to");
-  const phone = searchParams.get("phone");
-
-  if (!instanceId) {
-    return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
+  const bot = await botDeLaSesion(session);
+  if (!bot) {
+    return { error: NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 }) };
   }
 
-  const hasAccess = await verifyUserAccess(session.userId, instanceId);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-  }
-
-  // El ORDER BY iba al final de la cadena base y los filtros se concatenaban
-  // DESPUÉS como " AND ..." → SQL inválido en cuanto se filtraba por fecha
-  // (que es lo que siempre manda /calendar). Error 1064 y el calendario en
-  // blanco. Igual bug estaba en /api/orders.
-  const where: string[] = ["instance_id = ?"];
-  const params: any[] = [instanceId];
-
-  if (status && ["pending", "confirmed", "canceled", "completed"].includes(status)) {
-    where.push("status = ?");
-    params.push(status);
-  }
-  if (dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
-    where.push("appointment_date >= ?");
-    params.push(dateFrom);
-  }
-  if (dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
-    where.push("appointment_date <= ?");
-    params.push(dateTo);
-  }
-  if (phone) {
-    where.push("customer_phone = ?");
-    params.push(phone);
-  }
-
-  // Proyección explícita: `SELECT *` arrastraba notes y datos del cliente de
-  // más. Sin paginación, como antes.
-  const appointments = await query<any>(
-    `SELECT id, instance_id, user_id, customer_phone, customer_name,
-            appointment_date, appointment_time, duration_min, status, notes, created_at
-     FROM appointments WHERE ${where.join(" AND ")}
-     ORDER BY appointment_date ASC, appointment_time ASC`,
-    params
-  );
-
-  return NextResponse.json({ status: "success", data: appointments });
+  return { db, bot };
 }
 
-// POST: Create new appointment (admin/system only — customers book via webhook)
+// GET /api/appointments?status=&from=&to=&phone=
+export async function GET(request: Request) {
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
+
+  const { searchParams } = new URL(request.url);
+
+  let q = ctx.db
+    .from("bots_appointments")
+    .select(COLUMNAS)
+    .eq("bot_id", ctx.bot.id)
+    .order("appointment_date", { ascending: true })
+    .order("appointment_time", { ascending: true });
+
+  const status = searchParams.get("status");
+  if (status && ESTADOS.includes(status)) q = q.eq("status", status);
+
+  const desde = searchParams.get("from");
+  if (desde && /^\d{4}-\d{2}-\d{2}$/.test(desde)) q = q.gte("appointment_date", desde);
+
+  const hasta = searchParams.get("to");
+  if (hasta && /^\d{4}-\d{2}-\d{2}$/.test(hasta)) q = q.lte("appointment_date", hasta);
+
+  const phone = searchParams.get("phone");
+  if (phone) q = q.eq("customer_phone", phone);
+
+  const { data, error } = await q;
+  if (error) return NextResponse.json({ status: "error", error: "No se pudieron leer las citas" }, { status: 500 });
+
+  return NextResponse.json({ status: "success", data: data ?? [] });
+}
+
+// POST /api/appointments { customerPhone, customerName, appointmentDate, appointmentTime, durationMin, notes }
 export async function POST(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "appointments", { maxRequests: 30, windowMs: 60_000 });
+  const rateLimitErr = await rateLimitResponse(request, "appointments", {
+    maxRequests: 30,
+    windowMs: 60_000,
+  });
   if (rateLimitErr) return rateLimitErr;
 
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
   let body: unknown;
-  try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
+  }
 
-  const { instanceId, customerPhone, customerName, appointmentDate, appointmentTime, durationMin, notes } = body as {
-    instanceId?: string; customerPhone?: string; customerName?: string;
-    appointmentDate?: string; appointmentTime?: string; durationMin?: number; notes?: string;
-  };
+  const { customerPhone, customerName, appointmentDate, appointmentTime, durationMin, notes } = body as Record<string, unknown>;
 
-  if (!instanceId || !customerPhone || !appointmentDate || !appointmentTime) {
+  if (!customerPhone || !appointmentDate || !appointmentTime) {
     return NextResponse.json(
-      { status: "error", error: "instanceId, customerPhone, appointmentDate, and appointmentTime are required" },
+      { status: "error", error: "customerPhone, appointmentDate y appointmentTime son obligatorios" },
       { status: 400 }
     );
   }
 
-  const hasAccess = await verifyUserAccess(session.userId, instanceId);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(appointmentDate)) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(appointmentTime))) {
+    return NextResponse.json({ status: "error", error: "Fecha u hora con formato inválido" }, { status: 400 });
   }
 
-  // Gating por plan: crear turnos es feature Pro (el owner de la instancia siempre pasa).
-  const planInfo = await requireProFeature(session.userId, instanceId, "appointments");
-  if (!planInfo) {
-    const forbidden = planForbiddenResponse("appointments");
-    return NextResponse.json(forbidden.body, { status: forbidden.status });
+  const duracion = Number(durationMin ?? 30);
+  if (!Number.isInteger(duracion) || duracion < 5 || duracion > 480) {
+    return NextResponse.json({ status: "error", error: "Duración inválida" }, { status: 400 });
   }
 
-  const conflicts = await query<{ id: string }>(
-    "SELECT id FROM appointments WHERE instance_id = ? AND appointment_date = ? AND appointment_time = ? AND status IN ('pending','confirmed') LIMIT 1",
-    [instanceId, appointmentDate, appointmentTime]
-  );
+  const { data, error } = await ctx.db
+    .from("bots_appointments")
+    .insert({
+      bot_id: ctx.bot.id,
+      customer_phone: String(customerPhone),
+      customer_name: customerName ? String(customerName) : null,
+      appointment_date: String(appointmentDate),
+      appointment_time: String(appointmentTime),
+      duration_min: duracion,
+      status: "pending",
+      notes: notes ? String(notes) : null,
+    })
+    .select("id, appointment_date, appointment_time")
+    .single();
 
-  if (conflicts.length > 0) {
-    return NextResponse.json({ status: "error", error: "Este horario ya está ocupado" }, { status: 409 });
+  if (error) {
+    /* 23P01 es la violación del EXCLUDE: el hueco ya está ocupado.
+       Es la respuesta CORRECTA a dos peticiones simultáneas, que antes
+       se colaban porque el SELECT previo no las veía. */
+    if (error.code === "23P01") {
+      return NextResponse.json({ status: "error", error: "Este horario ya está ocupado" }, { status: 409 });
+    }
+    /* 23503 sería un bot_id que no existe: no debería llegar aquí
+       porque sale de una consulta con RLS, pero se distingue del 500
+       genérico por si algún día lo hace. */
+    if (error.code === "23503") {
+      return NextResponse.json({ status: "error", error: "Bot no encontrado" }, { status: 404 });
+    }
+    return NextResponse.json({ status: "error", error: "No se pudo crear la cita" }, { status: 500 });
   }
 
-  const id = generateId();
-  await query(
-    "INSERT INTO appointments (id, instance_id, user_id, customer_phone, customer_name, appointment_date, appointment_time, duration_min, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NOW(), NOW())",
-    [id, instanceId, session.userId, customerPhone, customerName || null, appointmentDate, appointmentTime, durationMin ?? 30, notes || null]
-  );
-
-  return NextResponse.json({ status: "success", data: { id, appointment_date: appointmentDate, appointment_time: appointmentTime } });
+  return NextResponse.json({ status: "success", data });
 }
 
-// PATCH: Update appointment status
+// PATCH /api/appointments { id, status, notes, reminder24hSent }
 export async function PATCH(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "appointments", { maxRequests: 30, windowMs: 60_000 });
+  const rateLimitErr = await rateLimitResponse(request, "appointments", {
+    maxRequests: 30,
+    windowMs: 60_000,
+  });
   if (rateLimitErr) return rateLimitErr;
 
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
   let body: unknown;
-  try { body = await request.json(); } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
+  }
 
-  const { id, status, notes, reminder24hSent } = body as { id?: string; status?: string; notes?: string; reminder24hSent?: boolean };
-
-  if (!id) {
+  const { id, status, notes, reminder24hSent } = body as Record<string, unknown>;
+  if (typeof id !== "string" || !isValidId(id)) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const existing = await query<{ id: string; instance_id: string }>(
-    "SELECT id, instance_id FROM appointments WHERE id = ? LIMIT 1",
-    [id]
-  );
-
-  if (!existing.length) {
-    return NextResponse.json({ status: "error", error: "Appointment not found" }, { status: 404 });
+  const updates: Record<string, unknown> = {};
+  if (status !== undefined) {
+    if (typeof status !== "string" || !ESTADOS.includes(status)) {
+      return NextResponse.json({ status: "error", error: "status inválido" }, { status: 400 });
+    }
+    updates.status = status;
   }
+  if (notes !== undefined) updates.notes = notes ? String(notes) : null;
+  if (reminder24hSent !== undefined) updates.reminder_24h_sent = !!reminder24hSent;
 
-  const hasAccess = await verifyUserAccess(session.userId, existing[0].instance_id);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
+  if (Object.keys(updates).length === 0) return NextResponse.json({ status: "success" });
+
+  /* Cancelar libera el hueco: el filtro `where (estado in
+     ('pending','confirmed'))` del EXCLUDE deja de contar esa fila. Por
+     eso se cancela en vez de borrar. */
+  const { data, error } = await ctx.db
+    .from("bots_appointments")
+    .update(updates)
+    .eq("id", id)
+    .eq("bot_id", ctx.bot.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "23P01") {
+      return NextResponse.json({ status: "error", error: "Ese hueco pisa otra cita" }, { status: 409 });
+    }
+    return NextResponse.json({ status: "error", error: "No se pudo actualizar" }, { status: 500 });
   }
-
-  const updates: Record<string, any> = {};
-  if (status !== undefined) updates.status = status;
-  if (notes !== undefined) updates.notes = notes;
-  if (reminder24hSent !== undefined) updates.reminder_24h_sent = reminder24hSent;
-
-  const setClauses = Object.keys(updates).map((k) => `${k} = ?`);
-  const values = [...Object.values(updates), id];
-
-  await query(`UPDATE appointments SET ${setClauses.join(", ")} WHERE id = ?`, values);
+  if (!data) return NextResponse.json({ status: "error", error: "Appointment not found" }, { status: 404 });
 
   return NextResponse.json({ status: "success", data: { id, ...updates } });
 }
 
-// DELETE: Remove an appointment
-export async function DELETE(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "appointments", { maxRequests: 30, windowMs: 60_000 });
-  if (rateLimitErr) return rateLimitErr;
-
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get("id");
-  if (!id) {
-    return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
-  }
-
-  const existing = await query<{ id: string; instance_id: string }>(
-    "SELECT id, instance_id FROM appointments WHERE id = ? LIMIT 1",
-    [id]
+// DELETE /api/appointments?id=xxx
+export async function DELETE() {
+  /* Se responde y no se ejecuta. Ver la nota de arriba: no hay
+     política de borrado, y devolver un 403 de RLS sin explicar nada
+     dejaría al cliente creyendo que es un problema de permisos. */
+  return NextResponse.json(
+    {
+      status: "error",
+      error: "Las citas no se borran, se cancelan: el histórico de la agenda no se puede reescribir.",
+      usa: { metodo: "PATCH", cuerpo: { id: "...", status: "canceled" } },
+    },
+    { status: 405 }
   );
-
-  if (!existing.length) {
-    return NextResponse.json({ status: "error", error: "Appointment not found" }, { status: 404 });
-  }
-
-  const hasAccess = await verifyUserAccess(session.userId, existing[0].instance_id);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
-  }
-
-  await query("DELETE FROM appointments WHERE id = ?", [id]);
-  return NextResponse.json({ status: "success" });
 }

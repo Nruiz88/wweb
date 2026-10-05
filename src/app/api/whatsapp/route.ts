@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { getSession, botDeLaSesion, type Sesion } from "@/lib/sesion";
+import { getAdmin } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import {
   connectInstance,
@@ -51,94 +51,80 @@ interface ResolvedInstance {
 }
 
 /**
- * Resuelve la instancia sobre la que opera el usuario.
+/**
+ * El bot del cliente que está preguntando, con la conexión de su servidor.
  *
- * `ownerOnly` es lo que impide que un usuario merelyamente ASIGNADO
- * (user_instances) desconecte o fuerce el QR de la instancia de otro: el
- * fallback a `user_instances` de la versión anterior devolvía la
- * `evolution_api_key` del owner, así que `DELETE /api/whatsapp` deslogueaba
- * el WhatsApp de otra persona.
+ * ANTES esta función tenía tres ramas: instancias propias por
+ * `instances.admin_id`, y luego `user_instances` para las asignadas. Existía
+ * porque un usuario podía tener unas y otras, y había que decidir cuál
+ * manipulaba —con un comentario larguísimo sobre el riesgo de que
+ * `DELETE /api/whatsapp` deslogueara el WhatsApp de otra persona.
+ *
+ * AHORA hay un bot por cliente. El bot sale de la sesión (con RLS, así que
+ * no puede ser el de otro) y su conexión se resuelve con un JOIN a
+ * `evolution_servers`, que es donde viven la url y la clave.
+ *
+ * La clave se trae a memoria para hablar con Evolution, pero NUNCA se
+ * devuelve al cliente: la respuesta de esta ruta no la incluye.
  */
-async function resolveInstance(
-  userId: string,
-  selectedInstanceId?: string | null,
-  ownerOnly = false,
-): Promise<ResolvedInstance | null> {
-  const instances = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
-    `SELECT id, instance_name, evolution_api_url, evolution_api_key, status FROM instances WHERE admin_id = ? ${selectedInstanceId ? "AND id = ?" : ""} ORDER BY created_at DESC LIMIT 1`,
-    selectedInstanceId ? [userId, selectedInstanceId] : [userId]
-  );
-  if (instances?.length) {
-    return {
-      id: instances[0].id,
-      instance_name: instances[0].instance_name,
-      evolution_api_url: instances[0].evolution_api_url,
-      evolution_api_key: instances[0].evolution_api_key,
-      status: instances[0].status,
-    };
-  }
+async function resolverBot(sesion: Sesion): Promise<ResolvedInstance | null> {
+  const bot = await botDeLaSesion(sesion);
+  if (!bot) return null;
 
-  if (ownerOnly) return null;
+  /* La conexión va por la secret key: `evolution_servers` no tiene
+     políticas RLS a propósito, para que un cliente no pueda leer la clave
+     compartida del servidor. Aquí solo la usa el servidor. */
+  const { data } = await getAdmin()
+    .from("bots")
+    .select("instance_name, status, evolution_servers:server_id(url, api_key)")
+    .eq("id", bot.id)
+    .maybeSingle();
 
-  if (selectedInstanceId) {
-    const specific = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
-      `SELECT i.id, i.instance_name, i.evolution_api_url, i.evolution_api_key, i.status
-       FROM instances i JOIN user_instances ui ON ui.instance_id = i.id
-       WHERE ui.user_id = ? AND i.id = ? LIMIT 1`,
-      [userId, selectedInstanceId]
-    );
-    if (specific?.length) {
-      return {
-        id: specific[0].id,
-        instance_name: specific[0].instance_name,
-        evolution_api_url: specific[0].evolution_api_url,
-        evolution_api_key: specific[0].evolution_api_key,
-        status: specific[0].status,
-      };
-    }
-    return null;
-  }
+  if (!data) return null;
 
-  const assignment = await query<{ instance_id: string }>(
-    "SELECT instance_id FROM user_instances WHERE user_id = ? LIMIT 1",
-    [userId]
-  );
-  if (!assignment?.length) return null;
+  /* El JOIN viene como objeto (many-to-one) o como array si PostgREST no
+     conoce la cardinalidad. Con un tipo explícito se ve de un vistazo. */
+  type Nodo = { url: string; api_key: string };
+  const unido = data as unknown as {
+    evolution_servers: Nodo | Nodo[] | null;
+  };
+  const nodo = Array.isArray(unido.evolution_servers)
+    ? unido.evolution_servers[0]
+    : unido.evolution_servers;
 
-  const inst = await query<{ id: string; instance_name: string; evolution_api_url: string; evolution_api_key: string; status: string }>(
-    "SELECT id, instance_name, evolution_api_url, evolution_api_key, status FROM instances WHERE id = ? LIMIT 1",
-    [assignment[0].instance_id]
-  );
-  if (!inst?.length) return null;
+  if (!nodo) return null;
 
   return {
-    id: inst[0].id,
-    instance_name: inst[0].instance_name,
-    evolution_api_url: inst[0].evolution_api_url,
-    evolution_api_key: inst[0].evolution_api_key,
-    status: inst[0].status,
+    id: bot.id,
+    instance_name: data.instance_name,
+    evolution_api_url: nodo.url,
+    evolution_api_key: nodo.api_key,
+    status: data.status,
   };
 }
 
-async function getAuthUser() {
-  const session = await getSession();
-  return session?.userId;
+/* Antes esto devolvía un userId y las rutas lo pasaban a
+   resolveInstance, que iba a la tabla. Ahora se pasa la sesión entera,
+   que es lo que necesita botDeLaSesion para resolver el bot con RLS. */
+async function sesionActiva(): Promise<Sesion | null> {
+  return getSession();
 }
 
-// GET: Get instance status + QR code
+// GET: estado de la conexión y QR
 export async function GET(request: Request) {
   const webhookUrl = buildWebhookUrl(request);
-  const userId = await getAuthUser();
-  if (!userId) {
+  const sesion = await sesionActiva();
+  if (!sesion) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
   // El selector de /whatsapp manda ?instanceId=, pero la ruta lo ignoraba y
   // siempre operaba sobre la más reciente (ORDER BY created_at DESC LIMIT 1).
-  const selectedId = new URL(request.url).searchParams.get("instanceId");
-  const instance = await resolveInstance(userId, selectedId);
+  /* Ya no se elige instancia: hay una por cliente. El ?instanceId= que mandaba
+     el selector de /whatsapp se ignora a propósito. */
+  const instance = await resolverBot(sesion);
   if (!instance) {
-    return NextResponse.json({ status: "error", error: "No tienes una instancia asignada" }, { status: 404 });
+    return NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 });
   }
 
   const stateResult = await getConnectionState(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name);
@@ -155,7 +141,7 @@ export async function GET(request: Request) {
       // Evolution) cuando no parsea el estado → el UPDATE violaba el CHECK,
       // reventaba sin catch y el polling del QR devolvía 500.
       const persistable = INSTANCE_STATUSES.has(stateResult.data) ? stateResult.data : "connecting";
-      await query("UPDATE instances SET status = ? WHERE id = ?", [persistable, instance.id]);
+      await getAdmin().from("bots").update({ status: persistable }).eq("id", instance.id);
     }
     if (justLoggedOut && Date.now() - (recentLogout.get(key) ?? 0) >= LOGOUT_GRACE_MS) {
       recentLogout.delete(key);
@@ -202,17 +188,18 @@ export async function POST(request: Request) {
   if (rateLimitErr) return rateLimitErr;
 
   const webhookUrl = buildWebhookUrl(request);
-  const userId = await getAuthUser();
-  if (!userId) {
+  const sesion = await sesionActiva();
+  if (!sesion) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  // ownerOnly: conectar/fuerzar el QR modifica el estado del WhatsApp, así que
-  // solo el dueño de la instancia (instances.admin_id) puede hacerlo.
-  const selectedId = new URL(request.url).searchParams.get("instanceId");
-  const instance = await resolveInstance(userId, selectedId, true);
+  /* Conectar o forzar el QR modifica el estado del WhatsApp. Antes solo
+     podía hacerlo el dueño de la instancia (`instances.admin_id`), y por
+     eso existía el parámetro `ownerOnly`. Ahora el bot sale de la
+     sesión con RLS, así que no hay nadie más a quien dejar pasar. */
+  const instance = await resolverBot(sesion);
   if (!instance) {
-    return NextResponse.json({ status: "error", error: "No tenés una instancia propia" }, { status: 404 });
+    return NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 });
   }
 
   if (webhookUrl) {
@@ -224,7 +211,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: result.message }, { status: 500 });
   }
 
-  await query("UPDATE instances SET status = 'qrcode' WHERE id = ?", [instance.id]);
+  await getAdmin().from("bots").update({ status: "qrcode" }).eq("id", instance.id);
 
   let qrCode = result.data?.base64 || result.data?.b64 || null;
   if (qrCode && !qrCode.startsWith("data:")) {
@@ -242,23 +229,24 @@ export async function DELETE(request: Request) {
   const rateLimitErr = await rateLimitResponse(request, "whatsapp-logout", { maxRequests: 20, windowMs: 60_000 });
   if (rateLimitErr) return rateLimitErr;
 
-  const userId = await getAuthUser();
-  if (!userId) {
+  const sesion = await sesionActiva();
+  if (!sesion) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
-  // ownerOnly: desloguear deja sin WhatsApp a la persona. Antes un usuario
-  // merelyamente ASIGNADO podía desloguear la instancia del owner.
-  const selectedId = new URL(request.url).searchParams.get("instanceId");
-  const instance = await resolveInstance(userId, selectedId, true);
+  /* Desloguear deja sin WhatsApp a la persona. Antes un usuario merelyamente
+     ASIGNADO podía desloguear la instancia del owner, y por eso existía
+     `ownerOnly`. Ahora el bot sale de la sesión con RLS: solo se toca el
+     propio. */
+  const instance = await resolverBot(sesion);
   if (!instance) {
-    return NextResponse.json({ status: "error", error: "No tenés una instancia propia" }, { status: 404 });
+    return NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 });
   }
 
   const result = await logoutInstance(instance.evolution_api_url, instance.evolution_api_key, instance.instance_name);
 
   // Always mark as disconnected locally
-  await query("UPDATE instances SET status = 'close' WHERE id = ?", [instance.id]);
+  await getAdmin().from("bots").update({ status: "close" }).eq("id", instance.id);
 
   const key = cacheKey(instance.evolution_api_url, instance.instance_name);
   qrCache.delete(key);

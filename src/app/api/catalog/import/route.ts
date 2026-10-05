@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
-import { query, generateId } from "@/lib/db";
+import { getSession, botDeLaSesion } from "@/lib/sesion";
+import { query, getAdmin } from "@/lib/db";
 import { rateLimitResponse } from "@/lib/rate-limit";
-import { verifyUserAccess } from "@/lib/api-helpers";
 import { isValidId } from "@/lib/validation";
 import { parsePriceList } from "@/lib/price-list";
 
@@ -47,20 +46,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { instanceId, text, items, defaultCategory, replaceAll } = body as {
-    instanceId?: unknown;
+  const { text, items, defaultCategory, replaceAll } = body as {
     text?: unknown;
     items?: unknown;
     defaultCategory?: unknown;
     replaceAll?: unknown;
   };
 
-  if (typeof instanceId !== "string" || !isValidId(instanceId)) {
-    return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
+  const bot = await botDeLaSesion(session);
+  if (!bot) {
+    return NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 });
   }
-  if (!(await verifyUserAccess(session.userId, instanceId))) {
-    return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
-  }
+  const db = getAdmin();
 
   // ── Camino 1: pegar texto (dry run) ───────────────────────────────────
   if (typeof text === "string") {
@@ -79,8 +76,8 @@ export async function POST(request: Request) {
 
     // Qué productos YA existen con ese nombre, para avisar antes de escribir.
     const existing = await query<{ label: string }>(
-      "SELECT label FROM catalog_items WHERE instance_id = ?",
-      [instanceId]
+      "SELECT label FROM bots_catalog_items WHERE bot_id = ?",
+      [bot.id]
     );
     const existingSet = new Set(existing.map((e) => normalizeName(e.label)));
 
@@ -154,29 +151,39 @@ export async function POST(request: Request) {
     );
   }
 
-  const startSort = await query<{ n: number }>(
-    "SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM catalog_items WHERE instance_id = ?",
-    [instanceId]
-  );
-  let sort = Number(startSort?.[0]?.n ?? 0);
+  const { data: ultimo } = await db
+    .from("bots_catalog_items")
+    .select("sort_order")
+    .eq("bot_id", bot.id)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  let sort = Number(ultimo?.sort_order ?? -1) + 1;
 
   if (replaceAll === true) {
-    // "Reemplazar todo": desactiva en vez de borrar, así el merchant puede
-    // recuperar con un clic. Borrar de verdad sería irreversible y no vale la
-    // pena para una carga masiva.
-    await query("UPDATE catalog_items SET active = false, updated_at = NOW() WHERE instance_id = ? AND active = true", [instanceId]);
+    /* "Reemplazar todo": desactiva en vez de borrar, así el merchant puede
+       recuperar con un clic. Borrar de verdad sería irreversible y no vale
+       la pena para una carga masiva. */
+    await db
+      .from("bots_catalog_items")
+      .update({ active: false })
+      .eq("bot_id", bot.id)
+      .eq("active", true);
   }
 
   const inserted: string[] = [];
   const failed: string[] = [];
   for (const item of clean) {
     try {
-      const id = generateId();
-      await query(
-        `INSERT INTO catalog_items (id, instance_id, label, price_cents, active, sort_order, category, created_at, updated_at)
-         VALUES (?, ?, ?, ?, true, ?, ?, NOW(), NOW())`,
-        [id, instanceId, item.label, item.price_cents, sort++, item.category]
-      );
+    const { error: errorFila } = await db.from("bots_catalog_items").insert({
+      bot_id: bot.id,
+      label: item.label,
+      price_cents: item.price_cents,
+      active: true,
+      sort_order: sort++,
+      category: item.category,
+    });
+    if (errorFila) throw new Error(errorFila.message);
       inserted.push(item.label);
     } catch (e) {
       failed.push(item.label);

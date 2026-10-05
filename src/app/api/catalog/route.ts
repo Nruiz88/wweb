@@ -1,76 +1,29 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
-import { query, generateId } from "@/lib/db";
+import { getSession, botDeLaSesion, clienteDeLaSesion } from "@/lib/sesion";
 import { rateLimitResponse } from "@/lib/rate-limit";
-import { verifyUserAccess, safeErrorMessage } from "@/lib/api-helpers";
 import { isValidId } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/catalog?instanceId=xxx
-export async function GET(request: Request) {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+/* =========================================================
+   Catálogo del bot
+   ---------------------------------------------------------
+   Antes cada petición traía `?instanceId=` y lo comprobaba con
+   `verifyUserAccess`. En PATCH y DELETE el patrón era peor: una
+   consulta para leer de qué instancia era el producto, y otra para
+   modificarlo que NO repetía ese filtro. Si entre ambas cosas cambiaba
+   el dueño, el UPDATE tocaba el catálogo de otro.
 
-  const url = new URL(request.url);
-  const instanceId = url.searchParams.get("instanceId");
-  if (!instanceId || !isValidId(instanceId)) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
+   Ahora el bot sale de `botDeLaSesion()` (RLS) y el `bot_id` va en el
+   WHERE de la propia operación: una sola llamada, y si el producto es
+   de otro cliente no hay nada que actualizar.
 
-  const hasAccess = await verifyUserAccess(session.userId, instanceId);
-  if (!hasAccess) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
+   Todo va con el cliente de Supabase en vez de con `query()`, que va a
+   `ejecutar_sql` y es de SOLO LECTURA (migración 012 del panel).
+   ========================================================= */
 
-  const items = await query<{ id: string; instance_id: string; label: string; description: string | null; price_cents: number; active: boolean; sort_order: number; category: string | null; created_at: string; updated_at: string }>(
-    "SELECT id, instance_id, label, description, price_cents, active, sort_order, category, created_at, updated_at FROM catalog_items WHERE instance_id = ? ORDER BY sort_order ASC",
-    [instanceId]
-  );
-
-  return NextResponse.json({ status: "success", data: items });
-}
-
-// POST /api/catalog { instanceId, label, price_cents, description, category, active, sort_order }
-export async function POST(request: Request) {
-  const rl = await rateLimitResponse(request, "catalog-post", { maxRequests: 30 });
-  if (rl) return rl;
-
-  const session = await getSession();
-  if (!session) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-
-  let body: Record<string, unknown>;
-  try { body = (await request.json()) as Record<string, unknown>; } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
-
-  const { instanceId, label, price_cents, description, category, image_url, active, sort_order } = body as {
-    instanceId?: unknown; label?: unknown; price_cents?: unknown; description?: unknown;
-    category?: unknown; image_url?: unknown; active?: unknown; sort_order?: unknown;
-  };
-
-  if (typeof instanceId !== "string" || !isValidId(instanceId)) return NextResponse.json({ status: "error", error: "instanceId required" }, { status: 400 });
-  const cleanLabel = String(label ?? "").trim();
-  if (!cleanLabel) return NextResponse.json({ status: "error", error: "label required" }, { status: 400 });
-  const price = Number(price_cents);
-  if (isNaN(price) || price < 0) return NextResponse.json({ status: "error", error: "price invalid" }, { status: 400 });
-  // Solo http(s) y data: (para imágenes subidas como data URL). Corta AttemptSSRF.
-  const imageUrl = normalizeImageUrl(image_url);
-
-  const hasAccess = await verifyUserAccess(session.userId, instanceId);
-  if (!hasAccess) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
-
-  const id = generateId();
-  await query(
-    // `category` se ESCARTABA en el INSERT: el form la mandaba pero no se
-    // guardaba, así que todo producto nuevo salía sin categoría.
-    `INSERT INTO catalog_items (id, instance_id, label, description, price_cents, active, sort_order, category, image_url, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-    [
-      id, instanceId, cleanLabel,
-      description ? String(description).trim() : null,
-      Math.round(price), active ?? true, Number(sort_order) || 0,
-      category ? String(category).trim() : null,
-      imageUrl,
-    ]
-  );
-
-  return NextResponse.json({ status: "success", data: { id, label: cleanLabel, price_cents: Math.round(price), category: category || null, image_url: imageUrl } });
-}
+const COLUMNAS =
+  "id, label, description, price_cents, active, sort_order, category, image_url, created_at, updated_at";
 
 /** Acepta solo http(s) y data:image/. Cualquier otra cosa se descarta. */
 function normalizeImageUrl(value: unknown): string | null {
@@ -82,65 +35,181 @@ function normalizeImageUrl(value: unknown): string | null {
   return null;
 }
 
-// PATCH /api/catalog { id, ...fields }
-export async function PATCH(request: Request) {
+async function contexto() {
   const session = await getSession();
-  if (!session) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  if (!session) return { error: NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 }) };
+
+  const db = clienteDeLaSesion(session);
+  if (!db) {
+    return { error: NextResponse.json({ status: "error", error: "Sesión caducada" }, { status: 401 }) };
+  }
+
+  const bot = await botDeLaSesion(session);
+  if (!bot) {
+    return { error: NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 }) };
+  }
+
+  return { db, bot };
+}
+
+// GET /api/catalog
+export async function GET() {
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
+
+  const { data, error } = await ctx.db
+    .from("bots_catalog_items")
+    .select(COLUMNAS)
+    .eq("bot_id", ctx.bot.id)
+    .order("sort_order", { ascending: true });
+
+  if (error) return NextResponse.json({ status: "error", error: "No se pudo leer el catálogo" }, { status: 500 });
+
+  return NextResponse.json({ status: "success", data: data ?? [] });
+}
+
+// POST /api/catalog { label, price_cents, description, category, image_url, active, sort_order }
+export async function POST(request: Request) {
+  const rl = await rateLimitResponse(request, "catalog-post", { maxRequests: 30 });
+  if (rl) return rl;
+
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
   let body: Record<string, unknown>;
-  try { body = (await request.json()) as Record<string, unknown>; } catch { return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 }); }
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
+  }
 
-  const { id, label, price_cents, description, category, image_url, active, sort_order } = body as {
-    id?: unknown; label?: unknown; price_cents?: unknown; description?: unknown;
-    category?: unknown; image_url?: unknown; active?: unknown; sort_order?: unknown;
-  };
+  const { label, price_cents, description, category, image_url, active, sort_order } = body as Record<string, unknown>;
 
-  if (typeof id !== "string" || !isValidId(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
+  const cleanLabel = String(label ?? "").trim();
+  if (!cleanLabel) return NextResponse.json({ status: "error", error: "label required" }, { status: 400 });
+  if (cleanLabel.length > 200) {
+    return NextResponse.json({ status: "error", error: "label demasiado largo" }, { status: 400 });
+  }
 
-  const existing = await query<{ instance_id: string }>(
-    "SELECT instance_id FROM catalog_items WHERE id = ? LIMIT 1",
-    [id]
-  );
+  const price = Number(price_cents);
+  if (!Number.isFinite(price) || price < 0) {
+    return NextResponse.json({ status: "error", error: "price invalid" }, { status: 400 });
+  }
 
-  if (!existing.length) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
-  const hasAccess = await verifyUserAccess(session.userId, existing[0].instance_id);
-  if (!hasAccess) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
+  const imageUrl = normalizeImageUrl(image_url);
 
-  const updates: Record<string, any> = {};
-  if (label !== undefined) { const c = String(label).trim(); if (!c) return NextResponse.json({ status: "error", error: "label invalid" }, { status: 400 }); updates.label = c; }
-  if (price_cents !== undefined) { const p = Number(price_cents); if (isNaN(p) || p < 0) return NextResponse.json({ status: "error", error: "price invalid" }, { status: 400 }); updates.price_cents = Math.round(p); }
+  /* Un `sort_order` que no es un número se trata como 0, no como error:
+     el formulario siempre lo manda, y rechazar el alta del producto
+     porque el orden venga vacío era más molesto que útil. */
+  const orden = Number(sort_order);
+
+  /* `category` antes se ESCAPABA del INSERT: el formulario la mandaba
+     pero no se guardaba, así que todo producto nuevo salía sin
+     categoría. */
+  const { data, error } = await ctx.db
+    .from("bots_catalog_items")
+    .insert({
+      bot_id: ctx.bot.id,
+      label: cleanLabel,
+      description: description ? String(description).trim() : null,
+      price_cents: Math.round(price),
+      active: active ?? true,
+      sort_order: Number.isFinite(orden) ? orden : 0,
+      category: category ? String(category).trim() : null,
+      image_url: imageUrl,
+    })
+    .select("id, label, price_cents, category, image_url")
+    .single();
+
+  if (error) return NextResponse.json({ status: "error", error: "No se pudo guardar el producto" }, { status: 500 });
+
+  return NextResponse.json({ status: "success", data });
+}
+
+// PATCH /api/catalog { id, ...fields }
+export async function PATCH(request: Request) {
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const { id } = body as { id?: unknown };
+  if (typeof id !== "string" || !isValidId(id)) {
+    return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
+  }
+
+  /* El WHERE lleva `bot_id`, así que la pertenencia se comprueba en la
+     propia operación. Con el cliente además la aplica RLS: por mucho
+     que el id sea de otro bot, la política `gestionar su catalogo` no
+     deja tocarlo y devuelve cero filas. */
+  const updates: Record<string, unknown> = {};
+  const { label, price_cents, description, category, image_url, active, sort_order } = body;
+
+  if (label !== undefined) {
+    const c = String(label).trim();
+    if (!c) return NextResponse.json({ status: "error", error: "label invalid" }, { status: 400 });
+    updates.label = c;
+  }
+  if (price_cents !== undefined) {
+    const p = Number(price_cents);
+    if (!Number.isFinite(p) || p < 0) {
+      return NextResponse.json({ status: "error", error: "price invalid" }, { status: 400 });
+    }
+    updates.price_cents = Math.round(p);
+  }
   if (description !== undefined) updates.description = description ? String(description).trim() : null;
   if (category !== undefined) updates.category = category ? String(category).trim() : null;
   if (image_url !== undefined) updates.image_url = normalizeImageUrl(image_url);
   if (active !== undefined) updates.active = !!active;
-  if (sort_order !== undefined) updates.sort_order = Number(sort_order) || 0;
+  if (sort_order !== undefined) {
+    const s = Number(sort_order);
+    if (!Number.isFinite(s)) {
+      return NextResponse.json({ status: "error", error: "sort_order invalid" }, { status: 400 });
+    }
+    updates.sort_order = s;
+  }
 
   if (Object.keys(updates).length === 0) return NextResponse.json({ status: "success" });
 
-  const setClauses = Object.keys(updates).map((k) => `${k} = ?`);
-  const values = [...Object.values(updates), id];
-  await query(`UPDATE catalog_items SET ${setClauses.join(", ")} WHERE id = ?`, values);
+  const { data, error } = await ctx.db
+    .from("bots_catalog_items")
+    .update(updates)
+    .eq("id", id)
+    .eq("bot_id", ctx.bot.id)
+    .select("id, label, price_cents, description, category, image_url, active, sort_order")
+    .maybeSingle();
 
-  return NextResponse.json({ status: "success", data: { id, ...updates } });
+  if (error) return NextResponse.json({ status: "error", error: "No se pudo actualizar" }, { status: 500 });
+  if (!data) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
+
+  return NextResponse.json({ status: "success", data });
 }
 
 // DELETE /api/catalog?id=xxx
 export async function DELETE(request: Request) {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
   const id = new URL(request.url).searchParams.get("id");
-  if (!id || !isValidId(id)) return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
+  if (!id || !isValidId(id)) {
+    return NextResponse.json({ status: "error", error: "id required" }, { status: 400 });
+  }
 
-  const existing = await query<{ instance_id: string }>(
-    "SELECT instance_id FROM catalog_items WHERE id = ? LIMIT 1",
-    [id]
-  );
+  const { data, error } = await ctx.db
+    .from("bots_catalog_items")
+    .delete()
+    .eq("id", id)
+    .eq("bot_id", ctx.bot.id)
+    .select("id")
+    .maybeSingle();
 
-  if (!existing.length) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
-  const hasAccess = await verifyUserAccess(session.userId, existing[0].instance_id);
-  if (!hasAccess) return NextResponse.json({ status: "error", error: "Forbidden" }, { status: 403 });
+  if (error) return NextResponse.json({ status: "error", error: "No se pudo borrar" }, { status: 500 });
+  if (!data) return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
 
-  await query("DELETE FROM catalog_items WHERE id = ?", [id]);
   return NextResponse.json({ status: "success" });
 }

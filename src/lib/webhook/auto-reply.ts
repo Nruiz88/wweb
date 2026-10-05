@@ -2,11 +2,10 @@ import { query, generateId } from "../db";
 import { sendTextMessage } from "../evolution-multi";
 import { isWithinSchedule, matchKeyword, matchRegex } from "../webhook-matching";
 import { sendMenuResponse } from "./menus";
-import type { WebhookContext } from "./context";
+import { registrarRespuesta, type WebhookContext } from "./context";
 
 /** Regular keyword/regex auto-reply matching.
- * The core feature of the Starter plan.
- * Requires: Starter plan
+ * (ya no hay gating por plan: lo decide `tiene_modulo()` en Nexo Studio)
  */
 export async function handleAutoReply(ctx: WebhookContext) {
   const { supabase, instance, phoneNumber, remoteJid, effectiveText, instanceName } = ctx;
@@ -53,7 +52,7 @@ export async function handleAutoReply(ctx: WebhookContext) {
     );
     if (!ok) return { status: "error" as const, error: "No se pudo enviar el menú" };
     try {
-      await logMatch(matched, instance.id, remoteJid, effectiveText, matchedKeyword);
+      await logMatch(ctx, matched, remoteJid, effectiveText, matchedKeyword);
     } catch { /* non-critical */ }
     return { status: "success" as const, matched: matchedKeyword, response: "[menú]" };
   }
@@ -71,7 +70,7 @@ export async function handleAutoReply(ctx: WebhookContext) {
   }
 
   try {
-    await logMatch(matched, instance.id, remoteJid, effectiveText, matchedKeyword);
+    await logMatch(ctx, matched, remoteJid, effectiveText, matchedKeyword);
   } catch (logErr) {
     console.error("[webhook] error guardando log", { instance: instanceName, error: logErr });
   }
@@ -84,17 +83,18 @@ export async function handleAutoReply(ctx: WebhookContext) {
   };
 }
 
-/** Registra el match en response_logs. */
-async function logMatch(
-  ar: { id: string; user_id: string },
-  instanceId: string,
-  remoteJid: string,
-  incomingMessage: string,
-  keyword: string,
-) {
-  await query(
-    `INSERT INTO response_logs (id, instance_id, auto_response_id, user_id, incoming_phone, incoming_message, matched_keyword, sent_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-    [generateId(), instanceId, ar.id, ar.user_id, remoteJid, incomingMessage, keyword]
-  );
-}
+  /** Registra el match en el histórico. */
+  async function logMatch(
+    ctx: WebhookContext,
+    ar: { id: string },
+    remoteJid: string,
+    incomingMessage: string,
+    keyword: string,
+  ) {
+    await registrarRespuesta(ctx, {
+      respuestaId: ar.id,
+      telefono: remoteJid,
+      mensaje: incomingMessage,
+      coincidencia: keyword,
+    });
+  }

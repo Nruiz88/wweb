@@ -1,34 +1,59 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mockeamos @/lib/db: el seeder solo hace INSERTs, y sin MARIADB_URL el pool
-// es null en los tests.
+/* Mockeamos @/lib/db.
+
+   Antes solo hacía INSERTs por `query()`, que en los tests es un vi.fn().
+   Ahora las escrituras van por el CLIENTE (`getAdmin().from(...).insert()`)
+   y `query()` solo queda para el SELECT de idempotencia.
+
+   Por eso el mock de abajo devuelve una cadena de objetos encadenados:
+   `from().insert()` devuelve algo, y ese algo tiene que admitir `.then()`
+   para que el `await` del seeder funcione y capture lo que se inserta. */
 const query = vi.fn();
+const insertados: Array<Record<string, unknown>> = [];
+
+function cadena() {
+  const p: any = Promise.resolve({ data: null, error: null });
+  const self: any = {
+    then: p.then.bind(p),
+    insert: (fila: Record<string, unknown>) => {
+      insertados.push(fila);
+      return self;
+    },
+    select: () => self,
+    eq: () => self,
+  };
+  return self;
+}
+
 vi.mock("@/lib/db", () => ({
   query: (...args: unknown[]) => query(...args),
   generateId: () => `id-${Math.random().toString(36).slice(2, 12)}`,
+  getAdmin: () => ({ from: () => cadena() }),
 }));
 
 const { seedDefaults } = await import("./seed-defaults");
 
+/* Las filas insertadas son ahora los objetos que se pasaron a .insert(),
+   no hay SQL que parsear. */
 function insertedRows(): Array<Record<string, unknown>> {
-  return query.mock.calls
-    .filter((c) => String(c[0]).trim().toUpperCase().startsWith("INSERT"))
-    .map((c) => {
-      const sql = String(c[0]);
-      // La lista de columnas es el ÚLTIMO grupoParentheses antes de VALUES.
-      // Usar indexOf("(") engancha el de "auto_responses(" y rompe todo.
-      const m = /\(([^()]*)\)\s*VALUES/i.exec(sql);
-      const cols = m ? m[1].split(",").map((s) => s.trim()) : [];
-      const vals = (c[1] ?? []) as unknown[];
-      const row: Record<string, unknown> = {};
-      cols.forEach((col, i) => { row[col] = vals[i]; });
-      return row;
-    });
+  return insertados;
 }
-
 describe("seedDefaults", () => {
   beforeEach(() => {
     query.mockReset();
+    /* También hay que vaciar las filas insertadas.
+
+       Antes esto no hacía falta porque cada test comprobaba `query`,
+       que `mockReset()` limpiaba. Ahora las insertaciones van a un
+       array propio y sin vaciarlo cada test veía las filas de los
+       anteriores: el que espera `inst-9` encontraba antes un `inst-1`
+       del test previo, y el del nombre genérico veía el "Craft 3D" del
+       test anterior en vez del "Menú" que pedía.
+
+       O sea: dos tests empezaban a fallar no por el seeder, sino por
+       estado que se les escapaba de tests anteriores. */
+    insertados.length = 0;
   });
 
   it("crea respuestas base y un menú", async () => {
@@ -56,7 +81,7 @@ describe("seedDefaults", () => {
     expect(menu).toBeDefined();
     expect(menu!.keyword).toBe("menu");
 
-    const config = JSON.parse(menu!.menu_config as string) as {
+    const config = menu!.menu_config as {
       title: string;
       buttons: Array<{ text: string; target_id: string }>;
     };
@@ -74,7 +99,7 @@ describe("seedDefaults", () => {
     query.mockResolvedValueOnce([{ n: 0 }]);
     await seedDefaults("inst-1", "user-1", "Craft 3D");
     const menu = insertedRows().find((r) => r.response_type === "menu")!;
-    const config = JSON.parse(menu.menu_config as string) as { buttons: unknown[] };
+    const config = menu.menu_config as { buttons: unknown[] };
     expect(config.buttons.length).toBeLessThanOrEqual(3);
   });
 
@@ -104,17 +129,23 @@ describe("seedDefaults", () => {
     query.mockResolvedValueOnce([{ n: 0 }]);
     await seedDefaults("inst-1", "user-1", "");
     const menu = insertedRows().find((r) => r.response_type === "menu")!;
-    const config = JSON.parse(menu.menu_config as string) as { title: string };
+    const config = menu.menu_config as { title: string };
     expect(config.title).toContain("Menú");
   });
 
-  it("todo lo creado queda activo y con el instance/user correctos", async () => {
+  it("todo lo creado queda activo y con el bot correcto", async () => {
     query.mockResolvedValueOnce([{ n: 0 }]);
     await seedDefaults("inst-9", "user-9", "Craft 3D");
     for (const r of insertedRows()) {
-      expect(r.instance_id).toBe("inst-9");
-      expect(r.user_id).toBe("user-9");
+      expect(r.bot_id).toBe("inst-9");
       expect(r.is_active).toBe(true);
+      // user_id ya no está en el esquema: el "quién" es el teléfono que
+      // escribe, no el usuario de Nexo Studio. Que no aparezca es justo
+      // lo que se quiere comprobar.
+      expect("user_id" in r).toBe(false);
+      // Y todas las filas tienen id, que es lo que permite que el menú
+      // apunte a ellas por target_id.
+      expect(String(r.id ?? "").length).toBeGreaterThan(0);
     }
   });
 });

@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LogoMark } from "@/components/logo";
 import { CommandPalette } from "@/components/command-palette";
-import { PlanProvider, usePlanContext } from "@/components/plan-context";
+import { UsuarioProvider, useUsuario } from "@/components/usuario-context";
 import { cn } from "@/lib/utils";
 import { LogOut } from "lucide-react";
 
@@ -51,58 +51,67 @@ const CALENDAR_NAV = {
   ],
 };
 
-const PLAN_NAV: Record<string, { href: string; label: string; icon: typeof HomeIcon; children?: NavChild[] }[]> = {
-  pro: [CALENDAR_NAV],
-};
+/* No hay PLAN_NAV. Antes solo los clientes "pro" veían el calendario y los
+   "starter" se lo Pian con un paywall. Ahora todo cliente que llega aquí
+   tiene el bot contratado —lo comprueba el proxy en cada petición—, así que
+   el calendario es parte del panel como el resto.
+
+   Si algún día volvieran los bots extra, el filtrado se haría por
+   SUSCRIPCIÓN y en el SERVIDOR, no en el cliente: un cliente no puede
+   ocultar lo que ya tiene contratado, y ocultarlo en el cliente solo
+   esconde la UI mientras el endpoint seguiría contestando. */
 
 const TAIL_NAV = [
   { href: "/logs", label: "Actividad", icon: ClockIcon },
   { href: "/profile", label: "Mi Perfil", icon: UserIcon },
 ];
 
-const ADMIN_EXTRA = [
-  { href: "/admin", label: "Admin", icon: ShieldIcon },
-  { href: "/settings", label: "Configuración", icon: SettingsIcon },
-];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <PlanProvider>
+    <UsuarioProvider>
       <DashboardLayoutInner>{children}</DashboardLayoutInner>
-    </PlanProvider>
+    </UsuarioProvider>
   );
 }
 
 function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  // Rol/plan/usuario vienen del PlanProvider (1 solo fetch compartido con
+  // El nombre viene del UsuarioProvider (1 solo fetch compartido con
   // todas las páginas que usan useUserPlan, sin requests duplicados).
-  const { isAdmin, plan: userPlan, userName } = usePlanContext();
+  const { usuario } = useUsuario();
+  const userName = usuario?.nombre ?? "";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarBotOpen, setSidebarBotOpen] = useState(true);
   const [sidebarCalendarOpen, setSidebarCalendarOpen] = useState(true);
 
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
+    /* `/api/salir` y no `/api/auth/logout`: el sistema de usuarios
+       propio del bot se borró. Ahora cierra la sesión del bot (revoca su
+       fila en bot_sesiones) y vuelve a la pantalla de entrada, que es
+       /entrar y no /login. */
+    try {
+      await fetch("/api/salir", { method: "POST" });
+    } catch {
+      /* Si la petición falla, se entra igual: el proxy volverá a pedir
+         sesión y, si la cookie seguía viva, esta vez se pasa. Es
+         mejor una recarga que un botón que no hace nada. */
+    }
+    router.push("/entrar");
     router.refresh();
   };
 
   const navItems = useMemo(() => {
-    const items = [...BASE_NAV];
-    if (isAdmin) {
-      // Admin sees everything
-      items.push(CALENDAR_NAV);
-    } else if (userPlan) {
-      // Users see only features for their plan
-      const planItems = PLAN_NAV[userPlan];
-      if (planItems) items.push(...planItems);
-    }
-    items.push(...TAIL_NAV);
-    if (isAdmin) items.push(...ADMIN_EXTRA);
+    /* Todo el panel es visible: entrar aquí ya significa que el bot está
+       contratado. */
+    const items: { href: string; label: string; icon: typeof HomeIcon; children?: NavChild[] }[] = [
+      ...BASE_NAV,
+      CALENDAR_NAV,
+      ...TAIL_NAV,
+    ];
     return items;
-  }, [isAdmin, userPlan]);
+  }, []);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -111,7 +120,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         <div className="flex h-16 items-center gap-2.5 border-b border-border px-5">
           <LogoMark />
           <span className="text-sm font-bold">Boti</span>
-          {isAdmin && <Badge className="ml-auto bg-primary/10 text-primary border-transparent text-[10px]">Admin</Badge>}
         </div>
 
         <div className="px-3 py-3 border-b border-border">
@@ -178,9 +186,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                   </div>
                 );
               })}
-              {(isAdmin || (userPlan && PLAN_NAV[userPlan])) && (
+              {true && (
                 <>
-                  {(isAdmin ? [CALENDAR_NAV] : PLAN_NAV[userPlan!] || []).map((item) => {
+                  {[CALENDAR_NAV].map((item) => {
                     const Icon = item.icon;
                     if (item.children && item.children.length > 0) {
                       const anyActive = item.children.some((c) => pathname === c.href.split("?")[0]);
@@ -192,10 +200,14 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                               <Icon className="h-3.5 w-3.5" />
                             </span>
                             {item.label}
-                            <span className="ml-auto flex items-center gap-1.5">
-                              <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-transparent text-[9px] px-1.5 py-0">Pro</Badge>
-                              <ChevronDownIcon className={cn("h-3.5 w-3.5 transition-transform", isOpen ? "rotate-180" : "")} />
-                            </span>
+                            {/* El badge "Pro" se quitó: ya no hay planes ni
+                                gating. Si el cliente tiene el módulo
+                                suspendido, no entra al panel (lo comprueba
+                                proxy.ts), así que llegar aquí ya significa
+                                que puede usar el calendario. Mostrarle
+                                "Pro" al lado invite a pensar que le falta
+                                algo. */}
+                            <ChevronDownIcon className={cn("ml-auto h-3.5 w-3.5 transition-transform", isOpen ? "rotate-180" : "")} />
                           </button>
                           <AnimatePresence>
                             {isOpen && (
@@ -243,15 +255,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                   </Link>
                 );
               })}
-              {isAdmin && ADMIN_EXTRA.map((item) => {
-                const Icon = item.icon;
-                const active = pathname === item.href;
-                return (
-                  <Link key={item.href} href={item.href} prefetch={false} className={cn("flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition", active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
-                    <Icon className="h-4 w-4" /> {item.label}
-                  </Link>
-                );
-              })}
             </div>
           </div>
         </nav>
@@ -266,7 +269,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">{userName[0]?.toUpperCase() || "?"}</div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-medium">{userName || "Usuario"}</p>
-              {userPlan && <Badge variant="secondary" className={cn("text-[9px] px-1.5 py-0 border-transparent", userPlan === "pro" ? "bg-primary/10 text-primary" : "bg-[#53bdeb]/10 text-[#53bdeb]")}>{userPlan === "pro" ? "Pro" : "Starter"}</Badge>}
             </div>
             <Button variant="ghost" size="icon" onClick={() => void handleLogout()} className="h-8 w-8 text-muted-foreground hover:text-destructive">
               <LogOut className="h-4 w-4" />
@@ -297,18 +299,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <p className="truncate text-sm font-bold text-wa-text">Boti</p>
-            {isAdmin && <Badge variant="secondary" className={cn("bg-[#00a884]/10 px-1.5 py-0.5 text-[8px] font-semibold text-[#00a884] border-transparent")}>Admin</Badge>}
-            {userPlan && (
-              <Badge
-                variant="secondary"
-                className={cn(
-                  "px-1.5 py-0.5 text-[8px] font-semibold border-transparent",
-                  userPlan === "pro" ? "bg-primary/10 text-primary" : "bg-[#53bdeb]/10 text-[#53bdeb]"
-                )}
-              >
-                {userPlan === "starter" ? "Starter" : "Pro"}
-              </Badge>
-            )}
           </div>
         </div>
       </div>

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
-import { Home, MessageCircle, Zap, Calendar, Clock, User, Shield, Settings, Search } from "lucide-react";
+import { Home, MessageCircle, Zap, Calendar, Clock, User, Settings, Search } from "lucide-react";
 
 const ITEMS = [
   { label: "Inicio", href: "/dashboard", icon: Home },
@@ -13,7 +13,10 @@ const ITEMS = [
   { label: "Configurar horarios", href: "/calendar?config=1", icon: Calendar },
   { label: "Actividad", href: "/logs", icon: Clock },
   { label: "Mi Perfil", href: "/profile", icon: User },
-  { label: "Admin", href: "/admin", icon: Shield },
+  /* "Admin" se quitó de aquí: la página /admin y sus endpoints
+   /api/admin/* eran del panel de administración del bot, que ya no
+   existe. Las incidencias las mira el equipo de Nexo Studio desde su
+   propio panel, con su propia sesión. */
   { label: "Configuración", href: "/settings", icon: Settings },
 ];
 

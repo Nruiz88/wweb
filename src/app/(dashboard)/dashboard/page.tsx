@@ -25,8 +25,6 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { useUserPlan } from "@/hooks/useUserPlan";
-import OnboardingWizard from "@/components/OnboardingWizard";
 
 interface Status {
   hasInstance: boolean;
@@ -65,21 +63,14 @@ async function fetchInstances() {
   return { hasInstance, whatsappConnected, instanceId };
 }
 
-async function fetchAutoResponses(instanceId: string) {
-  const res = await fetch(`/api/auto-responses?instanceId=${instanceId}`);
+/* Sin parameter: el bot sale de la sesión del servidor. Antes llevaba
+   `?instanceId=` porque el panel gestionaba varias instancias. */
+async function fetchAutoResponses() {
+  const res = await fetch("/api/auto-responses");
   const payload = await res.json();
   return payload.status === "success" ? payload.data?.length || 0 : 0;
 }
 
-async function fetchOnboarding() {
-  try {
-    const res = await fetch("/api/onboarding");
-    const payload = await res.json();
-    return payload.status === "success" && !payload.data.completed;
-  } catch {
-    return false;
-  }
-}
 
 export default function DashboardPage() {
   const [status, setStatus] = useState<Status>({
@@ -88,9 +79,9 @@ export default function DashboardPage() {
     autoResponses: 0,
     loading: true,
   });
-  const [showWizard, setShowWizard] = useState(false);
-  const { plan, isAdmin: isAdminPlan, loading: planLoading } = useUserPlan();
-  const effectiveIsPro = plan === "pro" || isAdminPlan;
+  /* El wizard elegía un plan, así que desaparece con el sistema de planes.
+     No queda ni `effectiveIsPro` ni gating: entrar aquí ya significa que el
+     bot está contratado, y lo comprueba el proxy en cada petición. */
   const [guideOpen, setGuideOpen] = useState(() =>
     typeof window !== "undefined" ? localStorage.getItem("boti_guide_collapsed") !== "1" : true
   );
@@ -104,13 +95,15 @@ export default function DashboardPage() {
 
   const loadStatus = useCallback(async () => {
     try {
-      const [instInfo, needsOnboarding] = await Promise.all([fetchInstances(), fetchOnboarding()]);
-      let autoResponses = 0;
-      if (instInfo.instanceId) {
-        autoResponses = await fetchAutoResponses(instInfo.instanceId);
-      }
-      setStatus({ ...instInfo, autoResponses, loading: false });
-      if (instInfo.hasInstance && needsOnboarding) setShowWizard(true);
+      /* Antes venía de useUserPlan, que traía el instanceId del plan.
+         Ya no: el bot sale de la sesión (botDeLaSesion), así que aquí no
+         hace falta ningún id y /api/auto-responses devuelve solo las del
+         cliente que pregunta. */
+      const autoResponses = await fetchAutoResponses();
+      /* `hasInstance` y `whatsappConnected` se dan por ciertos: entrar en
+       este panel significa que hay sesión, que el proxy ya comprobó que
+       el bot está contratado y que sin él esta página ni se muestra. */
+      setStatus({ hasInstance: true, whatsappConnected: true, autoResponses, loading: false });
     } catch {
       setStatus((prev) => ({ ...prev, loading: false }));
     }
@@ -121,10 +114,6 @@ export default function DashboardPage() {
     return () => clearTimeout(t);
   }, [loadStatus]);
 
-  function handleWizardComplete() {
-    setShowWizard(false);
-    void loadStatus();
-  }
 
   const isRunning = status.whatsappConnected && status.autoResponses > 0;
   const step1Done = status.whatsappConnected;
@@ -197,9 +186,10 @@ export default function DashboardPage() {
             <div className="flex justify-center">
               <WaitingBadge />
             </div>
-            <p className="mt-6 text-lg font-semibold text-foreground">Esperando asignación</p>
+            <p className="mt-6 text-lg font-semibold text-foreground">Tu bot todavía no está creado</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Un administrador debe asignarte una instancia de WhatsApp para comenzar
+              Nexo Studio lo prepara al activar tu suscripción. En cuanto exista, esta pantalla
+              se llena sola.
             </p>
             <Card className="mt-6">
               <CardContent className="p-4">
@@ -219,7 +209,6 @@ export default function DashboardPage() {
 
   return (
     <>
-      {showWizard && <OnboardingWizard onComplete={handleWizardComplete} />}
       <div className="flex h-full flex-col bg-background">
         <div className="border-b border-border bg-card px-4 py-2.5">
           <span className="text-[0.9375rem] font-medium text-foreground">Inicio</span>
@@ -469,11 +458,16 @@ export default function DashboardPage() {
               </Card>
             </motion.div>
 
-            <p className="text-center text-[11px] text-muted-foreground/60">¿Necesitás ayuda? Contactá al administrador</p>
+            {/* Antes decía "contactá al administrador". Este servicio no tiene
+                admins: el soporte es Nexo Studio, desde su propio panel.
+                Dejaba un enlace a nadie, que es peor que no ponerlo. */}
+            <p className="text-center text-[11px] text-muted-foreground/60">
+              ¿Necesitás ayuda? Escribile a Nexo Studio desde tu panel
+            </p>
             </div>
             <div className="space-y-5 lg:sticky lg:top-6">
-{/* Guía rápida — explica panel usuario / usuario Pro (no admin), visible también para admin */}
-            {!planLoading && (
+{/* Guía rápida: qué hace cada parte del panel */}
+          <>
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.12 }}>
                 <Card className="overflow-hidden border-primary/15">
                   <button type="button" onClick={toggleGuide} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-accent/50 transition">
@@ -483,10 +477,10 @@ export default function DashboardPage() {
                     <div className="flex-1">
                       <p className="text-sm font-semibold">Guía rápida — qué hace cada parte</p>
                       <p className="text-xs text-muted-foreground">
-                        {effectiveIsPro ? "Tu plan Pro incluye todo + Calendario" : "Plan Starter — Calendario es Pro (podés upgradear)"}
+                        Calendario, respuestas automáticas y tu enlace público de reservas
                       </p>
                     </div>
-                    <Badge variant="secondary" className="hidden sm:inline-flex text-[10px]">{effectiveIsPro ? "Pro" : "Starter"}</Badge>
+                    <Badge variant="secondary" className="hidden sm:inline-flex text-[10px]">Incluido</Badge>
                     <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${guideOpen ? "rotate-180" : ""}`} />
                   </button>
                   {guideOpen && (
@@ -507,10 +501,10 @@ export default function DashboardPage() {
                           <p className="mt-1 text-xs text-muted-foreground">Menú con hasta 3 botones + submenús (2 niveles). Ideal para “1 Precios, 2 Horarios, 3 Ubicación”.</p>
                           <Link href="/menus" prefetch={false} className="mt-2 inline-flex text-xs font-medium text-primary hover:underline">Armar menú →</Link>
                         </div>
-                        <div className={`rounded-xl border p-3 ${effectiveIsPro ? "border-primary/20 bg-primary/5" : "border-border bg-muted/20 opacity-80"}`}>
-                          <div className="flex items-center gap-2 text-xs font-semibold"><CalendarDays className={`h-3.5 w-3.5 ${effectiveIsPro ? "text-primary" : "text-muted-foreground"}`} /> Calendario {plan !== "pro" && <Badge className="ml-auto bg-amber-500 text-white border-transparent text-[9px]">Pro</Badge>}{effectiveIsPro && <Badge className="ml-auto bg-primary text-primary-foreground text-[9px]">Incluido</Badge>}</div>
-                          <p className="mt-1 text-xs text-muted-foreground">{effectiveIsPro ? "Ver turnos, confirmar/cancelar y configurar horarios + link público /agendar para que clientes reserven solos." : "Solo Pro: turnos, agenda pública y recordatorios 24h. En Starter ves el acceso bloqueado."}</p>
-                          <Link href="/calendar" prefetch={false} className="mt-2 inline-flex text-xs font-medium text-primary hover:underline">{effectiveIsPro ? "Abrir calendario →" : "Ver qué incluye Pro →"}</Link>
+                        <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                          <div className="flex items-center gap-2 text-xs font-semibold"><CalendarDays className="h-3.5 w-3.5 text-primary" /> Calendario <Badge className="ml-auto bg-primary text-primary-foreground text-[9px]">Incluido</Badge></div>
+                          <p className="mt-1 text-xs text-muted-foreground">Ver turnos, confirmar o cancelar, y configurar horarios + el link público /agendar para que te reserven solos.</p>
+                          <Link href="/calendar" prefetch={false} className="mt-2 inline-flex text-xs font-medium text-primary hover:underline">Abrir calendario →</Link>
                         </div>
                         <div className="rounded-xl border border-border bg-muted/20 p-3">
                           <div className="flex items-center gap-2 text-xs font-semibold"><BarChart3 className="h-3.5 w-3.5 text-sky-600" /> Actividad</div>
@@ -519,18 +513,18 @@ export default function DashboardPage() {
                         </div>
                         <div className="rounded-xl border border-border bg-muted/20 p-3">
                           <div className="flex items-center gap-2 text-xs font-semibold"><User className="h-3.5 w-3.5 text-emerald-600" /> Mi Perfil</div>
-                          <p className="mt-1 text-xs text-muted-foreground">Tus datos, plan y link público de agenda (si sos Pro). Copiá y compartí tu /agendar.</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Tus datos y tu link público de reservas. Copialo y compartilo con tus clientes.</p>
                           <Link href="/profile" prefetch={false} className="mt-2 inline-flex text-xs font-medium text-primary hover:underline">Editar perfil →</Link>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 border-t border-border bg-muted/10 px-4 py-2.5 text-[11px] text-muted-foreground">
-                        <Clock className="h-3.5 w-3.5" /> Flujo recomendado: 1) Conectá WhatsApp → 2) Creá 2-3 respuestas → 3) Probá con otro celular → {effectiveIsPro ? "4) Configurá Calendario" : "4) Upgradá a Pro si necesitás turnos"}.
+                        <Clock className="h-3.5 w-3.5" /> Flujo recomendado: 1) Conectá WhatsApp → 2) Creá 2-3 respuestas → 3) Probá con otro celular → 4) Configurá el calendario.
                       </div>
                     </div>
                   )}
                 </Card>
               </motion.div>
-            )}
+          </>
             </div>
           </div>
         </div>
