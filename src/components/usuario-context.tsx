@@ -32,6 +32,11 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 export interface Usuario {
   nombre: string;
   email: string;
+
+  /* Si esta sesión es de soporte, y por qué entra.
+     Lo envía /api/profile. Ver la nota del bloque `soporte` en esa
+     ruta: es para la banda de arriba, no para ampliar nada. */
+  soporte?: { activo: boolean; motivo?: string; cliente?: string };
 }
 
 interface ContextoUsuario {

@@ -49,6 +49,15 @@ export interface TicketPayload {
   at: string;
   exp: number;
   jti: string;
+
+  /* Por qué entra un member del equipo. Solo lo pone el panel cuando
+     el rol es staff, y llega dentro del cuerpo firmado: si alguien lo
+     cambia, la firma deja de cuadrar y el ticket se rechaza entero.
+
+     No es adorno. Es el texto que queda guardado en `bot_sesiones` y
+     que se lee cuando alguien pregunta por qué soporte tocó la
+     configuración de un cliente. */
+  mot?: string | null;
 }
 
 /**

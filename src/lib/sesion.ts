@@ -47,11 +47,39 @@ const HORAS_SESION = 4;
 
 export interface Sesion {
   userId: string;
+  /* El cliente de esta sesión.
+
+     Antes era siempre el cliente y ya. Ahora sigue siendo así para
+     todos, incluido el staff: cuando soporte entra en el bot de
+     alguien, su sesión ES de ese cliente. La diferencia no está aquí
+     sino en `rol` y en `soporteDe`, que juntos dicen "es del equipo y
+     está atendiendo a este". Poner el cliente aquí es lo que hace que
+     el resto del código del bot no necesite saber nada de soporte: ve
+     un cliente, como siempre. */
   clientId: string;
   rol: "staff" | "client";
   accessToken: string;
   csrfToken: string;
   expiraEn: string;
+
+  /* ── SOPORTE ────────────────────────────────────────────────
+     Presentes SOLO en sesiones de staff, y SOLO cuando el staff ha
+     elegido a qué cliente atiende. Son la razón por la que esa
+     sesión puede ver un bot que no es suyo: la BASE comprueba esta
+     columna, no el código.
+
+     Que el mismo registro diga a quién atiende y si es soporte no es
+     redundancia. `rol` dice QUIÉN es (el del equipo); `soporteDe`
+     dice sobre QUIÉN está trabajando. Con los dos juntos se puede
+     preguntar quién tocó la configuración de un cliente y obtener
+     una respuesta. Por eso el bot enseña una banda de "estás
+     viendo el bot de X" en vez de disimularlo. */
+
+  /** Cliente que esta sesión de staff atiende. */
+  soporteDe?: string | null;
+
+  /** Por qué entra. Nunca vacío si hay sesión de soporte. */
+  soporteMotivo?: string | null;
 }
 
 /**
@@ -125,13 +153,27 @@ function hash(token: string): string {
  */
 export async function crearSesion(params: {
   userId: string;
-  clientId: string;
+  /* NULL solo para staff. En ese momento la sesión existe pero no da
+     acceso a ningún bot: la base no concede nada sin `soporteDe`. */
+  clientId: string | null;
   rol: "staff" | "client";
   accessToken: string;
+  /** Cliente al que atiende. Solo staff, y obligatorio si viene. */
+  soporteDe?: string | null;
+  /** Motivo de la entrada. Obligatorio si hay soporteDe. */
+  soporteMotivo?: string | null;
 }): Promise<{ token: string; csrfToken: string; expiraEn: string }> {
   const token = aleatorio(32);
   const csrfToken = aleatorio(24);
   const expiraEn = new Date(Date.now() + HORAS_SESION * 3600 * 1000).toISOString();
+
+  /* El motivo se comprueba AQUÍ y no en la ruta que llama. Que el
+     motivo no pueda dejarse en blanco es una propiedad de la sesión,
+     y ponerlo en el punto de creación significa que ninguna ruta
+     nueva pueda olvidarlo. */
+  if (params.soporteDe && !params.soporteMotivo?.trim()) {
+    throw new Error("Una sesión de soporte necesita un motivo.");
+  }
 
   const { error } = await getAdmin().from("bot_sesiones").insert({
     token_hash: hash(token),
@@ -141,6 +183,9 @@ export async function crearSesion(params: {
     access_token: params.accessToken,
     csrf_token: csrfToken,
     expira_en: expiraEn,
+    soporte_de: params.soporteDe ?? null,
+    soporte_motivo: params.soporteMotivo ?? null,
+    soporte_abierto_en: params.soporteDe ? new Date().toISOString() : null,
   });
 
   if (error) throw new Error("No se pudo crear la sesión: " + error.message);
@@ -159,7 +204,9 @@ export async function leerSesion(token?: string | null): Promise<Sesion | null> 
 
   const { data, error } = await getAdmin()
     .from("bot_sesiones")
-    .select("user_id, client_id, rol, access_token, csrf_token, expira_en, revocado_en")
+    .select(
+      "user_id, client_id, rol, access_token, csrf_token, expira_en, revocado_en, soporte_de, soporte_motivo"
+    )
     .eq("token_hash", hash(token))
     .maybeSingle();
 
@@ -174,6 +221,8 @@ export async function leerSesion(token?: string | null): Promise<Sesion | null> 
     accessToken: data.access_token,
     csrfToken: data.csrf_token,
     expiraEn: data.expira_en,
+    soporteDe: data.soporte_de,
+    soporteMotivo: data.soporte_motivo,
   };
 }
 
@@ -231,11 +280,16 @@ export async function exigeSession(origen = "/"): Promise<Sesion> {
      Se hace con la secret key a propósito: es una comprobación de
      NEGOCIO ("¿tiene el producto contratado?"), no de datos. Los
      DATOS del cliente siempre van por RLS. */
-  if (!(await tieneElModulo(sesion.clientId, "bot_whatsapp"))) {
+  if (!sesion.soporteDe && !(await tieneElModulo(sesion.clientId, "bot_whatsapp"))) {
     throw new Error("SIN_SUSCRIPCION");
   }
 
   return sesion;
+}
+
+/** ¿Esta sesión es de soporte? Es decir, staff atendiendo a un cliente. */
+export function esSesionDeSoporte(sesion: Sesion): boolean {
+  return sesion.rol === "staff" && Boolean(sesion.soporteDe);
 }
 
 /** ¿Este cliente tiene el bot contratado y al día? */

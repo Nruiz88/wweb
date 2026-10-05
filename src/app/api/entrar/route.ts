@@ -40,6 +40,20 @@ const MODULO = "bot_whatsapp";
 /** Nombre que se le enseña al cliente en los mensajes. */
 const NOMBRE = "el bot de WhatsApp";
 
+/**
+ * El motivo de la entrada de soporte, si lo hay.
+ *
+ * Viaja dentro del ticket firmado, así que llega del panel y no se
+ * puede alterar por el camino. Solo se acepta para staff: en una
+ * sesión de cliente `mot` no significa nada, y guardarlo ahí
+ * llenaría la columna de ruido.
+ */
+function leerMotivo(p: NonNullable<ReturnType<typeof verificar>>): string | null {
+  if (p.rol !== "staff") return null;
+  const bruto = typeof p.mot === "string" ? p.mot.trim() : "";
+  return bruto ? bruto.slice(0, 200) : null;
+}
+
 export async function POST(request: Request) {
   let ticket = "";
   try {
@@ -66,25 +80,62 @@ export async function POST(request: Request) {
     );
   }
 
-  /* Sin `cid` no hay cliente, y sin cliente no hay nada que mirar. El
-     ticket de staff sí puede venir sin él, pero staff no entra por aquí:
-     el bot es de uso del cliente. */
+  /* Sin `cid` no hay cliente, y sin cliente no hay nada que mirar.
+     A un staff le pasa a propósito: entra con la sesión sin cliente y
+     elige a cuál atiende después. Lo que NO se hace es darle acceso a
+     un cliente por el hecho de ser staff: eso se decide en la ruta de
+     soporte, con un motivo, y la base lo comprueba en cada consulta. */
+  /* Staff entra a un cliente QUE ELIGE, y siempre con motivo. Por eso
+     un ticket de staff sin `cid` no es un error raro: es alguien que
+     llegó por una ruta antigua, y se le manda al selector en vez de
+     dejarle una sesión que no puede abrir nada. */
+  const esSoporte = p.rol === "staff";
+
   if (!p.cid) {
+    if (!esSoporte) {
+      return NextResponse.json(
+        { ok: false, error: "Este enlace no es de una cuenta de cliente." },
+        { status: 403 }
+      );
+    }
     return NextResponse.json(
-      { ok: false, error: "Este enlace no es de una cuenta de cliente." },
+      {
+        ok: false,
+        error: "Elige a qué cliente quieres atender. Se entra desde el panel.",
+        donde: "/panel/soporte",
+      },
       { status: 403 }
     );
   }
 
-  const ok = await tieneElModulo(p.cid, MODULO);
-  if (!ok) {
+  const motivo = leerMotivo(p);
+
+  /* El motivo se pide AL CANJEAR, no al editar. Pedirlo en el primer
+     momento es lo que hace que no se pueda saltar: no se llega al
+     botón de guardar sin haber escrito uno. `crearSesion` lo
+     comprueba también, por si mañana otra ruta crea sesiones. */
+  if (esSoporte && !motivo) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: `Tu cuenta no tiene ${NOMBRE} contratado o está vencido.`,
-      },
+      { ok: false, error: "Falta el motivo de la entrada." },
       { status: 403 }
     );
+  }
+
+  /* La suscripción se comprueba al cliente, no al staff. Support entra
+     justamente cuando algo va mal, y un cliente al que se le ha
+     caducado la suscripción es de los que mássupport necesitan. Si se
+     le exigiera el módulo, no podría ver el bot que está fallando. */
+  if (!esSoporte) {
+    const ok = await tieneElModulo(p.cid, MODULO);
+    if (!ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Tu cuenta no tiene ${NOMBRE} contratado o está vencido.`,
+        },
+        { status: 403 }
+      );
+    }
   }
 
   let sesion;
@@ -94,6 +145,8 @@ export async function POST(request: Request) {
       clientId: p.cid,
       rol: p.rol,
       accessToken: tokenDe(p),
+      soporteDe: esSoporte ? p.cid : null,
+      soporteMotivo: motivo,
     });
   } catch (e) {
     console.error("[entrar] no se pudo crear la sesión", e);

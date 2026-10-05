@@ -277,6 +277,37 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <div className="flex flex-1 flex-col overflow-hidden">
+      {/* ===== BANDA DE SOPORTE =====
+          Va arriba de TODO el contenido, y no dentro de la barra
+          lateral, por una razón concreta: la barra lateral solo se ve
+          en pantallas grandes y esta banda es justamente para el caso
+          de que alguien se despiste.
+
+          Se enseña siempre que hay una sesión de soporte, sin que haya
+          que buscar nada. Un member del equipo que abre el bot de un
+          cliente tiene que ver, sin buscar, que lo que tiene delante
+          no es suyo. No es una advertencia: es un recordatorio de que
+          lo que hay debajo son datos de otra persona. */}
+      {usuario?.soporte?.activo && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-amber-900 dark:text-amber-200"
+        >
+          <span className="text-[11px] font-bold uppercase tracking-widest">
+            Estás viendo el bot de un cliente
+          </span>
+          <span className="text-xs">
+            {usuario.soporte.cliente || "otro cliente"}
+          </span>
+          {usuario.soporte.motivo && (
+            <span className="text-xs opacity-80">· {usuario.soporte.motivo}</span>
+          )}
+          <span className="ml-auto text-[11px] opacity-70">
+            Los cambios que guardes los verá el cliente
+          </span>
+        </div>
+      )}
+
       {/* ===== MOBILE HEADER (< lg) ===== */}
       <div className="flex items-center gap-3 border-b border-wa-border bg-wa-header px-4 py-3 lg:hidden">
         <button type="button" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="icon-btn h-9 w-9">

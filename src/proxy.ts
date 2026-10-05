@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { leerSesion, tieneElModulo, COOKIE_NAME } from "./lib/sesion";
+import { leerSesion, tieneElModulo, esSesionDeSoporte, COOKIE_NAME } from "./lib/sesion";
 
 /* =========================================================
    Nexo Studio — Proxy del bot
@@ -28,13 +28,19 @@ import { leerSesion, tieneElModulo, COOKIE_NAME } from "./lib/sesion";
    ⚠️  LO QUE ESTE MIDDLEWARE NO HACE
    ---------------------------------
    No es la barrera de seguridad. Solo evita pintar páginas sin sesión
-   a alguien que no la tiene. Los DATOS ya los protege RLS en la base
-   (migración 011): aunque alguien llegara aquí sin sesión, las
-   consultas con el cliente de Supabase no devolverían filas.
+   a alguien que no la tiene. Los DATOS ya los protegen RLS en la base
+   (migración 011, y 014 para el acceso de soporte): aunque alguien
+   llegara aquí sin sesión, las consultas con el cliente de Supabase no
+   devolverían filas.
 
    La diferencia es que el middleware mejora la experiencia (no
    renderizar un panel vacío) mientras que RLS es lo que impide de
    verdad ver datos ajenos. Son dos capas y hacen falta las dos.
+
+   Y con soporte sigue siendo cierto: que el proxy deje pasar a un
+   member del equipo no le da acceso a nada. Lo que se lo da es la fila
+   de `bot_sesiones` con su `soporte_de`, y eso lo comprueba
+   `puede_ver_bot()`, en Postgres, en cada consulta.
    ========================================================= */
 
 /* Rutas que se sirven siempre, sin sesión.
@@ -104,8 +110,15 @@ export async function proxy(request: NextRequest) {
      Si alguien cancela con el navegador ya abierto, tiene que dejar de
      funcionar en la siguiente llamada y no cuando le dé la gana. Es el
      caso más feo del SaaS: el cliente sigue usando lo que ya pagó y
-     ya no tiene. */
-  if (!(await tieneElModulo(sesion.clientId, "bot_whatsapp"))) {
+     ya no tiene.
+
+     El staff NO se comprueba, y es deliberado. Si se comprobara, un
+     member del equipo no podría entrar en el bot de un cliente cuya
+     suscripción acaba de caducar, que es justo el caso por el que
+     más falta suele hacer. Además, aquí no se concede nada: RLS es la
+     que decide si esa sesión ve el bot, y solo si `soporteDe` coincide
+     con el cliente. Este middleware solo evita pintar páginas. */
+  if (!esSesionDeSoporte(sesion) && !(await tieneElModulo(sesion.clientId, "bot_whatsapp"))) {
     const r = NextResponse.redirect(new URL("/sin-acceso", request.url));
     r.cookies.delete(COOKIE_NAME);
     return conCabeceras(r);

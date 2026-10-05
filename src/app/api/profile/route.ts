@@ -107,6 +107,29 @@ export async function GET() {
          necesita: entrar ya exige tener el módulo contratado, que es
          lo que hacía este bloque. */
       upcoming,
+
+      /* Si esta sesión es de SOPORTE, y por qué entra.
+
+         Se manda al navegador para poder pintar una banda que diga a
+         quién está viendo el bot y por qué. No es solo informational:
+         es para que ni el propio soporte se olvide de que está viendo
+         los datos de otra persona. Un member del equipo que entra en el
+         bot de un cliente y ve su nombre en la barra sabe que no es el
+         suyo.
+
+         No es un dato sensible: el nombre del cliente y un motivo que
+         escribió el propio member del equipo. Lo que no se manda aquí es
+         nada que amplíe el acceso: los datos siguen entrando por RLS. */
+      soporte: session.soporteDe
+        ? {
+            activo: true,
+            motivo: session.soporteMotivo ?? "",
+            /* El nombre del cliente, que es el mismo de arriba. Se
+               manda también para que la banda pueda decir "el bot de
+               X" sin que la página tenga que esperar otro fetch. */
+            cliente: nombre,
+          }
+        : { activo: false },
     },
   });
 }
