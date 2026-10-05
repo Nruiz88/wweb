@@ -23,9 +23,40 @@ const INSTANCE_STATUSES = new Set(["open", "close", "connecting", "qrcode"]);
 async function prepareInstance(baseUrl: string, apiKey: string, instanceName: string, webhookUrl: string) {
   await createInstance(baseUrl, apiKey, instanceName);
   const secret = process.env.WEBHOOK_SECRET;
-  const result = await setWebhook(baseUrl, apiKey, instanceName, webhookUrl, ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"], secret ? { "x-webhook-secret": secret } : {});
-  if (!result.ok && result.status === 401) {
-    return;
+
+  /* Los eventos, y por qué son estos y no otros.
+
+     MESSAGES_UPSERT es lo que dispara el bot: el mensaje que llega.
+     Los otros dos son para la pantalla de "Mi WhatsApp": saber que se
+     conectó (el QR se escaneó) y que se desconectó.
+
+     Lo que NO está es MESSAGES_DOWNLOAD, que fue un intento de
+     tener el multimedia. Evolution NO lo acepta: devuelve un 400 con
+     la lista de los valores válidos, y como este código no mira el
+     resultado, el fallo pasaba desapercibido y el webhook se quedaba
+     como estaba, sin actualizar. */
+  const result = await setWebhook(
+    baseUrl,
+    apiKey,
+    instanceName,
+    webhookUrl,
+    ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+    secret ? { "x-webhook-secret": secret } : {}
+  );
+
+  if (!result.ok) {
+    /* Antes se ignoraba todo menos un 401, y solo para no fallar con
+       una Evolution antigua. El caso que importa es justo el contrario:
+       si Evolution rechaza la configuración, el bot se queda sin
+       eventos y nadie se entera. Que salga por consola. */
+    console.error(
+      "[whatsapp] Evolution no aceptó el webhook de " +
+        instanceName +
+        ": " +
+        result.status +
+        " " +
+        (result.message || "")
+    );
   }
 }
 

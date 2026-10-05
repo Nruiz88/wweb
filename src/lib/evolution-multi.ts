@@ -238,7 +238,19 @@ export async function setWebhook(
           url: webhookUrl,
           events,
           headers: headers ?? {},
-          byEvents: false,
+          /* byEvents: true, y antes false.
+
+             Con `false`, Evolution IGNORA lo que se guarda aquí y usa la
+             configuración global del servidor (las variables
+             WEBHOOK_GLOBAL del contenedor). El endpoint devolvía los
+             valores que acabamos de guardar y todo parecía correcto,
+             mientras que lo que se ejecutaba era otra cosa: los eventos
+             nunca llegaban y no había ningún error visible.
+
+             Con `true`, lo que se guarda por instancia es lo que se usa.
+             Es lo único que sirve cuando hay varias instancias, que es
+             justo el caso de un bot por cliente. */
+          byEvents: true,
           base64: false,
         },
       }),
