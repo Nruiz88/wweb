@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { MIS_SERVICIOS } from "@/lib/panel";
+import { ticketDelHash } from "@/lib/hash-ticket";
 
 /* =========================================================
    /entrar#<ticket>
@@ -33,7 +34,19 @@ const [error, setError] = useState<string | null>(null);
 const [caducado, setCaducado] = useState(false);
 
   useEffect(() => {
-    const ticket = window.location.hash.replace(/^#/, "").trim();
+    /* El parseo está en lib/hash-ticket.ts, no aquí, para que se pueda
+       probar sin un navegador. Antes estaba aquí y era:
+
+           window.location.hash.replace(/^#/, "").trim()
+
+       que quita la almohadilla pero deja el `ticket=` pegado. El
+       servidor recibía `ticket=eyJ1aWQi...`, que no es base64url, y
+       contestaba 401 a todo el mundo. La entrada al bot nunca funcionó
+       desde un navegador, y ninguna prueba lo detectó porque todas hacen
+       el POST ellas mismas y se saltan el fragmento.
+
+       Ver ticketDelHash(). */
+    const ticket = ticketDelHash(window.location.hash);
     const destino = new URLSearchParams(window.location.search).get("next") || "/dashboard";
 
     /* Sin ticket: el enlace vino mal, o se recargó la página después de
