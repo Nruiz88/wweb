@@ -41,6 +41,54 @@ const MODULO = "bot_whatsapp";
 const NOMBRE = "el bot de WhatsApp";
 
 /**
+ * Por qué no vale un ticket, PARA LOS LOGS.
+ *
+ * Devuelve una de estas cuatro: `vacio`, `malformado`, `firmado` o
+ * `caducado`. Solo se usa en el log del servidor.
+ *
+ * ⚠️  Por qué NO se usa `verificar()` para esto
+ * -------------------------------------------
+ * `verificar()` devuelve null en los tres casos de fallo y no dice
+ * cuál. Podría seem tentador reimplementar aquí la comprobación de
+ * caducidad sobre el payload... pero eso significaría volver a hacer la
+ * lectura del base64url y el JSON en este fichero, en un sitio que
+ * puede desincronizarse del verificador. Si mañana `verificar()`
+ * cambia una regla, el diagnóstico se queda diciendo lo contrario y es
+ * peor que no decir nada.
+ *
+ * La versión falsa sería peor todavía: "caducado" en el mensaje de
+ * error sería un oráculo. Con un enlace manipulado, devolver "no
+ * caducado" frente a "caducado" no le dice al atacante si su firma era
+ * correcta.
+ *
+ * Y el ticket NO se escribe en el log. Lleva el access_token de
+ * Supabase dentro, y el log de un contenedor es de los sitios donde un
+ * token se queda puesto mucho tiempo.
+ */
+function diagnosticoDeTicket(ticket: string): string {
+  if (!ticket) return "vacio";
+
+  const corte = ticket.lastIndexOf(".");
+  if (corte < 1 || corte === ticket.length - 1) return "malformado";
+
+  try {
+    const payload = JSON.parse(Buffer.from(ticket.slice(0, corte), "base64url").toString("utf8"));
+
+    if (!payload || typeof payload !== "object") return "malformado";
+    if (typeof payload.exp !== "number") return "malformado";
+
+    /* Mismo margen que el verificador: 5 segundos. */
+    if (payload.exp + 5 < Math.floor(Date.now() / 1000)) return "caducado";
+
+    /* El payload se lee bien y no está caducado, pero `verificar()`
+       falló: la firma no cuadra. */
+    return "firmado-pero-no-verifica";
+  } catch {
+    return "malformado";
+  }
+}
+
+/**
  * El motivo de la entrada de soporte, si lo hay.
  *
  * Viaja dentro del ticket firmado, así que llega del panel y no se
@@ -69,12 +117,35 @@ export async function POST(request: Request) {
   const p = verificar(ticket);
 
   if (!p) {
-    /* No se distingue entre "no existe", "caducado" y "manipulado":
-       informar de cuál sería una guía para ir probando. */
+    /* No se le dice al usuario si el ticket caducó o si alguien lo
+       manipuló: distinguirlo sería una guía para ir probando, y el
+       atacante no gana nada con probarlos todos.
+
+       Pero internamente SÍ se distingue, y esa diferencia es la que
+       hace falta para diagnosticar. Este fallo era el más probable del
+       sistema y era invisible: la respuesta era siempre la misma, el
+       contenedor no logueaba nada, y lo único que se podía hacer era
+       adivinar.
+
+       El caso real que salió: los tickets duran 60 segundos y el
+       navegador congela el JavaScript de las pestañas en segundo plano.
+       Si alguien pulsa "Abrir", cambia de pestaña y vuelve, el POST sale
+       un minuto después, cuando el ticket ya caducó. El mensaje
+       culpaba al enlace.
+
+       El TICKET NO SE ESCRIBE, ni entero ni por partes: lleva dentro el
+       access_token de Supabase y aquí sería el sitio donde se acabe. */
+    const motivo = diagnosticoDeTicket(ticket);
+    console.warn("[entrar] ticket rechazado:", motivo);
+
     return NextResponse.json(
       {
         ok: false,
         error: "Ese enlace no vale o ha caducado. Vuelve a entrar desde el panel.",
+        /* Para la página, que sí sabe decirle a la persona que fue un
+           enlace viejo y no un enlace malo. No le dice NADA que sirva
+           para manipular nada: solo si caducó o no. */
+        caducado: motivo === "caducado",
       },
       { status: 401 }
     );
