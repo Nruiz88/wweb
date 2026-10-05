@@ -175,7 +175,16 @@ export async function GET(request: Request) {
     status: "success",
     data: {
       instanceId: instance.id,
-      instanceName: instance.instance_name,
+      /* `instanceName` ya NO se manda al navegador.
+
+         Es el nombre con el que Evolution guarda el número. Se necesita
+         aquí (para conectar y para enviar) pero no en el cliente: no se
+         pinta, no se decide nada con él, y estar en la respuesta lo
+         dejaba en el HTML y en el historial del navegador.
+
+         `instanceId` sí se manda, y es el id de la fila de `bots`: no
+         da acceso a nada por sí solo, porque todas las rutas lo
+         comprueban contra la sesión antes de usarlo. */
       connectionState: currentState,
       qrCode,
     },

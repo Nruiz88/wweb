@@ -52,7 +52,6 @@ const statusCache = new Map<string, { status: string; at: number }>();
 interface BotPublico {
   id: string;
   name: string;
-  instance_name: string;
   slug: string;
   status: string;
   status_checked_at: string | null;
@@ -60,11 +59,21 @@ interface BotPublico {
   outside_hours_message: string | null;
 }
 
+/* `instance_name` ya NO sale por aquí.
+
+   Es el nombre con el que Evolution guarda el número de WhatsApp. El
+   navegador no lo necesita: no se pinta y no se usa para decidir nada.
+   Kept it out porque "no sale en pantalla" y "no sale en la respuesta"
+   no son lo mismo: en la respuesta acabaría en el historial del
+   navegador y en cualquier "ver fuente" que alguien mirase.
+
+   Sigue usándose por dentro, en el servidor: para conectar el número,
+   para enviar mensajes y para que el webhook encuentre el bot. Lo que
+   no sale es la clave de la caja de Evolution ni este nombre. */
 function publico(b: Record<string, unknown>): BotPublico {
   return {
     id: b.id as string,
     name: b.name as string,
-    instance_name: b.instance_name as string,
     slug: b.slug as string,
     status: (b.status as string) ?? "close",
     status_checked_at: (b.status_checked_at as string) ?? null,
@@ -87,7 +96,7 @@ export async function GET(request: Request) {
      la sesión a propósito, aunque `botDeLaSesion` ya lo asegure. */
   const { data: fila, error } = await db
     .from("bots")
-    .select("id, name, instance_name, slug, status, status_checked_at, welcome_message, outside_hours_message")
+    .select("id, name, slug, status, status_checked_at, welcome_message, outside_hours_message")
     .eq("client_id", session.clientId)
     .maybeSingle();
 
@@ -110,7 +119,7 @@ export async function GET(request: Request) {
      `server_id`, no `evolution_servers_id`). */
   const { data: conCredenciales } = await getAdmin()
     .from("bots")
-    .select("instance_name, evolution_servers:server_id(url, api_key)")
+    .select("id, instance_name, evolution_servers:server_id(url, api_key)")
     .eq("id", bot.id)
     .maybeSingle();
 
@@ -127,7 +136,14 @@ const nodo = Array.isArray(unido.evolution_servers) ? unido.evolution_servers[0]
 const url = nodo?.url;
 const clave = nodo?.api_key;
 
-if (!url || !clave) return NextResponse.json({ status: "success", data: [bot] });
+/* El nombre del número sale de AQUÍ, no de `bot`: `publico()` lo quitó
+   a propósito para que no llegue al navegador, pero el servidor lo
+   necesita para preguntar a Evolution por su estado. */
+const instanceName = conCredenciales?.instance_name as string | undefined;
+
+if (!url || !clave || !instanceName) {
+  return NextResponse.json({ status: "success", data: [bot] });
+}
 
   /* Fresco o cacheado: no se pregunta a Evolution en cada recarga de
      la página, que sería una llamada externa por render. */
@@ -139,13 +155,13 @@ if (!url || !clave) return NextResponse.json({ status: "success", data: [bot] })
     }
   }
 
-  const cacheKey = `${url}|${bot.instance_name}`;
+  const cacheKey = `${url}|${instanceName}`;
   const cached = statusCache.get(cacheKey);
   if (cached && ahora - cached.at < STATUS_TTL_MS) {
     return NextResponse.json({ status: "success", data: [{ ...bot, status: cached.status }] });
   }
 
-  const estado = await getConnectionState(url, clave, bot.instance_name);
+  const estado = await getConnectionState(url, clave, instanceName);
   if (estado.ok && estado.data) {
     statusCache.set(cacheKey, { status: estado.data, at: Date.now() });
 

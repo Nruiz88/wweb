@@ -13,9 +13,14 @@ import { toast } from "sonner";
 
 type ConnectionState = "open" | "close" | "connecting" | "qrcode" | "unknown";
 
+/* `instanceName` ya NO viene aquí. Es el nombre con el que Evolution
+   guarda el número, y no lo necesita el navegador: ni para mostrarlo
+   (no le dice nada a quien lo lee) ni para decidir nada. Se quitó de
+   la respuesta de /api/whatsapp por lo mismo que de la pantalla: si
+   no está en el HTML, tampoco está en el historial del navegador ni en
+   un "ver fuente" que se le pase a alguien. */
 interface InstanceData {
   instanceId: string;
-  instanceName: string;
   connectionState: ConnectionState;
   qrCode: string | null;
 }
@@ -44,8 +49,21 @@ function DisconnectedIllustration() {
 
 export default function WhatsAppPage() {
   const [instance, setInstance] = useState<InstanceData | null>(null);
-  const [myInstances, setMyInstances] = useState<{ id: string; instance_name: string; status: string }[]>([]);
-  const [selectedInstanceId, setSelectedInstanceId] = useState<string>("");
+  /* Ya NO hay selector de instancia.
+
+     Antes esta página tenía un desplegable para elegir entre varias
+     instancias, porque el modelo llegó a permitir más de una por
+     cliente. Con un cliente = un bot = un número, la lista siempre
+     tiene un elemento y el desplegable nunca se veía: era código que
+     se mantenía sin que nadie pudiera llegar a verlo.
+
+     Y quitarlo no es solo limpieza. El desplegable enseñaba el
+     `instance_name`, que es el nombre interno con el que Evolution
+     guarda el número. Ese nombre no le dice nada a quien lo lee y no
+     debe estar en pantalla: es el mismo dato con el que el webhook
+     busca el bot, y si se sustituye por otro el diagnóstico del
+     "mensaje que no llega" deja de tener una pista. */
+  const [selectedInstanceId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,25 +115,9 @@ export default function WhatsAppPage() {
     return () => clearInterval(interval);
   }, [connecting, loadStatus]);
 
-  // Run-once on mount: resolves the instance list and picks a default for admins.
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch("/api/instances?lite=1");
-        const payload = await res.json();
-        if (payload.status === "success" && payload.data?.length > 0) {
-          setMyInstances(payload.data);
-          if (payload.role === "admin" && !selectedInstanceId) {
-            setSelectedInstanceId(payload.data[0].id);
-          }
-        }
-      } catch {
-        /* non-critical */
-      }
-    }, 0);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  /* Antes, al montar, esta página pedía la lista de instancias para
+     poder elegir una. Ya no hace falta: el bot de la sesión es el
+     único que hay, y /api/whatsapp lo resuelve solo. */
 
   async function handleConnect() {
     setConnecting(true);
@@ -220,11 +222,8 @@ export default function WhatsAppPage() {
               Conectado
             </Badge>
           )}
-          {myInstances.length > 1 && (
-            <select value={selectedInstanceId} onChange={(e) => setSelectedInstanceId(e.target.value)} className="h-8 max-w-[140px] truncate rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 text-xs text-slate-200">
-              {myInstances.map((i) => (<option key={i.id} value={i.id} className="bg-slate-900">{i.instance_name}</option>))}
-            </select>
-          )}
+          {/* El selector de instancia que iba aquí ya no existe: un cliente
+              tiene un solo número. Ver la nota de `myInstances` arriba. */}
         </div>
       </div>
 
@@ -243,8 +242,11 @@ export default function WhatsAppPage() {
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-4 py-16 text-center">
             <DisconnectedIllustration />
             <div>
-              <p className="text-lg font-semibold">Sin instancia asignada</p>
-              <p className="mt-2 max-w-xs text-sm text-muted-foreground">El administrador debe asignarte una instancia de WhatsApp para poder conectar</p>
+              <p className="text-lg font-semibold">Aún no tienes número</p>
+              <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+                Escríbenos y te damos de alta el servicio con tu número de WhatsApp. En cuanto esté,
+                aquí te saldrá el código para conectarlo.
+              </p>
             </div>
           </motion.div>
         ) : (
@@ -272,7 +274,7 @@ export default function WhatsAppPage() {
                     <CardContent className="p-8 text-center">
                       <ConnectedIllustration />
                       <p className="mt-4 text-xl font-bold text-slate-100">Conectado</p>
-                      <p className="mt-1 text-sm text-slate-400">{instance?.instanceName}</p>
+                      <p className="mt-1 text-sm text-slate-400">Tu número está enlazado</p>
                       <Badge className="mt-3 gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-400/20">
                         <span className="relative flex h-2 w-2">
                           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -328,7 +330,7 @@ export default function WhatsAppPage() {
                     <CardContent className="p-8 text-center">
                       <DisconnectedIllustration />
                       <p className="mt-4 text-lg font-semibold text-slate-100">Conecta tu WhatsApp</p>
-                      <p className="mt-1 text-sm text-slate-400">{instance?.instanceName}</p>
+                      <p className="mt-1 text-sm text-slate-400">Escanea el código con el teléfono que quieres usar</p>
                       <p className="mt-2 text-xs text-slate-500">Necesitas tu teléfono para escanear el código QR</p>
                     </CardContent>
                   </Card>
@@ -353,8 +355,8 @@ export default function WhatsAppPage() {
                 </CardHeader>
                 <CardContent className="space-y-2 pt-0">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Instancia</span>
-                    <span className="font-mono font-medium">{instance.instanceName}</span>
+                    <span className="text-muted-foreground">Estado</span>
+                    <span className="font-mono font-medium">{instance.connectionState}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Actualizado</span>
