@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession, clienteDeLaSesion, botDeLaSesion } from "@/lib/sesion";
+import { MI_CUENTA } from "@/lib/panel";
 
 export const dynamic = "force-dynamic";
 
@@ -133,7 +134,7 @@ export async function PUT() {
       status: "error",
       error:
         "Los datos del negocio se editan en el panel de Nexo Studio, no aquí.",
-      donde: "https://panel.midominio.com/panel/mi-cuenta",
+      donde: MI_CUENTA,
     },
     { status: 405 }
   );

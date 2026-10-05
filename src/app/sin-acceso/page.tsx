@@ -1,3 +1,5 @@
+import { MIS_SERVICIOS } from "@/lib/panel";
+
 export default function SinAcceso() {
   return (
     <main
@@ -18,7 +20,7 @@ export default function SinAcceso() {
           error, revísalo en el panel de Nexo Studio.
         </p>
         <a
-          href="https://panel.midominio.com/panel/mis-servicios"
+          href={MIS_SERVICIOS}
           style={{ display: "inline-block", marginTop: "1.5rem", color: "#4da3ff" }}
         >
           Ir al panel de Nexo Studio

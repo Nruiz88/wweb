@@ -32,7 +32,12 @@ yarn-error.log*
 dev-server.log
 
 # env files (can opt-in for committing if needed)
+# `.env.example` SÍ se sube: es la documentación de qué variables
+# hacen falta y de qué es cada una. Sin él, nadie sabe qué poner en
+# Coolify, y un servicio sin SERVICE_SECRET parece que funciona
+# mientras no.canjea ningún ticket.
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -42,7 +47,11 @@ dev-server.log
 next-env.d.ts
 
 .vercel
+# La excepción de `!.env.example` va DESPUÉS de estas líneas: las
+# reglas de .gitignore se aplican en orden y, sin repetirla aquí,
+# estos `.env*` volverían a tapar la excepción de arriba.
 .env*
+!.env.example
 .freebuff/
 .env.local
 .env

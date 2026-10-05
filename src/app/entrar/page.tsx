@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { MIS_SERVICIOS } from "@/lib/panel";
 
 /* =========================================================
    /entrar#<ticket>
@@ -31,7 +32,7 @@ export default function Entrar() {
        canjear. Se vuelve al panel, que rehace el viaje. Antes se iba a
        /api/salir, que ya no existe. */
     if (!ticket) {
-      window.location.replace("https://panel.midominio.com/panel/mis-servicios");
+      window.location.replace(MIS_SERVICIOS);
       return;
     }
 
@@ -77,7 +78,13 @@ export default function Entrar() {
   }, []);
 
   return (
+    /* El data-panel deja la dirección del panel en el HTML, no solo en
+       el JavaScript del bundle. Sirve para dos cosas: comprobar que el
+       despliegue tiene el dominio bueno puesto (si no, aquí sale el de
+       desarrollo y se ve enseguida) y que los enlaces de vuelta se
+       puedan leer sin ejecutar nada. */
     <main
+      data-panel={MIS_SERVICIOS}
       style={{
         minHeight: "100dvh",
         display: "grid",
@@ -94,7 +101,7 @@ export default function Entrar() {
             <h1 style={{ fontSize: "1.25rem", marginBottom: ".75rem" }}>No se pudo entrar</h1>
             <p style={{ opacity: 0.75, lineHeight: 1.6 }}>{error}</p>
             <a
-              href="https://panel.midominio.com/panel/mis-servicios"
+              href={MIS_SERVICIOS}
               style={{ display: "inline-block", marginTop: "1.5rem", color: "#4da3ff" }}
             >
               Volver al panel
