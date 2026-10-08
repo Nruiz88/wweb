@@ -98,6 +98,39 @@ export async function GET() {
       evolution_api_key: Boolean(process.env.EVOLUTION_API_KEY),
       evolution_api_url: Boolean(process.env.EVOLUTION_API_URL),
       webhook_secret: Boolean(process.env.WEBHOOK_SECRET),
+
+      /* ── EL ESTADO DE LAS CONVERSACIONES ──
+
+         No es una variable más. Es LA que decide si los flujos a medias
+         sobreviven a un despliegue.
+
+         `booking.ts` guarda el estado de los menús así:
+
+             const redis = process.env.UPSTASH_REDIS_REST_URL &&
+                            process.env.UPSTASH_REDIS_REST_TOKEN
+               ? new Redis(...)
+               : null;
+
+             const agendaActiveFallback = new Map<string, boolean>();
+
+         Sin Upstash, ese Map está en la memoria del proceso. Se borra en
+         CADA reinicio. Y se traduce en algo que el usuario ve: escribe
+         «turno», ve el menú, contesta «1» — y no pasa nada, porque entre
+         las dos cosas el bot se reinició y ya no sabe que le habían
+         mostrado un menú.
+
+         Ocurrió de verdad: se desplegó el bot, y el mensaje siguiente a
+         un «turno» se perdió. Diecisiete segundos entre uno y otro.
+
+         Y con dos réplicas del bot es peor: cada una tiene su memoria, y
+         el mismo usuario puede caer en dos distintos según a cuál llegue.
+
+         Por eso va aquí. Con `upstash_redis: false` en el panel, cualquiera
+         que mire esta pantalla sabe que los flujos se cortan en cada
+         despliegue, en vez de descubrirlo cuando un cliente se queja. */
+      upstash_redis: Boolean(
+        process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+      ),
     },
 
     version: process.env.VERSCION || null,
