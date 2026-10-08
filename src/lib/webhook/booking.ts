@@ -286,6 +286,23 @@ function formatDateStr(dateStr: string): string {
   return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
+/**
+ * Set de horarios ya reservados, en el MISMO formato que `generateSlots`.
+ *
+ * OJO con esto. `appointment_time` es una columna `time` y Postgres la
+ * devuelve siempre como "HH:MM:SS", mientras que `generateSlots()` produce
+ * "HH:MM". Con el `Set` armado tal cual, `bookedSet.has("11:00")` daba false
+ * aunque hubiera un turno a las 11:00: los horarios reservados se seguían
+ * ofreciendo y el usuario podía elegir uno ya tomado. El INSERT no mira este
+ * Set, así que la reserva se guardaba igual y quedaban dos turnos en el mismo
+ * horario (no hay UNIQUE en `(bot_id, appointment_date, appointment_time)`).
+ *
+ * La panel ya lo hace bien con su `formatTime()`; aquí faltaba el mismo corte.
+ */
+function horasReservadas(filas: { appointment_time: string }[] | null | undefined): Set<string> {
+  return new Set((filas || []).map((f) => String(f.appointment_time).slice(0, 5)));
+}
+
 /** Generate HH:MM slots between start and end given a duration. */
 function generateSlots(startTime: string, endTime: string, durationMin: number): string[] {
   const slots: string[] = [];
@@ -329,7 +346,7 @@ async function getAvailableSlots(
     .eq("appointment_date", date)
     .in("status", ["pending", "confirmed"]);
 
-  const bookedSet = new Set((booked || []).map((b: { appointment_time: string }) => b.appointment_time));
+  const bookedSet = horasReservadas(booked);
 
   const now = new Date();
   const todayStr = localDateStr(now);
@@ -807,7 +824,7 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
     .eq("appointment_date", slotDate)
     .in("status", ["pending", "confirmed"]);
 
-  const bookedSet = new Set((booked || []).map((b: { appointment_time: string }) => b.appointment_time));
+  const bookedSet = horasReservadas(booked);
 
   const now = new Date();
   const isToday = slotDate === localDateStr(now);

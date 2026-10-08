@@ -143,6 +143,30 @@ export async function POST(request: Request) {
   }
 }
 
+/**
+ * Normaliza el nombre del evento de Evolution.
+ *
+ * ESTO ERA LA RAZÓN DE QUE EL BOT NO RESPONDIERA NADA EN PRODUCCIÓN.
+ *
+ * El dispatcher comparaba `body.event !== "messages.upsert"` en minúsculas y
+ * con punto. Pero Evolution 2.3.7 (la versión que corre en el server) manda
+ * los eventos en SCREAMING_SNAKE: `MESSAGES_UPSERT`, `CONNECTION_UPDATE`,
+ * `GROUP_PARTICIPANTS_UPDATE`. La comparación no daba nunca, así que TODO
+ * mensaje real caía en la rama de "ignorado" y se devolvía 200 sin hacer nada:
+ * el bot no respondía ni una palabra, y el usuario veía silencio.
+ *
+ * Las pruebas no lo detectaban porque `test-webhook.js` fabricaba el payload a
+ * mano con `event: "messages.upsert"` — o sea, la prueba se mandaba a sí misma
+ * el evento que la realidad no manda. Por eso las 21 comprobaciones pasaban
+ * mientras el bot estaba mudo. Ahora hay una comprobación con `MESSAGES_UPSERT`.
+ *
+ * Se aceptan todas las variantes: `messages.upsert`, `MESSAGES_UPSERT`,
+ * `messages-upsert`... El separador se unifica a `_` y se pasa a minúsculas.
+ */
+function nombreEvento(evento: unknown): string {
+  return String(evento ?? "").trim().toLowerCase().replace(/[.\s-]+/g, "_");
+}
+
 async function handleWebhook(request: Request) {
   // OJO: la clave por defecto es la IP, y todas las instancias de Evolution
   // salen desde el mismo servidor → el límite era compartido. Con 100/min un
@@ -171,12 +195,16 @@ async function handleWebhook(request: Request) {
   }
 
   // Community features removed — ignore group events and group messages
-  if (body.event === "group-participants.update") {
+  const evento = nombreEvento(body.event);
+
+  if (evento === "group_participants_update") {
     return NextResponse.json({ status: "ignored" });
   }
 
   // Only process incoming messages from here
-  if (body.event !== "messages.upsert") {
+  if (evento !== "messages_upsert") {
+    // Se loguea el nombre CRUDO a propósito: si aparece uno raro en producción,
+    // en la tabla está tal cual lo mandó Evolution, sin normalizar.
     await logWebhook(String(body.event || "unknown"), "skipped", { payload: auditPayload(body) });
     return NextResponse.json({ status: "ignored" });
   }

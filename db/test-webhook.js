@@ -292,6 +292,44 @@ function comprobar(final, condicion, detalle) {
     suma(comprobar("instancia inexistente -> 404", r.status === 404, "HTTP " + r.status));
   }
 
+  /* ---- 2b. El nombre del evento, que es como estaba el bot mudo ----
+     Evolution 2.3.7 manda `MESSAGES_UPSERT` en SCREAMING_SNAKE. El
+     dispatcher solo aceptaba `messages.upsert`, así que TODOS los mensajes
+     reales caían en la rama de "ignorado" y el bot no respondía nada. Las
+     pruebas no lo veían porque este mismo archivo fabricaba el payload con el
+     evento en minúsculas: la prueba se mandaba a sí misma lo que la realidad
+     no manda.
+
+     Estos dos casos son la razón de que esta prueba exista. */
+  console.log("\n── cómo nombra Evolution los eventos ──");
+  {
+    /* El que manda el server de verdad. Tiene que disparatear el bot. */
+    llamadas.length = 0;
+    const p = conFirma(mensaje("hola", { event: "MESSAGES_UPSERT" }));
+    const r = await webhook(p.cuerpo, p.cabeceras);
+    const envio = llamadas.filter((c) => c.ruta.indexOf("sendText") !== -1);
+    suma(comprobar("'MESSAGES_UPSERT' responde como 'messages.upsert'",
+      r.status === 200 && envio.length === 1,
+      envio.length ? "salió el mensaje" : "HTTP " + r.status + ", no envió nada (evento descartado)"));
+
+    /* Las otras grafías que se han visto en los logs. */
+    for (const variante of ["messages.upsert", "messages-upsert", "MESSAGES.UPSERT"]) {
+      llamadas.length = 0;
+      const q = conFirma(mensaje("hola", { event: variante }));
+      await webhook(q.cuerpo, q.cabeceras);
+      suma(comprobar("grafía '" + variante + "' también", llamadas.filter((c) => c.ruta.indexOf("sendText") !== -1).length === 1));
+    }
+
+    /* Y lo contrario: lo que NO es un mensaje de entrada se ignora igual. */
+    for (const otro of ["CONNECTION_UPDATE", "connection.update", "MESSAGES_DELETE"]) {
+      llamadas.length = 0;
+      const q = conFirma(mensaje("hola", { event: otro }));
+      const r = await webhook(q.cuerpo, q.cabeceras);
+      suma(comprobar("'" + otro + "' se ignora sin responder",
+        r.status === 200 && llamadas.filter((c) => c.ruta.indexOf("sendText") !== -1).length === 0));
+    }
+  }
+
   /* ---- 3. El matching y la respuesta ---- */
   console.log("\n── matchear y responder ──");
   {
@@ -312,6 +350,107 @@ function comprobar(final, condicion, detalle) {
       suma(comprobar("con la clave del servidor, no otra",
         envio[0].apikey === "CLAVE-FALSA-" + MARCA || envio[0].authorization === "Bearer CLAVE-FALSA-" + MARCA));
     }
+  }
+
+  /* ---- 3b. La palabra "turno": el flujo de la agenda ----
+     Esta parte faltaba y es la que estaba rota en producción: el cliente
+     escribía "turno" y no pasaba nada. Como la agenda es de varios pasos
+     (palabra clave -> menú -> número de horario -> confirmación), comprobar
+     solo el primer paso deja pasar el resto del bug. */
+  console.log("\n── la agenda con la palabra \"turno\" ──");
+  {
+    llamadas.length = 0;
+    const p = conFirma(mensaje("turno"));
+    const r = await webhook(p.cuerpo, p.cabeceras);
+    suma(comprobar("keyword 'turno' -> 200", r.status === 200, "HTTP " + r.status));
+
+    const envio = llamadas.filter((c) => c.ruta.indexOf("sendText") !== -1);
+    suma(comprobar("responde con un mensaje", envio.length > 0,
+      envio.length ? envio[0].ruta : "no salió ninguna llamada (" + llamadas.length + " llamadas en total)"));
+
+    /* Ojo: `cuerpo` es un objeto ya parseado. `Array.join` lo convierte a
+       "[object Object]" y estas aserciones dababan un resultado sin sentido.
+       Hay que serializar el array entero. */
+    const menu = JSON.stringify(envio.map((c) => c.cuerpo));
+    /* Se comprueban las etiquetas, no el dibujo: el menú usa 1️⃣/2️⃣/3️⃣ con
+       selectores de variación y el formato cambia entre versiones. */
+    suma(comprobar("y es el menú de la agenda (1/2/3)",
+      /libre hoy/i.test(menu) && /pr[oó]ximo/i.test(menu) && /completa/i.test(menu),
+      envio.length ? menu.slice(0, 120) : ""));
+  }
+
+  /* Elegir "1" = libre hoy: tiene que ofrecer horarios numerados. */
+  {
+    llamadas.length = 0;
+    const p = conFirma(mensaje("1"));
+    await webhook(p.cuerpo, p.cabeceras);
+    const envio = llamadas.filter((c) => c.ruta.indexOf("sendText") !== -1);
+    suma(comprobar("responder '1' lista horarios", envio.length > 0,
+      envio.length ? envio[0].ruta : "no respondió a '1'"));
+
+    const cuerpo = JSON.stringify(envio.map((c) => c.cuerpo));
+    suma(comprobar("con horarios en formato HH:MM", /\d{2}:\d{2}\*?\s*hs/.test(cuerpo),
+      envio.length ? cuerpo.slice(0, 120) : ""));
+  }
+
+  /* Y el paso final: elegir un horario tiene que CREAR el turno. Este es el
+     que importa: si el INSERT falla (columna que no existe, tabla mal), el
+     bot contesta "agendado" sin guardar nada. */
+  {
+    llamadas.length = 0;
+    const p = conFirma(mensaje("1"));
+    const r = await webhook(p.cuerpo, p.cabeceras);
+
+    const { data: turnos } = await db.from("bots_appointments")
+      .select("id, appointment_date, appointment_time, status")
+      .eq("bot_id", bot.data.id);
+    suma(comprobar("elegir un horario crea el turno", (turnos || []).length === 1,
+      (turnos || []).length + " turno(s) en bots_appointments"));
+
+    if (turnos && turnos[0]) {
+      /* La columna es `time` y Postgres la devuelve como "HH:MM:SS". El
+         código la recorta a "HH:MM" para compararla con los slots que
+         genera, así que acá se acepta cualquiera de las dos formas. */
+      suma(comprobar("con fecha y hora válidas",
+        /^\d{4}-\d{2}-\d{2}$/.test(turnos[0].appointment_date) && /^\d{2}:\d{2}(:\d{2})?$/.test(turnos[0].appointment_time),
+        turnos[0].appointment_date + " " + turnos[0].appointment_time));
+      suma(comprobar("y queda confirmado", turnos[0].status === "confirmed", turnos[0].status));
+    }
+
+    const cuerpo = JSON.stringify(llamadas.filter((c) => c.ruta.indexOf("sendText") !== -1).map((c) => c.cuerpo));
+    suma(comprobar("y el cliente recibe la confirmación", /AGENDADO/i.test(cuerpo),
+      cuerpo.slice(0, 120)));
+    suma(comprobar("el turno no se repite al elegir otra vez",
+      llamadas.filter((c) => c.ruta.indexOf("sendText") !== -1).length === 1));
+    void r;
+  }
+
+  /* Un horario YA reservado tiene que desaparecer del listado. Este chequeo
+     nació de un bug real: `appointment_time` volvía de Postgres como
+     "11:00:00" y el `Set` de reservados se armaba con ese formato, así que
+     `has("11:00")` era false y los turnos tomados se volvían a ofrecer.
+
+     Por eso no alcanza con "no crear un segundo turno" (eso ya lo impedía
+     `clearAgendaActive`): hay que volver a pedir la agenda y mirar que el
+     horario tomado no esté en la lista. */
+  {
+    const { data: yaReservado } = await db.from("bots_appointments")
+      .select("appointment_date, appointment_time").eq("bot_id", bot.data.id).limit(1);
+    const hhmm = yaReservado && yaReservado[0]
+      ? String(yaReservado[0].appointment_time).slice(0, 5)
+      : null;
+
+    const p1 = conFirma(mensaje("turno"));
+    await webhook(p1.cuerpo, p1.cabeceras);
+
+    llamadas.length = 0;
+    const p2 = conFirma(mensaje("1"));
+    await webhook(p2.cuerpo, p2.cabeceras);
+
+    const listado = JSON.stringify(llamadas.filter((c) => c.ruta.indexOf("sendText") !== -1).map((c) => c.cuerpo));
+    suma(comprobar("el horario reservado desaparece del listado",
+      !!hhmm && listado.indexOf(hhmm) === -1,
+      hhmm ? (listado.indexOf(hhmm) === -1 ? "ya no está" : "SIGO OFRECIENDO " + hhmm) : "no hay turno"));
   }
 
   /* ---- 4. Un mensaje que no matchea: no debe contestar ---- */
