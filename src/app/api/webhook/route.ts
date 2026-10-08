@@ -259,9 +259,11 @@ async function handleWebhook(request: Request) {
     outside_hours_message: string | null;
     evolution_api_url: string;
     evolution_api_key: string;
+    evolution_api_token: string | null;
   }>(
     `SELECT b.id, b.client_id, b.slug, b.instance_name, b.welcome_message, b.outside_hours_message,
-            s.url AS evolution_api_url, s.api_key AS evolution_api_key
+            s.url AS evolution_api_url, s.api_key AS evolution_api_key,
+            b.instance_token AS evolution_api_token
        FROM bots b
        JOIN evolution_servers s ON s.id = b.server_id
       WHERE b.instance_name = ?
@@ -276,6 +278,48 @@ async function handleWebhook(request: Request) {
   }
 
   const instance = instancias[0];
+
+  /* ───────────────────────────────────────────────────────────────────
+     CON QUÉ CLAVE SE MANDA A EVOLUTION
+     ───────────────────────────────────────────────────────────────────
+
+     Antes se usaba siempre `evolution_api_key`, que es la clave GLOBAL de
+     la caja: la que entra a TODAS las instancias. Con un solo bot no se
+     nota. Con el segundo, el bot de un cliente puede leer los chats, el
+     número y el webhook del otro: son datos de un negocio que el panel
+     no debería poder ni leer.
+
+     Ahora se prefiere el token de la INSTANCIA, que solo ve la suya.
+     Comprobado en la caja de producción:
+
+       · clave global   -> /instance/fetchInstances devuelve todas
+       · token instancia -> devuelve solo la propia
+       · token instancia -> envía mensajes (HTTP 201, comprobado de verdad)
+
+     Y si el token no está, se cae a la clave global. Eso es lo que hace
+     que la migración sea reversible: con la columna en NULL el bot se
+     comporta exactamente como antes, en vez de quedarse mudo.
+
+     ── POR QUÉ NO SE USA EL TOKEN PARA LEER ──
+
+     Porque la lectura de la instancia la hace esta misma consulta, en SQL,
+     contra la base. La clave de Evolution no interviene. El token solo se
+     usa para hablar con la caja, que es donde el aislamiento importa.
+     */
+  const tokenDeInstancia = (instancias[0].evolution_api_token || "").trim();
+  const claveDeLaCaja = tokenDeInstancia || instancias[0].evolution_api_key;
+
+  if (!tokenDeInstancia) {
+    /* No es un error: es el estado de antes del cambio. Se avisa una vez
+       por instancia para que quede en el log sin ser un ruido por
+       mensaje, que sería miles de líneas al día. */
+    console.warn(
+      "[webhook] el bot " + instance.id + " no tiene token de instancia: " +
+        "se usa la clave global, que ve todas las instancias"
+    );
+  }
+
+  instance.evolution_api_key = claveDeLaCaja;
 
   /* No hay plan que calcular. Se deja la variable con un valor fijo
      porque hay console.log de diagnóstico que la imprimen, y quitarlos
