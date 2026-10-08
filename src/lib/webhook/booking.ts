@@ -233,9 +233,39 @@ function agendaKey(ctx: WebhookContext): string {
   return `${ctx.instance.id}:${ctx.remoteJid}`;
 }
 
+/* ── EL VALOR DE LA BANDERA DEL MENÚ ──
+
+   Se guardaba la cadena "1" y se comparaba con === "1". Con el Map de
+   memoria eso nunca se notó, porque ahí lo que se guardaba era un
+   booleano de verdad.
+
+   Al pasar a Redis, NO. La librería deserializa lo que lee, y el texto
+   "1" vuelve como el número 1:
+
+       set(clave, "1")  ->  OK
+       get(clave)       ->  1        (número, no texto)
+       1 === "1"       ->  false
+
+   O sea: el bot escribía el menú activo, lo leía, comparaba, obtenía
+   false, y creía que nadie estaba en ningún menú. El "1" del cliente
+   caía al final de la cadena de handlers y salía `no_match`.
+
+   Y lo grave: la escritura funcionaba y no había ningún error. El
+   bot no estaba roto ni Redis tampoco. Solo una comparación que nunca
+   daba verdadero, y el flujo entero muerto detrás.
+
+   La clave es que el valor NO sea un número escrito como texto, porque
+   eso es justo lo que la librería convierte al leer. Una palabra no se
+   parece a un número, y la comparación es exacta.
+
+   Los datos guardados con el valor viejo no sirven: expiran en quince
+   minutos, así que no hay nada que migrar. */
+const MARCA_ACTIVA = "menu-agenda-activo";
+
 async function markAgendaActive(ctx: WebhookContext): Promise<void> {
   const key = `agenda:${agendaKey(ctx)}`;
-  if (redis) await redis.set(key, "1", { ex: Math.ceil(AGENDA_TTL_MS / 1000) });
+  /* El valor es una PALABRA y no "1". Ver la nota de arriba. */
+  if (redis) await redis.set(key, MARCA_ACTIVA, { ex: Math.ceil(AGENDA_TTL_MS / 1000) });
   else {
     agendaActiveFallback.set(key, true);
     setTimeout(() => agendaActiveFallback.delete(key), AGENDA_TTL_MS);
@@ -251,7 +281,7 @@ async function clearAgendaActive(ctx: WebhookContext): Promise<void> {
 /** True si el usuario está dentro del flujo de agenda (menú visible). */
 export async function isAgendaActive(ctx: WebhookContext): Promise<boolean> {
   const key = `agenda:${agendaKey(ctx)}`;
-  if (redis) return (await redis.get(key)) === "1";
+  if (redis) return (await redis.get(key)) === MARCA_ACTIVA;
   return agendaActiveFallback.get(key) === true;
 }
 
