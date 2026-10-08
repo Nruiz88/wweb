@@ -238,19 +238,45 @@ export async function setWebhook(
           url: webhookUrl,
           events,
           headers: headers ?? {},
-          /* byEvents: true, y antes false.
+          /* byEvents en FALSE, y antes en true. ESTO ROMPIÓ EL BOT.
 
-             Con `false`, Evolution IGNORA lo que se guarda aquí y usa la
-             configuración global del servidor (las variables
-             WEBHOOK_GLOBAL del contenedor). El endpoint devolvía los
-             valores que acabamos de guardar y todo parecía correcto,
-             mientras que lo que se ejecutaba era otra cosa: los eventos
-             nunca llegaban y no había ningún error visible.
+               El nombre del campo invita a error: parece decir «filtrar
+               por eventos». No dice eso. La documentación lo define
+               textual:
 
-             Con `true`, lo que se guarda por instancia es lo que se usa.
-             Es lo único que sirve cuando hay varias instancias, que es
-             justo el caso de un bot por cliente. */
-          byEvents: true,
+                 webhook_by_events — Whether to generate a specific
+                 Webhook URL for each of your events.
+
+               Es decir: NO filtra, CAMBIA LA DIRECCIÓN. Al activarlo se
+               le añade el nombre del evento al final de la URL, y
+               MESSAGES_UPSERT pasa a llamar a:
+
+                 .../api/webhook/messages-upsert
+
+               Y el bot escucha en:
+
+                 .../api/webhook
+
+               O sea, a una dirección que no existe. Evolution recibe
+               un 404 y no reintenta. Y como un 404 de un webhook no deja
+               rastro —no hay error, ni reintento, ni log— el bot se
+               quedaba mudo sin ningún síntoma, con el panel de Salud en
+               verde y con la configuración del webhook impecable.
+
+               Con `false`, Evolution llama a la URL tal cual.
+
+               ── POR QUÉ DURÓ TANTO ──
+
+               El comentario anterior de aquí afirmaba lo contrario, y
+               con seguridad: decía que con `false` Evolution ignoraba
+               la configuración por instancia y usaba la global, y que
+               por eso `true` era obligatorio. Una explicación larga y
+               convincente se lee como verificada, y nadie la contrastó
+               con la documentación.
+
+               Y no era un detalle menor lo que decía: era la razón de
+               que no llegara ningún mensaje. */
+          byEvents: false,
           base64: false,
         },
       }),
