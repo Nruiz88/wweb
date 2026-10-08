@@ -311,6 +311,55 @@ export default function CalendarPage() {
 
   const activeHoursCount = businessHours.filter((h) => h.is_active).length;
 
+  /* ---- La palabra que abre la agenda ----
+
+     Estado propio, y NO en el formulario de horarios: se guarda al momento
+     de cambiarlo y no depende de que el resto del horario sea válido. Si
+     compartieran el mismo onSubmit, no se podría corregir la palabra sin
+     tener que guardar los siete días también. */
+  const [bookingKeyword, setBookingKeyword] = useState("");
+  const [savingKeyword, setSavingKeyword] = useState(false);
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/instance-settings");
+        const p = await res.json();
+        if (!cancelado && p.status === "success") {
+          setBookingKeyword(p.data?.booking_keyword ?? "");
+        }
+      } catch {
+        // Sin palabra configurable: el bot usa las de siempre.
+      }
+    })();
+    return () => { cancelado = true; };
+  }, []);
+
+  async function guardarBookingKeyword(valor: string) {
+    const limpio = valor.trim().toLowerCase();
+    setSavingKeyword(true);
+    try {
+      const res = await fetch("/api/instance-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingKeyword: limpio }),
+      });
+      const p = await res.json();
+      if (p.status === "success") {
+        setBookingKeyword(limpio);
+        toast.success(limpio ? `Ahora "${limpio}" abre los turnos` : "Vuelven las palabras de siempre");
+      } else {
+        toast.error(p.error || "No se pudo guardar");
+        setBookingKeyword(limpio);
+      }
+    } catch {
+      toast.error("No se pudo guardar");
+    } finally {
+      setSavingKeyword(false);
+    }
+  }
+
 
   return (
     <div className="flex h-full flex-col bg-gradient-to-b from-wa-panel via-wa-panel to-wa-header/40">
@@ -356,6 +405,49 @@ export default function CalendarPage() {
               <span className="ml-auto text-[10px] font-bold text-[#00a884] px-2 py-0.5 rounded-full bg-[#00a884]/10 border border-[#00a884]/20">{activeHoursCount} activos</span>
             </div>
             <div className="p-4 space-y-3">
+              {/* La palabra que abre la agenda. Va aquí y no en "Mi
+                  perfil" porque es una cosa del CALENDARIO: es lo que
+                  hace que el bot entienda que le están pidiendo un turno. */}
+              <div className="rounded-xl border border-[#00a884]/20 bg-[#00a884]/[0.04] p-3">
+                <label htmlFor="booking-keyword" className="block text-xs font-semibold text-wa-text mb-1">
+                  Palabra que abre los turnos
+                </label>
+                <Input
+                  id="booking-keyword"
+                  value={bookingKeyword}
+                  onChange={(e) => setBookingKeyword(e.target.value)}
+                  /* Se guarda solo, al salir del campo o al apretar Enter:
+                     no tiene sentido obligar a tocar "Guardar" abajo, que
+                     además guarda los horarios. */
+                  onBlur={() => {
+                    const limpio = bookingKeyword.trim().toLowerCase();
+                    if (limpio !== bookingKeyword) guardarBookingKeyword(limpio);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void guardarBookingKeyword(bookingKeyword);
+                    }
+                  }}
+                  placeholder="mesa"
+                  disabled={savingKeyword}
+                  className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-wa-text"
+                />
+                <p className="mt-1.5 text-[11px] leading-relaxed text-wa-text-secondary/60">
+                  {bookingKeyword.trim() ? (
+                    <>
+                      Con <span className="text-[#00a884] font-semibold">{bookingKeyword.trim().toLowerCase()}</span>{" "}
+                      el bot muestra la agenda.{" "}
+                      <span className="text-wa-text-secondary/40">
+                        Siempre funcionan además: turno, agendar, reservar, cita y agenda.
+                      </span>
+                    </>
+                  ) : (
+                    <>Ahora el bot responde a: turno, agendar, reservar, cita y agenda. Poné una palabra para sumar la de tu negocio.</>
+                  )}
+                </p>
+              </div>
+
               <form onSubmit={onSubmitHours} className="space-y-3">
                 {watchedSchedule?.map((h, idx) => {
                   const errStart = hoursForm.formState.errors.schedule?.[idx]?.start;

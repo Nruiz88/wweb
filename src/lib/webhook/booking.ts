@@ -2,6 +2,7 @@ import { sendTextMessage as sendTextMessageRaw, sendButtonMessage } from "@/lib/
 import type { ButtonItem } from "@/lib/evolution-multi";
 import type { WebhookContext } from "./context";
 import { slugify } from "@/lib/slug";
+import { matchPalabraAgenda } from "@/lib/booking-keywords";
 import { query } from "@/lib/db";
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
@@ -857,16 +858,51 @@ export async function handleDateSelect(ctx: WebhookContext): Promise<{ status: s
 }
 
 /**
+ * La palabra extra que el cliente configuró para su bot (`bots.booking_keyword`,
+ * migración 020), si puso alguna.
+ *
+ * Se consulta SUELTA y con su propio try/catch, y no como parte del SELECT
+ * grande de `route.ts`, por una razón concreta: si la migración todavía no
+ * se aplicó, la columna no existe, Postgres tira, y como el error cae en un
+ * `catch` el webhook devolvería 500 a TODO mensaje. O sea: añadir la columna
+ * al SELECT de contexto rompe el bot entero hasta que se aplique la
+ * migración. Así, si falta, se usan las palabras de siempre y no pasa nada.
+ *
+ * Solo se llega a mirar cuando el mensaje NO matchea ninguna de las de
+ * siempre, así que en el camino habitual no se paga ninguna consulta.
+ */
+async function palabraDelBot(ctx: WebhookContext): Promise<string | null> {
+  try {
+    const filas = await query<{ booking_keyword: string | null }>(
+      "SELECT booking_keyword FROM bots WHERE id = ? LIMIT 1",
+      [ctx.instance.id]
+    );
+    return (filas?.[0]?.booking_keyword ?? "").trim() || null;
+  } catch (e) {
+    // La columna puede no existir todavía (migración sin aplicar). No es
+    // motivo para romper el mensaje.
+    console.warn("[booking] no se pudo leer booking_keyword", {
+      instance: ctx.instance.instance_name,
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
+}
+
+/**
  * Handle "turno" keyword: show the agenda menu (hoy / próximo / completa).
  * (ya no hay gating por plan: lo decide `tiene_modulo()` en Nexo Studio)
  */
 export async function handleBookingIntent(ctx: WebhookContext): Promise<{ status: string; matched: string } | null> {
   const { effectiveText } = ctx;
 
-  const bookingKeywords = ["turno", "agendar", "reservar", "cita", "appointment", "agenda"];
-  const isBooking = bookingKeywords.some((k) => effectiveText.toLowerCase().includes(k));
+  /* Primero las de siempre: es el caso normal y sale sin tocar la base. */
+  let match = matchPalabraAgenda(effectiveText);
+  if (!match) {
+    match = matchPalabraAgenda(effectiveText, await palabraDelBot(ctx));
+  }
 
-  if (!isBooking) return null;
+  if (!match) return null;
 
   // Verify the agenda is configured at all before offering options
   const { supabase, instance } = ctx;
