@@ -263,9 +263,10 @@ async function handleWebhook(request: Request) {
   }>(
     `SELECT b.id, b.client_id, b.slug, b.instance_name, b.welcome_message, b.outside_hours_message,
             s.url AS evolution_api_url, s.api_key AS evolution_api_key,
-            b.instance_token AS evolution_api_token
+            i.token AS evolution_api_token
        FROM bots b
        JOIN evolution_servers s ON s.id = b.server_id
+       LEFT JOIN evolution_instancias i ON i.instance_name = b.instance_name
       WHERE b.instance_name = ?
       LIMIT 1`,
     [instanceName]
@@ -280,32 +281,45 @@ async function handleWebhook(request: Request) {
   const instance = instancias[0];
 
   /* ───────────────────────────────────────────────────────────────────
-     CON QUÉ CLAVE SE MANDA A EVOLUTION
+     LA CLAVE DEL SERVIDOR Y EL TOKEN DE LA INSTANCIA
      ───────────────────────────────────────────────────────────────────
 
-     Antes se usaba siempre `evolution_api_key`, que es la clave GLOBAL de
-     la caja: la que entra a TODAS las instancias. Con un solo bot no se
-     nota. Con el segundo, el bot de un cliente puede leer los chats, el
-     número y el webhook del otro: son datos de un negocio que el panel
-     no debería poder ni leer.
+     Son dos cosas distintas y se guardan en dos tablas distintas, a
+     propósito:
 
-     Ahora se prefiere el token de la INSTANCIA, que solo ve la suya.
-     Comprobado en la caja de producción:
+       · evolution_servers        la clave GLOBAL de la caja. La que
+                                 entra a todas las instancias. Se lee
+                                 una vez y sirve para hablar de todo.
 
-       · clave global   -> /instance/fetchInstances devuelve todas
-       · token instancia -> devuelve solo la propia
-       · token instancia -> envía mensajes (HTTP 201, comprobado de verdad)
+       · evolution_instancias     el token de UNA instancia. Solo ve esa.
 
-     Y si el token no está, se cae a la clave global. Eso es lo que hace
-     que la migración sea reversible: con la columna en NULL el bot se
-     comporta exactamente como antes, en vez de quedarse mudo.
+     El token no está en `bots` porque `bots` la lee el cliente: tiene
+     una política que le deja ver su propia fila. Con el token ahí, un
+     cliente podía manejar su bot por su cuenta, saltándose el panel:
+     leer sus conversaciones, mandar mensajes en su nombre, cambiarle
+     el webhook.
 
-     ── POR QUÉ NO SE USA EL TOKEN PARA LEER ──
+     Y ese token no caduca, que es lo que lo hace peor que la clave
+     global: un token filtrado sirve para siempre.
 
-     Porque la lectura de la instancia la hace esta misma consulta, en SQL,
-     contra la base. La clave de Evolution no interviene. El token solo se
-     usa para hablar con la caja, que es donde el aislamiento importa.
-     */
+     Comprobado en la caja:
+
+       · clave global     -> /instance/fetchInstances devuelve todas
+       · token instancia -> devuelve solo la suya
+       · token instancia -> envía mensajes (HTTP 201, de verdad)
+
+     ── Y SI NO HAY TOKEN ──
+
+     Se usa la clave global, que es el comportamiento de antes del
+     cambio. Así una instancia sin token guardado sigue funcionando, en
+     vez de quedarse muda. Lo contrario sería cambiar un dato por un
+     apagón, y el apagón es el que no avisa.
+
+     ── Y EL JOIN ──
+
+     LEFT, no INNER. Con INNER, que no haya fila de token se traduce a
+     «el bot no existe», y eso vuelve como un 404 sin explicación. */
+
   const tokenDeInstancia = (instancias[0].evolution_api_token || "").trim();
   const claveDeLaCaja = tokenDeInstancia || instancias[0].evolution_api_key;
 
