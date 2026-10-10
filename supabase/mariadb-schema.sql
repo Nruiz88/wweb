@@ -1,0 +1,23 @@
+-- =====================================================================
+-- ELIMINADO: el esquema de MariaDB
+-- =====================================================================
+-- Este fichero definia las 17 tablas del bot en MariaDB. Ya no existen:
+-- todo vive en Supabase, en la misma base de datos que el panel de Nexo
+-- Studio. El esquema actual vive alli, en
+--   D:\webs\empresa\db\migrations\011_bot.sql
+-- y se aplica con el migrador de ese proyecto.
+--
+-- Por que se borra en vez de guardarse:
+--
+-- · Describe algo que no se ejecuta. Un esquema que no se aplica es una
+--   fuente de verdad mas, y la peor: parece la vigente.
+-- · Las tablas se llamaban distinto (instances, auto_responses,
+--   appointments...) y las columnas tambien. Quien leyera este fichero
+--   creeria que instance_id existe, cuando la columna ahora es bot_id.
+-- · evolution_api_url y evolution_api_key estaban en la fila de cada
+--   instancia. Eso era un fallo de seguridad (ver 011_bot.sql): con
+--   varias instancias compartiendo servidor, un cliente podia leer la
+--   clave del servidor y manejar los bots de los demas.
+--
+-- Si necesitas el historico, esta en git.
+-- =====================================================================

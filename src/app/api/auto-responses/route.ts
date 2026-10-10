@@ -1,61 +1,101 @@
 import { NextResponse } from "next/server";
-import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
+import { getSession, botDeLaSesion, clienteDeLaSesion } from "@/lib/sesion";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { isSafeRegex } from "@/lib/regex-guard";
-import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
+import { isValidId } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
-// GET: List auto-responses for user's instance
-export async function GET(request: Request) {
-  const user = await getCurrentUser();
+/* =========================================================
+   Respuestas automáticas
+   ---------------------------------------------------------
+   El bot sale de `botDeLaSesion()` (RLS), no de `?instanceId=` con
+   `verifyUserAccess`.
 
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
+   Todo va con el cliente de Supabase: `query()` va a `ejecutar_sql`,
+   que es de SOLO LECTURA, así que los INSERT/UPDATE/DELETE de antes
+   no se ejecutarían.
 
-  const supabase = await createServerClient();
+   Y `user_id` desaparece de las respuestas: esa columna ya no existe.
+   El "quién" en un bot es el teléfono que escribe, no el usuario del
+   panel.
 
-  const { searchParams } = new URL(request.url);
-  const instanceId = searchParams.get("instanceId");
+   Se sigue aceptando snake_case además de camelCase porque la UI de
+   /menus manda las dos cosas según la pantalla, y normalizarlo aquí
+   era lo que evitaba que un menú naciera como respuesta de texto.
+   ========================================================= */
 
-  if (!instanceId) {
-    return NextResponse.json(
-      { status: "error", error: "instanceId is required" },
-      { status: 400 }
-    );
-  }
+const COLUMNAS =
+  "id, keyword, regex_pattern, response_text, response_media_url, response_type, menu_config, is_active, priority, schedule, created_at";
 
-  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-  }
+const TIPOS = ["text", "menu"];
 
-  const { data: responses, error } = await supabase
-    .from("auto_responses")
-    .select("*")
-    .eq("instance_id", instanceId)
-    .order("priority", { ascending: false });
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
-
-  return NextResponse.json({ status: "success", data: responses });
+/** Lee el cuerpo aceptando camelCase y snake_case. */
+function normalizar(body: unknown) {
+  const raw = (body ?? {}) as Record<string, unknown>;
+  return {
+    keyword: raw.keyword as string | undefined,
+    regexPattern: (raw.regexPattern ?? raw.regex_pattern) as string | undefined,
+    responseText: (raw.responseText ?? raw.response_text) as string | undefined,
+    responseMediaUrl: (raw.responseMediaUrl ?? raw.response_media_url) as string | undefined,
+    responseType: (raw.responseType ?? raw.response_type) as string | undefined,
+    menuConfig: (raw.menuConfig ?? raw.menu_config) as Record<string, unknown> | undefined,
+    isActive: (raw.isActive ?? raw.is_active) as boolean | undefined,
+    /* El toggle de la UI manda { id, active }. */
+    active: raw.active as boolean | undefined,
+    priority: raw.priority as number | undefined,
+    schedule: raw.schedule as Record<string, unknown> | undefined,
+  };
 }
 
-// POST: Create new auto-response
-export async function POST(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
-  if (rateLimitErr) return rateLimitErr;
+async function contexto() {
+  const session = await getSession();
+  if (!session) return { error: NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 }) };
 
-  const user = await getCurrentUser();
-
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+  const db = clienteDeLaSesion(session);
+  if (!db) {
+    return { error: NextResponse.json({ status: "error", error: "Sesión caducada" }, { status: 401 }) };
   }
 
-  const supabase = await createServerClient();
+  const bot = await botDeLaSesion(session);
+  if (!bot) {
+    return { error: NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 }) };
+  }
+
+  return { db, bot };
+}
+
+// GET /api/auto-responses?type=text|menu
+export async function GET(request: Request) {
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
+
+  const type = new URL(request.url).searchParams.get("type");
+
+  let q = ctx.db
+    .from("bots_responses")
+    .select(COLUMNAS)
+    .eq("bot_id", ctx.bot.id)
+    .order("priority", { ascending: false });
+
+  if (type && TIPOS.includes(type)) q = q.eq("response_type", type);
+
+  const { data, error } = await q;
+  if (error) return NextResponse.json({ status: "error", error: "No se pudieron leer las respuestas" }, { status: 500 });
+
+  return NextResponse.json({ status: "success", data: data ?? [] });
+}
+
+// POST /api/auto-responses
+export async function POST(request: Request) {
+  const rateLimitErr = await rateLimitResponse(request, "auto-responses", {
+    maxRequests: 30,
+    windowMs: 60_000,
+  });
+  if (rateLimitErr) return rateLimitErr;
+
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
   let body: unknown;
   try {
@@ -64,58 +104,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const {
-    instanceId,
-    keyword,
-    regexPattern,
-    responseText,
-    responseMediaUrl,
-    responseType,
-    menuConfig,
-    isActive,
-    priority,
-    schedule,
-  } = (body ?? {}) as {
-    instanceId?: string;
-    keyword?: string;
-    regexPattern?: string;
-    responseText?: string;
-    responseMediaUrl?: string;
-    responseType?: string;
-    menuConfig?: { title?: string; description?: string; footer?: string; buttons?: { id: string; text: string; target_id: string | null }[] } | null;
-    isActive?: boolean;
-    priority?: number;
-    schedule?: { from?: string; to?: string };
-  };
+  const { keyword, regexPattern, responseText, responseMediaUrl, responseType, menuConfig, isActive, priority, schedule } =
+    normalizar(body);
 
-  if (!instanceId) {
+  /* La UI de /menus manda `{ menu_config, is_active }` SIN
+     `response_type`, así que caía en la rama de texto y moría con
+     "responseText is required": no se podía crear ningún menú. Se
+     infiere el tipo cuando viene un menu_config. */
+  const tipo = responseType ?? (menuConfig ? "menu" : "text");
+
+  if (!TIPOS.includes(tipo)) {
+    return NextResponse.json({ status: "error", error: "response_type inválido" }, { status: 400 });
+  }
+
+  const botones = (menuConfig?.buttons ?? []) as unknown[];
+  if (tipo === "menu" && botones.length === 0) {
     return NextResponse.json(
-      { status: "error", error: "instanceId is required" },
+      { status: "error", error: "Un menú necesita al menos un botón" },
       { status: 400 }
     );
   }
 
-  // Menu type: menuConfig is required; text response is optional (used as fallback)
-  const isMenu = responseType === "menu";
-
-  if (!isMenu && !responseText) {
+  if (tipo !== "menu" && !responseText?.trim()) {
     return NextResponse.json(
-      { status: "error", error: "responseText is required for text responses" },
-      { status: 400 }
-    );
-  }
-
-  if (isMenu && (!menuConfig || !menuConfig.buttons || menuConfig.buttons.length === 0)) {
-    return NextResponse.json(
-      { status: "error", error: "menuConfig with at least 1 button is required for menu responses" },
-      { status: 400 }
-    );
-  }
-
-  // Text type: keyword or regexPattern required
-  if (!isMenu && !keyword && !regexPattern) {
-    return NextResponse.json(
-      { status: "error", error: "Either keyword or regexPattern is required" },
+      { status: "error", error: "Una respuesta de texto necesita su texto" },
       { status: 400 }
     );
   }
@@ -127,48 +139,61 @@ export async function POST(request: Request) {
     );
   }
 
-  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+  /* Para un menú la UI no pasa keyword, y la tabla exige keyword O
+     regex_pattern. Antes se generaba `menu_<id>` con un idazarizado;
+     ahora el id lo pone la base, así que la keyword se deriva de un
+     random. Es interna: el menú se abre por su target_id, no por
+     palabra clave. */
+  const clave = keyword?.trim() || (tipo === "menu" ? `menu_${Math.random().toString(36).slice(2, 10)}` : null);
+
+  if (!clave && !regexPattern?.trim()) {
+    return NextResponse.json(
+      { status: "error", error: "Necesitás una palabra clave o un patrón regex" },
+      { status: 400 }
+    );
   }
 
-  const { data: response, error } = await supabase
-    .from("auto_responses")
+  const { data, error } = await ctx.db
+    .from("bots_responses")
     .insert({
-      instance_id: instanceId,
-      user_id: user.id,
-      keyword: keyword || null,
+      bot_id: ctx.bot.id,
+      keyword: clave,
       regex_pattern: regexPattern || null,
       response_text: responseText || "",
       response_media_url: responseMediaUrl || null,
-      response_type: isMenu ? "menu" : "text",
-      menu_config: menuConfig || null,
+      response_type: tipo,
+      menu_config: menuConfig ?? null,
       is_active: isActive ?? true,
-      priority: priority ?? 0,
-      schedule: schedule || null,
+      priority: Number.isFinite(Number(priority)) ? Number(priority) : 0,
+      schedule: schedule ?? null,
     })
-    .select()
+    .select(COLUMNAS)
     .single();
 
   if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+    /* 23514 es el CHECK (keyword OR regex_pattern). Se traduce a un
+       mensaje útil en vez de un 500 opaco. */
+    if (error.code === "23514") {
+      return NextResponse.json(
+        { status: "error", error: "Necesitás una palabra clave o un patrón regex" },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ status: "error", error: "No se pudo guardar la respuesta" }, { status: 500 });
   }
 
-  return NextResponse.json({ status: "success", data: response });
+  return NextResponse.json({ status: "success", data });
 }
 
-// PUT: Update auto-response
-export async function PUT(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
+async function updateAutoResponse(request: Request) {
+  const rateLimitErr = await rateLimitResponse(request, "auto-responses", {
+    maxRequests: 30,
+    windowMs: 60_000,
+  });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getCurrentUser();
-
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const supabase = await createServerClient();
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
   let body: unknown;
   try {
@@ -177,104 +202,97 @@ export async function PUT(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { id, ...updates } = (body ?? {}) as {
-    id?: string;
-    keyword?: string;
-    regexPattern?: string;
-    responseText?: string;
-    responseMediaUrl?: string;
-    responseType?: string;
-    menuConfig?: { title?: string; description?: string; footer?: string; buttons?: { id: string; text: string; target_id: string | null }[] } | null;
-    isActive?: boolean;
-    priority?: number;
-    schedule?: { from?: string; to?: string };
-  };
-
-  if (!id) {
+  const { id } = (body ?? {}) as { id?: unknown };
+  if (typeof id !== "string" || !isValidId(id)) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const { data: existing } = await supabase
-    .from("auto_responses")
-    .select("id, instance_id")
-    .eq("id", id)
-    .single();
+  const n = normalizar(body);
 
-  if (!existing) {
-    return NextResponse.json({ status: "error", error: "Auto-response not found" }, { status: 404 });
+  if (n.regexPattern && !isSafeRegex(n.regexPattern)) {
+    return NextResponse.json(
+      { status: "error", error: "El patrón regex es inválido, muy largo o potencialmente peligroso" },
+      { status: 400 }
+    );
+  }
+  if (n.responseType !== undefined && !TIPOS.includes(n.responseType)) {
+    return NextResponse.json({ status: "error", error: "response_type inválido" }, { status: 400 });
   }
 
-  const hasAccess = await verifyUserAccess(supabase, user.id, existing.instance_id);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
-  }
+  const updates: Record<string, unknown> = {};
+  if (n.keyword !== undefined) updates.keyword = n.keyword;
+  if (n.regexPattern !== undefined) updates.regex_pattern = n.regexPattern;
+  if (n.responseText !== undefined) updates.response_text = n.responseText;
+  if (n.responseMediaUrl !== undefined) updates.response_media_url = n.responseMediaUrl;
+  if (n.responseType !== undefined) updates.response_type = n.responseType;
+  if (n.menuConfig !== undefined) updates.menu_config = n.menuConfig;
+  if (n.isActive !== undefined) updates.is_active = n.isActive;
+  if (n.active !== undefined) updates.is_active = n.active;
+  if (n.priority !== undefined) updates.priority = Number(n.priority);
+  if (n.schedule !== undefined) updates.schedule = n.schedule;
 
-  // Build update payload — only include fields that were sent
-  const updatePayload: Record<string, unknown> = {};
-  if (updates.keyword !== undefined) updatePayload.keyword = updates.keyword;
-  if (updates.regexPattern !== undefined) updatePayload.regex_pattern = updates.regexPattern;
-  if (updates.responseText !== undefined) updatePayload.response_text = updates.responseText;
-  if (updates.responseMediaUrl !== undefined) updatePayload.response_media_url = updates.responseMediaUrl;
-  if (updates.responseType !== undefined) updatePayload.response_type = updates.responseType;
-  if (updates.menuConfig !== undefined) updatePayload.menu_config = updates.menuConfig;
-  if (updates.isActive !== undefined) updatePayload.is_active = updates.isActive;
-  if (updates.priority !== undefined) updatePayload.priority = updates.priority;
-  if (updates.schedule !== undefined) updatePayload.schedule = updates.schedule;
+  if (Object.keys(updates).length === 0) return NextResponse.json({ status: "success" });
 
-  const { data: response, error } = await supabase
-    .from("auto_responses")
-    .update(updatePayload)
+  /* El `bot_id` va en el WHERE: no hay consulta aparte "de quién es
+     esto". Antes sí la había, y el UPDATE siguiente no repetía el
+     filtro. */
+  const { data, error } = await ctx.db
+    .from("bots_responses")
+    .update(updates)
     .eq("id", id)
-    .select()
-    .single();
+    .eq("bot_id", ctx.bot.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+    if (error.code === "23514") {
+      return NextResponse.json(
+        { status: "error", error: "Necesitás una palabra clave o un patrón regex" },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ status: "error", error: "No se pudo actualizar" }, { status: 500 });
   }
+  if (!data) return NextResponse.json({ status: "error", error: "Auto-response not found" }, { status: 404 });
 
-  return NextResponse.json({ status: "success", data: response });
+  return NextResponse.json({ status: "success", data: { id, ...updates } });
 }
 
-// DELETE: Delete auto-response
+// PUT: mismo handler que PATCH; la UI usa PATCH para editar y para el toggle.
+export async function PUT(request: Request) {
+  return updateAutoResponse(request);
+}
+
+export async function PATCH(request: Request) {
+  return updateAutoResponse(request);
+}
+
+// DELETE /api/auto-responses?id=xxx
 export async function DELETE(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "auto-responses", { maxRequests: 30, windowMs: 60_000 });
+  const rateLimitErr = await rateLimitResponse(request, "auto-responses", {
+    maxRequests: 30,
+    windowMs: 60_000,
+  });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getCurrentUser();
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const supabase = await createServerClient();
-
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get("id");
-
-  if (!id) {
+  const id = new URL(request.url).searchParams.get("id");
+  if (!id || !isValidId(id)) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const { data: existing } = await supabase
-    .from("auto_responses")
-    .select("id, instance_id")
+  const { data, error } = await ctx.db
+    .from("bots_responses")
+    .delete()
     .eq("id", id)
-    .single();
+    .eq("bot_id", ctx.bot.id)
+    .select("id")
+    .maybeSingle();
 
-  if (!existing) {
-    return NextResponse.json({ status: "error", error: "Auto-response not found" }, { status: 404 });
-  }
-
-  const hasAccess = await verifyUserAccess(supabase, user.id, existing.instance_id);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
-  }
-
-  const { error } = await supabase.from("auto_responses").delete().eq("id", id);
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
+  if (error) return NextResponse.json({ status: "error", error: "No se pudo borrar" }, { status: 500 });
+  if (!data) return NextResponse.json({ status: "error", error: "Auto-response not found" }, { status: 404 });
 
   return NextResponse.json({ status: "success" });
 }

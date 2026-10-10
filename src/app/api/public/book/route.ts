@@ -1,18 +1,58 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
-import { slugify } from "@/lib/slug";
+import { todayInBusinessTimezone, timeInBusinessTimezone } from "@/lib/timezone";
+import { getAdmin } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-// POST: Public booking (used by the /agendar link). No auth required.
-// Validates the instance belongs to the user, checks availability,
-// and creates a pending appointment.
-export async function POST(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "public-book", { maxRequests: 20, windowMs: 60_000 });
-  if (rateLimitErr) return rateLimitErr;
+/* =========================================================
+   Reserva pública (sin cuenta)
+   ---------------------------------------------------------
+   La usan los clientes finales del comercio. No tienen sesión, así
+   que todo sale de la secret key y **entra solo lo justo**: un slug, un
+   nombre, un teléfono y el hueco que quieren. Nada de eso identifica a
+   nadie, y lo único que se guarda es a quién avisar.
 
-  const supabase = await createServerClient();
+   QUÉ CAMBIÓ
+   ---------
+   Antes identificaba el negocio con `?business=<slug del nombre>` o
+   `userEmail=<email>`, y **`instanceId` venía en el cuerpo**. Eso
+   significaba que quien quisiera podía mandar un `instanceId`
+   cualquiera y reservar en el calendario de otro negocio. El
+   `instanceId` no se comprobaba contra nada: se usaba tal cual en el
+   INSERT.
+
+   Ahora solo hay un identificador, el `slug` del bot, y el `bot_id` se
+   saca de la base. No hay forma de pedir "reserva en este negocio"
+   apuntando a otro.
+
+   ⚠️  LA DOBLE RESERVA LA RESUELVE LA BASE
+   ----------------------------------------
+   Antes había un SELECT para buscar conflicto y luego un INSERT: dos
+   visitas simultáneas al mismo hueco pasaban las dos y se creaban dos
+   citas. Ahora el INSERT lleva contra una restricción `EXCLUDE USING
+   gist` sobre el rango del turno, así que es imposible. El error
+   `23P01` se traduce a un 409 con un mensaje que el cliente entiende.
+   ========================================================= */
+
+/** Formato de teléfono: solo dígitos, entre 7 y 15. */
+function normalizaTelefono(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const digitos = v.replace(/\D/g, "");
+  if (digitos.length < 7 || digitos.length > 15) return null;
+  return digitos;
+}
+
+// POST /api/public/book { slug, customerName, customerPhone, appointmentDate, appointmentTime }
+export async function POST(request: Request) {
+  /* El rate limit va primero y es más estricto que en la agenda: aquí se
+     escribe, y alguien que no para de reenviar reservas llena la agenda
+     de basura. */
+  const rateLimitErr = await rateLimitResponse(request, "public-book", {
+    maxRequests: 10,
+    windowMs: 60_000,
+  });
+  if (rateLimitErr) return rateLimitErr;
 
   let body: unknown;
   try {
@@ -21,127 +61,148 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { business, userEmail, instanceId, customerName, appointmentDate, appointmentTime } = (body ?? {}) as {
-    business?: string;
-    userEmail?: string;
-    instanceId?: string;
-    customerName?: string;
-    appointmentDate?: string;
-    appointmentTime?: string;
+  const { slug, customerName, customerPhone, appointmentDate, appointmentTime } = (body ?? {}) as {
+    slug?: unknown;
+    customerName?: unknown;
+    customerPhone?: unknown;
+    appointmentDate?: unknown;
+    appointmentTime?: unknown;
   };
 
-  if ((!business && !userEmail) || !instanceId || !appointmentDate || !appointmentTime) {
+  const limpio = typeof slug === "string" ? slug.trim().toLowerCase() : "";
+  const fecha = String(appointmentDate ?? "");
+  const hora = String(appointmentTime ?? "");
+  const nombre = typeof customerName === "string" ? customerName.trim().slice(0, 120) : "";
+  const telefono = normalizaTelefono(customerPhone);
+
+  if (!limpio || !fecha || !hora) {
     return NextResponse.json(
-      { status: "error", error: "business (or userEmail), instanceId, appointmentDate, and appointmentTime are required" },
-      { status: 400 },
+      { status: "error", error: "Falta el slug, la fecha o la hora" },
+      { status: 400 }
+    );
+  }
+  if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(limpio)) {
+    return NextResponse.json({ status: "error", error: "slug inválido" }, { status: 400 });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) {
+    return NextResponse.json({ status: "error", error: "Fecha u hora con formato inválido" }, { status: 400 });
+  }
+  /* Sin teléfono no se puede avisar del recordatorio, y un turno sin
+     contacto no sirve de nada. Antes `customer_phone` era NULL y la cita
+     se creaba igual. */
+  if (!telefono) {
+    return NextResponse.json(
+      { status: "error", error: "Necesitamos un teléfono para avisarte" },
+      { status: 400 }
     );
   }
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate) || !/^\d{2}:\d{2}$/.test(appointmentTime)) {
-    return NextResponse.json({ status: "error", error: "Invalid date or time format" }, { status: 400 });
-  }
+  const db = getAdmin();
 
-  // Verify the user owns / has access to this instance
-  let profile: { id: string; role: string } | null = null;
-
-  if (userEmail) {
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, role")
-      .eq("email", userEmail.trim().toLowerCase())
-      .single();
-    profile = data ?? null;
-  }
-
-  if (!profile && business) {
-    const slug = business.trim().toLowerCase();
-    const { data: all } = await supabase
-      .from("profiles")
-      .select("id, role, business_name, email");
-    profile =
-      (all || []).find((p) => {
-        if (p.business_name && slugify(p.business_name) === slug) return true;
-        if (p.email && slugify(p.email) === slug) return true;
-        return false;
-      }) ?? null;
-  }
-
-  if (!profile) {
-    return NextResponse.json({ status: "error", error: "User not found" }, { status: 404 });
-  }
-
-  let owns = false;
-  if (profile.role === "admin") {
-    const { data: inst } = await supabase
-      .from("instances")
-      .select("id")
-      .eq("id", instanceId)
-      .eq("admin_id", profile.id)
-      .single();
-    owns = !!inst;
-  } else {
-    const { data: assigned } = await supabase
-      .from("user_instances")
-      .select("id")
-      .eq("instance_id", instanceId)
-      .eq("user_id", profile.id)
-      .single();
-    owns = !!assigned;
-  }
-
-  if (!owns) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-  }
-
-  // Validate the day has active business hours
-  const dateObj = new Date(appointmentDate + "T12:00:00");
-  const dayOfWeek = dateObj.getDay();
-
-  const { data: hours } = await supabase
-    .from("business_hours")
+  const { data: bot, error: errorBot } = await db
+    .from("bots")
     .select("id")
-    .eq("instance_id", instanceId)
-    .eq("day_of_week", dayOfWeek)
+    .eq("slug", limpio)
+    .maybeSingle();
+
+  if (errorBot) {
+    console.error("[book] buscando el bot:", errorBot.message);
+    return NextResponse.json({ status: "error", error: "No se pudo reservar" }, { status: 500 });
+  }
+  if (!bot) {
+    return NextResponse.json({ status: "error", error: "Agenda no encontrada" }, { status: 404 });
+  }
+
+  /* ---- Horario de atención de ese día ---- */
+  const dow = new Date(`${fecha}T12:00:00`).getDay();
+
+  const { data: horarios } = await db
+    .from("bots_business_hours")
+    .select("start_time, end_time, slot_duration_min")
+    .eq("bot_id", bot.id)
+    .eq("day_of_week", dow)
     .eq("is_active", true)
-    .single();
-
-  if (!hours) {
-    return NextResponse.json({ status: "error", error: "No hay horarios configurados para ese día" }, { status: 400 });
-  }
-
-  // Check conflict (pending or confirmed)
-  const { data: conflict } = await supabase
-    .from("appointments")
-    .select("id")
-    .eq("instance_id", instanceId)
-    .eq("appointment_date", appointmentDate)
-    .eq("appointment_time", appointmentTime)
-    .in("status", ["pending", "confirmed"])
     .limit(1);
 
-  if (conflict && conflict.length > 0) {
+  if (!horarios || horarios.length === 0) {
     return NextResponse.json(
-      { status: "error", error: "Ese horario ya fue tomado. Elegí otro." },
-      { status: 409 },
+      { status: "error", error: "Ese día no hay atención" },
+      { status: 400 }
     );
   }
 
-  const { data: appointment, error } = await supabase
-    .from("appointments")
+  const horario = horarios[0];
+
+  /* La hora debe caer dentro del rango Y respectar la duración del
+     turno. Antes solo se validaba que el día tuviera horario: un POST
+     directo podía inventar horas fuera de rango y meterlas en el
+     calendario. */
+  const [tH, tM] = hora.split(":").map(Number);
+  const [sH, sM] = horario.start_time.split(":").map(Number);
+  const [eH, eM] = horario.end_time.split(":").map(Number);
+  const pedido = tH * 60 + tM;
+  const inicio = sH * 60 + sM;
+  const fin = eH * 60 + eM;
+  const duracion = horario.slot_duration_min || 30;
+
+  if (pedido < inicio || pedido + duracion > fin) {
+    return NextResponse.json(
+      {
+        status: "error",
+        error: `Ese horario está fuera del horario de atención (${horario.start_time} - ${horario.end_time})`,
+      },
+      { status: 400 }
+    );
+  }
+  if (pedido % duracion !== inicio % duracion) {
+    return NextResponse.json(
+      { status: "error", error: "Ese horario no coincide con la duración del turno" },
+      { status: 400 }
+    );
+  }
+
+  /* No se reserva en el pasado. La comparación es en la zona del
+     negocio, no la del servidor (que corre en UTC). */
+  const hoy = todayInBusinessTimezone();
+  const ahora = timeInBusinessTimezone();
+  if (fecha < hoy || (fecha === hoy && hora <= ahora)) {
+    return NextResponse.json(
+      { status: "error", error: "Ese horario ya pasó. Elegí otro." },
+      { status: 400 }
+    );
+  }
+
+  /* ---- Insertar ---- */
+  const { data: cita, error } = await db
+    .from("bots_appointments")
     .insert({
-      instance_id: instanceId,
-      customer_name: customerName || null,
-      appointment_date: appointmentDate,
-      appointment_time: appointmentTime,
+      bot_id: bot.id,
+      customer_name: nombre || null,
+      customer_phone: telefono,
+      appointment_date: fecha,
+      appointment_time: hora,
+      duration_min: duracion,
       status: "pending",
     })
     .select("id, appointment_date, appointment_time")
     .single();
 
   if (error) {
-    console.error("[public-book] insert failed:", error.message);
-    return NextResponse.json({ status: "error", error: "No se pudo guardar el turno" }, { status: 500 });
+    /* 23P01 es la violación del EXCLUDE: el hueco se acaba de ocupar.
+       Esto NO es un fallo, es la respuesta correcta, y es la primera
+       vez que la base la da por sí sola en vez de un SELECT previo. */
+    if (error.code === "23P01") {
+      return NextResponse.json(
+        { status: "error", error: "Ese horario acaba de ocuparse. Elegí otro." },
+        { status: 409 }
+      );
+    }
+    console.error("[book] insertando la cita:", error.message);
+    return NextResponse.json(
+      { status: "error", error: "No se pudo completar la reserva" },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({ status: "success", data: appointment });
+  return NextResponse.json({ status: "success", data: cita });
 }

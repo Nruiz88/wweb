@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { sendButtonMessage } from "@/lib/evolution-multi";
-import type { ButtonItem } from "@/lib/evolution-multi";
-import { safeErrorMessage } from "@/lib/api-helpers";
+import { getSession, botDeLaSesion } from "@/lib/sesion";
+import { getBusinessName } from "@/lib/business-name";
+import { BUSINESS_TIMEZONE } from "@/lib/timezone";
+import { query } from "@/lib/db";
+import { sendTextMessage } from "@/lib/evolution-multi";
 
 export const dynamic = "force-dynamic";
 
@@ -20,86 +21,118 @@ function formatDate(dateStr: string, timeStr: string): string {
 
 /** Process reminders: find appointments ~24h away and send WhatsApp reminders */
 async function processReminders() {
-  const supabase = await createServerClient();
-
   const now = new Date();
-  // Wider window since Vercel Hobby runs once per day
+  // Wider window since runs once per day
   const in30h = new Date(now.getTime() + 30 * 60 * 60 * 1000);
 
-  const dateStrNow = now.toISOString().slice(0, 10);
-  const dateStr30h = in30h.toISOString().slice(0, 10);
+  // Fechas en la zona del negocio, no en UTC: con toISOString() después de las
+  // 21:00 ART la ventana se corría un día.
+  const fmtDay = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: BUSINESS_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  const dateStrNow = fmtDay(now);
+  const dateStr30h = fmtDay(in30h);
 
-  const { data: appointments, error } = await supabase
-    .from("appointments")
-    .select(`
-      id, instance_id, customer_phone, customer_name,
-      appointment_date, appointment_time, status,
-      reminder_24h_sent
-    `)
-    .in("status", ["pending", "confirmed"])
-    .eq("reminder_24h_sent", false)
-    .gte("appointment_date", dateStrNow)
-    .lte("appointment_date", dateStr30h);
-
-  if (error) {
-    return { status: "error" as const, error: safeErrorMessage(error) };
-  }
+  const appointments = await query<{
+    id: string;
+    bot_id: string;
+    customer_phone: string;
+    customer_name: string | null;
+    appointment_date: string;
+    appointment_time: string;
+    status: string;
+    reminder_24h_sent: boolean;
+  }>(
+    `SELECT id, instance_id, customer_phone, customer_name,
+            appointment_date, appointment_time, status, reminder_24h_sent
+     FROM bots_appointments
+     WHERE status IN ('pending','confirmed')
+       AND reminder_24h_sent = false
+       AND appointment_date >= ? AND appointment_date <= ?
+     ORDER BY appointment_date ASC, appointment_time ASC`,
+    [dateStrNow, dateStr30h]
+  );
 
   if (!appointments || appointments.length === 0) {
     return { status: "success" as const, processed: 0, failed: 0, total: 0, message: "No reminders to send" };
   }
 
-  const instanceIds = [...new Set(appointments.map((a) => a.instance_id))];
-  const { data: instances } = await supabase
-    .from("instances")
-    .select("id, instance_name, evolution_api_url, evolution_api_key")
-    .in("id", instanceIds);
-
-  const instanceMap = new Map((instances || []).map((i) => [i.id, i]));
+  const instanceIds = [...new Set(appointments.map((a) => a.bot_id))];
+  const bots = await query<{
+    id: string;
+    instance_name: string;
+    evolution_api_url: string;
+    evolution_api_key: string;
+  }>(
+    `SELECT b.id, b.instance_name, s.url AS evolution_api_url, s.api_key AS evolution_api_key
+       FROM bots b
+       JOIN evolution_servers s ON s.id = b.server_id
+      WHERE b.id IN (${instanceIds.map(() => "?").join(", ")})`,
+    instanceIds
+  );
+  const instanceMap = new Map<string, (typeof bots)[number]>((bots || []).map((i) => [i.id, i]));
 
   let processed = 0;
   let failed = 0;
 
   for (const appt of appointments) {
-    const instance = instanceMap.get(appt.instance_id);
+const instance = instanceMap.get(appt.bot_id);
     if (!instance) { failed++; continue; }
+    /* Las url y la clave salen del JOIN con evolution_servers. No se
+       devuelven en la respuesta: esto es una ruta de servidor, y la clave
+       no tiene por qué salir de aquí ni por log. */
 
-    const apptDateTime = new Date(`${appt.appointment_date}T${appt.appointment_time}`);
+    // `appointment_date` (DATE) y `appointment_time` (TIME) llegan como
+    // "YYYY-MM-DD" y "HH:MM:SS" (pool con dateStrings). Con Timezone se
+    // interpreta como hora local del navegador, que no es la del negocio.
+    const apptDateTime = new Date(`${appt.appointment_date}T${(appt.appointment_time || "").slice(0, 5)}:00Z`);
     const hoursUntil = (apptDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
     // Wider window (18-30h) since we run once per day
-    if (hoursUntil < 18 || hoursUntil > 30) continue;
+    if (Number.isNaN(hoursUntil) || hoursUntil < 18 || hoursUntil > 30) continue;
 
+    // `customer_phone` es NULLABLE (el booking por link público no lo exige).
+    // El `.replace()` original reventaba con TypeError y, sin try/catch por
+    // turno, abortaba el LOTE ENTERO: un solo turno sin teléfono impedía
+    // recordar todos los demás.
+    if (!appt.customer_phone) { failed++; continue; }
     const phone = appt.customer_phone.replace("@s.whatsapp.net", "").replace("@lid", "");
     const dateDisplay = formatDate(appt.appointment_date, appt.appointment_time);
     const name = appt.customer_name || "";
+    const business = await getBusinessName(instance.id, instance.instance_name);
 
-    const title = `⏰ Recordatorio${name ? ` para ${name}` : ""}`;
-    const description = `Tu turno es ${dateDisplay}. ¿Confirmás?`;
-
-    const buttons: ButtonItem[] = [
-      { type: "reply", displayText: "✅ Confirmar", id: `confirm_${appt.id}` },
-      { type: "reply", displayText: "❌ Cancelar", id: `cancel_${appt.id}` },
-    ];
-
-    const result = await sendButtonMessage(
+    // TEXTO, no botones: se comprobó que `sendButtonMessage` devuelve 200 pero
+    // Evolution envuelve el interactiveMessage en un `viewOnceMessage`, así que
+    // el recordatorio NO le llegaba al cliente (era invisible, no fallaba).
+    // El cliente confirma respondiendo con el número, que el webhook ya sabe
+    // interpretar.
+    const result = await sendTextMessage(
       instance.evolution_api_url,
       instance.evolution_api_key,
       instance.instance_name,
       phone,
-      title,
-      description,
-      buttons,
-      "Boti Recordatorios",
-      1500,
+      "╭━━━━━━━━━━━━━━━━━━━━━╮\n" +
+        `  ⏰  *${business}*${name ? `\n  Recordatorio para ${name}` : ""}\n` +
+        "╰━━━━━━━━━━━━━━━━━━━━━╯\n\n" +
+        `📅  *${dateDisplay}*\n\n` +
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n" +
+        "  Respondé con un número:\n" +
+        "  *1*  ✅ Confirmo que voy\n" +
+        "  *2*  ❌ Necesito cancelarlo",
+      1200,
     );
 
-    await supabase
-      .from("appointments")
-      .update({ reminder_24h_sent: true })
-      .eq("id", appt.id);
-
-    if (result.ok) { processed++; }
-    else { failed++; }
+    // Solo se marca como enviado si Evolution lo entregó: antes el UPDATE iba
+    // ANTES de mirar `result.ok`, así que un fallo nunca se reintentaba.
+    if (result.ok) {
+      await query("UPDATE appointments SET reminder_24h_sent = true WHERE id = ?", [appt.id]);
+      processed++;
+    } else {
+      failed++;
+    }
   }
 
   return { status: "success" as const, processed, failed, total: appointments.length };
@@ -107,63 +140,104 @@ async function processReminders() {
 
 /** Preview upcoming reminders for a specific instance */
 async function previewReminders(instanceId: string) {
-  const supabase = await createServerClient();
   const now = new Date();
   const in7days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const { data: appointments, error } = await supabase
-    .from("appointments")
-    .select("id, customer_phone, customer_name, appointment_date, appointment_time, status, reminder_24h_sent")
-    .eq("instance_id", instanceId)
-    .in("status", ["pending", "confirmed"])
-    .gte("appointment_date", now.toISOString().slice(0, 10))
-    .lte("appointment_date", in7days.toISOString().slice(0, 10))
-    .order("appointment_date", { ascending: true })
-    .order("appointment_time", { ascending: true });
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
+  const appointments = await query<{
+    id: string;
+    customer_phone: string;
+    customer_name: string | null;
+    appointment_date: string;
+    appointment_time: string;
+    status: string;
+    reminder_24h_sent: boolean;
+  }>(
+    `SELECT id, customer_phone, customer_name, appointment_date, appointment_time, status, reminder_24h_sent
+     FROM bots_appointments
+     WHERE instance_id = ? AND status IN ('pending','confirmed')
+       AND appointment_date >= ? AND appointment_date <= ?
+     ORDER BY appointment_date ASC, appointment_time ASC`,
+    [instanceId, now.toISOString().slice(0, 10), in7days.toISOString().slice(0, 10)]
+  );
 
   return NextResponse.json({ status: "success", data: appointments });
 }
 
-// GET: Vercel cron calls this every hour (with CRON_SECRET)
-// GET with ?instanceId=... returns preview instead
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const instanceId = searchParams.get("instanceId");
-
-  // If instanceId provided, return preview (dashboard use)
-  if (instanceId) {
-    return previewReminders(instanceId);
-  }
-
-  // Otherwise, treat as cron trigger
+/**
+ * Autorización del disparo de recordatorios.
+ *
+ * Dos caminos válidos:
+ *  1. `Authorization: Bearer <CRON_SECRET>` — lo usan las Schedule Tasks.
+ *  2. Sesión de admin — para disparar a mano desde el panel.
+ *
+ * Configurado en Coolify: variable `CRON_SECRET` en la app + Schedule Task
+ * "Recordatorios de turnos (24h)" con `0 12 * * *` (12:00 UTC = 9:00 ART),
+ * que corre wget contra localhost:3000 dentro del contenedor.
+ *
+ * OJO: `vercel.json` declara un cron pero **Coolify no lo ejecuta**; la
+ * Schedule Task es la que corre. Y cambiar env vars en Coolify no aplica al
+ * contenedor vivo: hace falta redeploy.
+ *
+ * Fail-CLOSED: sin ninguno de los dos, se rechaza. Con la versión anterior
+ * (sin secret seteado el chequeo se saltaba) cualquier POST anónimo disparaba
+ * WhatsApp a todos los clientes.
+ */
+async function isAuthorizedCron(request: Request): Promise<boolean> {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) return true;
+
+  const session = await getSession();
+  /* session.rol y no session.role: la sesión del bot usa los nombres de
+     Nexo Studio ('staff' | 'client'). Con 'role' la comparación era
+     siempre falsa y una sesión válida no pasaba el control. */
+  if (session?.rol === "staff") return true;
+
+  console.warn("[reminder] trigger rechazado (sin CRON_SECRET válido y sin sesión admin)");
+  return false;
+}
+
+// GET: Vercel cron calls this every day (with CRON_SECRET)
+// GET with ?instanceId=... returns a preview (requires session + instance access)
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  /* La rama de preview devolvía customer_phone y customer_name de TODOS los
+     turnos de cualquier instancia sin sesión, sin CRON_SECRET y sin comprobar
+     el acceso: fuga de PII trivial desde fuera.
+
+     Ahora no se pide un instanceId (que era un id que alguien podía poner
+     en la URL y()), sino ?preview=1, y el bot sale de la sesión: solo hay
+     una vista previa, la del propio cliente. */
+  if (searchParams.get("preview") === "1") {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
+    }
+    const bot = await botDeLaSesion(session);
+    if (!bot) {
+      return NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 });
+    }
+    return previewReminders(bot.id);
+  }
+
+  if (!(await isAuthorizedCron(request))) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
+  // processReminders() siempre devuelve status "success" (contadores), asi que
+  // la rama de error era inalcanzable y TypeScript lo senalaba.
   const result = await processReminders();
-  if (result.status === "error") {
-    return NextResponse.json({ status: "error", error: result.error }, { status: 500 });
-  }
   return NextResponse.json({ status: "success", data: result });
 }
 
 // POST: Manual trigger or legacy cron (with CRON_SECRET)
 export async function POST(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!(await isAuthorizedCron(request))) {
     return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
   }
 
+  // processReminders() siempre devuelve status "success" (contadores), asi que
+  // la rama de error era inalcanzable y TypeScript lo senalaba.
   const result = await processReminders();
-  if (result.status === "error") {
-    return NextResponse.json({ status: "error", error: result.error }, { status: 500 });
-  }
   return NextResponse.json({ status: "success", data: result });
 }

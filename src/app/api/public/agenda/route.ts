@@ -1,174 +1,201 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
 import { rateLimitResponse } from "@/lib/rate-limit";
 import { slugify } from "@/lib/slug";
+import { BUSINESS_TIMEZONE, todayInBusinessTimezone, timeInBusinessTimezone } from "@/lib/timezone";
+import { getAdmin } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-/** Generate HH:MM slots between start and end given a duration. */
-function generateSlots(startTime: string, endTime: string, durationMin: number): { time: string; display: string }[] {
-  const slots: { time: string; display: string }[] = [];
+/* =========================================================
+   Disponibilidad pública de un bot
+   ---------------------------------------------------------
+   ESTA RUTA ES PÚBLICA, y tiene que serlo: la usan los clientes
+   finales del comercio para reservar, y ellos no tienen cuenta en Nexo
+   Studio ni en ningún sitio. Por eso no pide sesión y no usa RLS: usa
+   la secret key y **devuelve solo horarios libres**, nunca datos del
+   negocio.
+
+   QUÉ CAMBIÓ
+   ---------
+   Antes resolvía el negocio comparando el `?business=` contra el nombre
+   o el email de CADA usuario de la tabla `profiles`:
+   `SELECT ... FROM profiles` y luego un `.find()` en JavaScript.
+
+   Eso tenía dos problemas, y el segundo es el gordo:
+
+     1. Era un escaneo de la tabla entera en cada visita a la agenda.
+     2. Con `?user=<email>` bastaba con poner el email de CUALQUIER
+        cliente para ver sus horarios. Y como un mismo negocio puede
+        tener varias instancias, los datos de un usuario se mezclaban
+        con los de otro.
+
+   Ahora es `where slug = ?`. El `slug` es único en la base de datos
+   (restricción `ux` en `bots`), así que:
+
+     · es una consulta indexada, no un escaneo
+     · no se puede pedir la agenda de otro con un email
+     · no puede devolver datos de dos negocios a la vez
+
+   El enlace que manda el bot por WhatsApp ya usa este formato
+   (`/agendar/<slug>`), y ya no depende de que el nombre del negocio no
+   cambie: antes, si lo cambiabas, los enlaces enviados dejaban de
+   funcionar.
+   ========================================================= */
+
+/** Genera los huecos de un día entre dos horas. */
+function generateSlots(
+  startTime: string,
+  endTime: string,
+  durationMin: number
+): Array<{ time: string; display: string }> {
+  const slots: Array<{ time: string; display: string }> = [];
   const [startH, startM] = startTime.split(":").map(Number);
   const [endH, endM] = endTime.split(":").map(Number);
   const startMin = startH * 60 + startM;
   const endMin = endH * 60 + endM;
+
   for (let m = startMin; m + durationMin <= endMin; m += durationMin) {
     const h = Math.floor(m / 60);
     const min = m % 60;
-    const time = `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-    slots.push({ time, display: `${h}:${String(min).padStart(2, "0")}` });
+    slots.push({
+      time: `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`,
+      display: `${h}:${String(min).padStart(2, "0")}`,
+    });
   }
   return slots;
 }
 
-// GET: Public availability for a user's agenda (all their instances).
-// ?business=<slug>  (business_name slug, with email slug fallback)
-// →  { instances: [{ instanceId, instanceName, days: [...] }] }
+/** Días a partir de hoy, en la zona del negocio. */
+function proximosDias(cuantos: number): string[] {
+  const hoy = todayInBusinessTimezone();
+  const dias: string[] = [];
+  for (let i = 0; i < cuantos; i++) {
+    const base = new Date(`${hoy}T12:00:00`);
+    base.setDate(base.getDate() + i);
+    dias.push(
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: BUSINESS_TIMEZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(base)
+    );
+  }
+  return dias;
+}
+
+// GET /api/public/agenda?slug=<slug del bot>
 export async function GET(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "public-agenda", { maxRequests: 60, windowMs: 60_000 });
+  const rateLimitErr = await rateLimitResponse(request, "public-agenda", {
+    maxRequests: 60,
+    windowMs: 60_000,
+  });
   if (rateLimitErr) return rateLimitErr;
 
   const { searchParams } = new URL(request.url);
-  const businessSlug = searchParams.get("business")?.trim().toLowerCase();
-  // Backwards-compat: accept ?user=<email> too.
-  const userEmail = searchParams.get("user")?.trim().toLowerCase();
+  const slug = searchParams.get("slug")?.trim().toLowerCase();
 
-  if (!businessSlug && !userEmail) {
-    return NextResponse.json({ status: "error", error: "business is required" }, { status: 400 });
+  if (!slug) {
+    return NextResponse.json(
+      { status: "error", error: "slug is required" },
+      { status: 400 }
+    );
   }
 
-  const supabase = await createServerClient();
-
-  // Resolve profile by business name slug or email.
-  let profile: { id: string; role: string } | null = null;
-
-  if (userEmail) {
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, role")
-      .eq("email", userEmail)
-      .single();
-    profile = data ?? null;
+  /* Un slug son letras minúsculas, números y guiones: se filtra antes
+     de consultar. Con el `where` de Supabase no hay inyección posible
+     igual, pero así tampoco se spends una consulta con basura. */
+  if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(slug)) {
+    return NextResponse.json({ status: "error", error: "slug inválido" }, { status: 400 });
   }
 
-  if (!profile && businessSlug) {
-    const { data: all } = await supabase
-      .from("profiles")
-      .select("id, role, business_name, email");
-    profile =
-      (all || []).find((p) => {
-        if (p.business_name && slugify(p.business_name) === businessSlug) return true;
-        if (p.email && slugify(p.email) === businessSlug) return true;
-        return false;
-      }) ?? null;
+  const db = getAdmin();
+
+  const { data: bot, error: errorBot } = await db
+    .from("bots")
+    .select("id, instance_name, name")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (errorBot) {
+    console.error("[agenda] buscando el bot:", errorBot.message);
+    return NextResponse.json({ status: "error", error: "No se pudo consultar" }, { status: 500 });
+  }
+  if (!bot) {
+    return NextResponse.json({ status: "error", error: "Agenda no encontrada" }, { status: 404 });
   }
 
-  if (!profile) {
-    return NextResponse.json({ status: "error", error: "User not found" }, { status: 404 });
-  }
+  const hoy = todayInBusinessTimezone();
+  const desde = hoy;
+  const hasta = proximosDias(14)[13];
 
-  // Resolve the user's instances: admin → own, user → assigned
-  let instanceIds: string[] = [];
-  if (profile.role === "admin") {
-    const { data: own } = await supabase
-      .from("instances")
-      .select("id")
-      .eq("admin_id", profile.id);
-    instanceIds = (own || []).map((i) => i.id);
-  } else {
-    const { data: assigned } = await supabase
-      .from("user_instances")
-      .select("instance_id")
-      .eq("user_id", profile.id);
-    instanceIds = (assigned || []).map((a) => a.instance_id);
-  }
-
-  if (instanceIds.length === 0) {
-    return NextResponse.json({ status: "success", data: { instances: [] } });
-  }
-
-  const { data: instances } = await supabase
-    .from("instances")
-    .select("id, instance_name, status")
-    .in("id", instanceIds);
-
-  const { data: hoursAll } = await supabase
-    .from("business_hours")
-    .select("instance_id, day_of_week, start_time, end_time, slot_duration_min")
-    .in("instance_id", instanceIds)
+  const { data: horarios, error: errorHorarios } = await db
+    .from("bots_business_hours")
+    .select("day_of_week, start_time, end_time, slot_duration_min")
+    .eq("bot_id", bot.id)
     .eq("is_active", true);
 
-  const { data: bookedAll } = await supabase
-    .from("appointments")
-    .select("instance_id, appointment_date, appointment_time")
-    .in("instance_id", instanceIds)
-    .in("status", ["pending", "confirmed"]);
-
-  const hoursByInstance = new Map<string, Map<number, { start_time: string; end_time: string; slot_duration_min: number }>>();
-  for (const h of hoursAll || []) {
-    if (!hoursByInstance.has(h.instance_id)) hoursByInstance.set(h.instance_id, new Map());
-    hoursByInstance.get(h.instance_id)!.set(h.day_of_week, h);
+  if (errorHorarios) {
+    console.error("[agenda] horarios:", errorHorarios.message);
+    return NextResponse.json({ status: "error", error: "No se pudo consultar" }, { status: 500 });
   }
 
-  const bookedByInstance = new Map<string, Set<string>>();
-  for (const b of bookedAll || []) {
-    if (!bookedByInstance.has(b.instance_id)) bookedByInstance.set(b.instance_id, new Set());
-    bookedByInstance.get(b.instance_id)!.add(`${b.appointment_date}|${b.appointment_time}`);
+  const { data: ocupadas, error: errorOcupadas } = await db
+    .from("bots_appointments")
+    .select("appointment_date, appointment_time")
+    .eq("bot_id", bot.id)
+    .in("status", ["pending", "confirmed"])
+    .gte("appointment_date", desde)
+    .lte("appointment_date", hasta);
+
+  if (errorOcupadas) {
+    console.error("[agenda] citas:", errorOcupadas.message);
+    return NextResponse.json({ status: "error", error: "No se pudo consultar" }, { status: 500 });
   }
 
-  // Business timezone: Vercel runs UTC; compute "today" in Buenos Aires by default.
-  const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/Argentina/Buenos_Aires";
-  const todayStr = () =>
-    new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-  const nowMinutes = () => {
-    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: BUSINESS_TIMEZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
-    const h = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
-    const m = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
-    return h * 60 + m;
-  };
+  const porDia = new Map<number, { start_time: string; end_time: string; slot_duration_min: number }>();
+  for (const h of horarios ?? []) porDia.set(h.day_of_week, h);
 
-  const today = todayStr();
-  const nowMins = nowMinutes();
-  const days: { date: string; display: string }[] = [];
-  for (let i = 1; i <= 14; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
-    days.push({ date: dateStr, display: dateStr });
+  const ocupadoSet = new Set<string>();
+  for (const o of ocupadas ?? []) {
+    ocupadoSet.add(`${o.appointment_date}|${o.appointment_time.slice(0, 5)}`);
   }
 
-  const result = (instances || []).map((inst) => {
-    const hours = hoursByInstance.get(inst.id) || new Map();
-    const booked = bookedByInstance.get(inst.id) || new Set();
+  /* La hora "ahora" en la zona del negocio, no la del servidor: el
+     servidor corre en UTC y con BUSINESS_TIMEZONE en América el filtro
+     dejaba huecos ya pasados. */
+  const ahora = timeInBusinessTimezone();
+  const [ah, am] = ahora.split(":").map(Number);
+  const ahoraMin = ah * 60 + am;
 
-    const dayList = days.map((d) => {
-      const dateObj = new Date(d.date + "T12:00:00");
-      const dayHours = hours.get(dateObj.getDay());
-      if (!dayHours) return { date: d.date, slots: [] };
+  const dias = proximosDias(14);
+  const lista = dias
+    .map((fecha) => {
+      const dow = new Date(`${fecha}T12:00:00`).getDay();
+      const h = porDia.get(dow);
+      if (!h) return { date: fecha, slots: [] };
 
-      const all = generateSlots(dayHours.start_time, dayHours.end_time, dayHours.slot_duration_min);
-      const isToday = d.date === today;
-      const nowM = nowMins;
+      const todos = generateSlots(h.start_time, h.end_time, h.slot_duration_min);
 
-      const slots = all.filter((s) => {
-        if (booked.has(`${d.date}|${s.time}`)) return false;
-        if (isToday) {
-          const [h, m] = s.time.split(":").map(Number);
-          if (h * 60 + m <= nowM) return false;
+      const slots = todos.filter((s) => {
+        if (ocupadoSet.has(`${fecha}|${s.time}`)) return false;
+        /* Hoy solo lo que aún no pasó. */
+        if (fecha === hoy) {
+          const [sh, sm] = s.time.split(":").map(Number);
+          if (sh * 60 + sm <= ahoraMin) return false;
         }
         return true;
       });
 
-      return { date: d.date, slots };
-    });
+      return { date: fecha, slots };
+    })
+    .filter((d) => d.slots.length > 0);
 
-    return {
-      instanceId: inst.id,
-      instanceName: inst.instance_name,
-      status: inst.status,
-      days: dayList.filter((d) => d.slots.length > 0),
-    };
-  }).filter((inst) => inst.days.length > 0);
-
-  return NextResponse.json({ status: "success", data: { instances: result } });
+  return NextResponse.json({
+    status: "success",
+    data: {
+      bot: { name: bot.name, instanceName: bot.instance_name },
+      days: lista,
+    },
+  });
 }

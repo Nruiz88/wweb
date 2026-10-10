@@ -1,69 +1,89 @@
 import { NextResponse } from "next/server";
-import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
+import { getSession, botDeLaSesion, clienteDeLaSesion } from "@/lib/sesion";
 import { rateLimitResponse } from "@/lib/rate-limit";
-import { safeErrorMessage } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
-// GET: Fetch instance settings
-export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
+/* =========================================================
+   Ajustes del bot: bienvenida, fuera de horario y la palabra
+   que abre la agenda
+   ---------------------------------------------------------
+   Antes pedía `?instanceId=` y comprobaba el acceso con una consulta a
+   `profiles`. Ahora el bot sale de `botDeLaSesion()`, que lo busca con
+   el cliente del usuario (RLS), y el `bot_id` va en el propio WHERE.
 
-  const supabase = await createServerClient();
-  const { searchParams } = new URL(request.url);
-  const instanceId = searchParams.get("instanceId");
+   El UPDATE no lleva `updated_at`: lo pone el trigger
+   `bot_touch_updated_at` de la tabla.
 
-  if (!instanceId) {
-    return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
-  }
+   `booking_keyword` (migración 020) va APARTE a propósito, y no por
+   estética. Si la migración todavía no está aplicada, la columna no existe
+   y un `select("welcome_message, ..., booking_keyword")` revienta con
+   "column does not exist" → 500 → la pantalla de HORARIOS deja de cargar
+   entera. Con el SELECT aparte, si falta la columna se devuelve `null` y
+   todo lo demás sigue funcionando. Es la diferencia entre "una palabra
+   configurable todavía no disponible" y "el calendario caído".
+   ========================================================= */
 
-  // Verify access
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("id, admin_id, welcome_message, outside_hours_message")
-    .eq("id", instanceId)
-    .single();
+/** Una sola palabra, de 2 a 40 letras, sin espacios (ver migración 020). */
+function palabraValida(valor: string): boolean {
+  return valor.length >= 2 && valor.length <= 40 && !/\s/.test(valor);
+}
 
-  if (!instance) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-  }
+async function contexto() {
+  const session = await getSession();
+  if (!session) return { error: NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 }) };
 
-  const isAdmin = instance.admin_id === user.id;
-  if (!isAdmin) {
-    const { data: assignment } = await supabase
-      .from("user_instances")
-      .select("id")
-      .eq("instance_id", instanceId)
-      .eq("user_id", user.id)
-      .single();
-    if (!assignment) {
-      return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
-    }
+  const db = clienteDeLaSesion(session);
+  if (!db) return { error: NextResponse.json({ status: "error", error: "Sesión caducada" }, { status: 401 }) };
+
+  const bot = await botDeLaSesion(session);
+  if (!bot) return { error: NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 }) };
+
+  return { db, bot };
+}
+
+// GET /api/instance-settings
+export async function GET() {
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
+
+  const { data, error } = await ctx.db
+    .from("bots")
+    .select("welcome_message, outside_hours_message")
+    .eq("id", ctx.bot.id)
+    .maybeSingle();
+
+  if (error) return NextResponse.json({ status: "error", error: "No se pudo leer" }, { status: 500 });
+
+  let bookingKeyword: string | null = null;
+  try {
+    const { data: fila } = await ctx.db
+      .from("bots")
+      .select("booking_keyword")
+      .eq("id", ctx.bot.id)
+      .maybeSingle();
+    bookingKeyword = (fila as { booking_keyword?: string | null } | null)?.booking_keyword ?? null;
+  } catch {
+    // Migración 020 sin aplicar. No es motivo para devolver un error.
+    bookingKeyword = null;
   }
 
   return NextResponse.json({
     status: "success",
-    data: {
-      welcomeMessage: instance.welcome_message,
-      outsideHoursMessage: instance.outside_hours_message,
-    },
+    data: { ...(data ?? {}), booking_keyword: bookingKeyword },
   });
 }
 
-// PUT: Update instance settings
-export async function PUT(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "instance-settings", { maxRequests: 20, windowMs: 60_000 });
+// PATCH /api/instance-settings { welcomeMessage?, outsideHoursMessage?, bookingKeyword? }
+export async function PATCH(request: Request) {
+  const rateLimitErr = await rateLimitResponse(request, "instance-settings", {
+    maxRequests: 20,
+    windowMs: 60_000,
+  });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const supabase = await createServerClient();
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
   let body: unknown;
   try {
@@ -72,39 +92,63 @@ export async function PUT(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { instanceId, welcomeMessage, outsideHoursMessage } = (body ?? {}) as {
-    instanceId?: string;
-    welcomeMessage?: string | null;
-    outsideHoursMessage?: string | null;
+  const { welcomeMessage, outsideHoursMessage, bookingKeyword } = (body ?? {}) as {
+    welcomeMessage?: unknown;
+    outsideHoursMessage?: unknown;
+    bookingKeyword?: unknown;
   };
 
-  if (!instanceId) {
-    return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
+  /* La palabra de la agenda se escribe con su propia llamada.
+
+     Mezclarla en el objeto `updates` de los mensajes obligaría a que una
+     migración sin aplicar rompiera el guardado del saludo de bienvenida
+     también, que no tiene nada que ver. */
+  if (bookingKeyword !== undefined) {
+    const limpio = String(bookingKeyword ?? "").trim().toLowerCase();
+
+    if (limpio === "") {
+      const { error: err } = await ctx.db.from("bots").update({ booking_keyword: null }).eq("id", ctx.bot.id);
+      if (err) {
+        return NextResponse.json(
+          { status: "error", error: "No se pudo borrar la palabra clave. ¿Está aplicada la migración 020?" },
+          { status: 500 }
+        );
+      }
+    } else if (palabraValida(limpio)) {
+      const { error: err } = await ctx.db.from("bots").update({ booking_keyword: limpio }).eq("id", ctx.bot.id);
+      if (err) {
+        return NextResponse.json(
+          { status: "error", error: "No se pudo guardar la palabra clave. ¿Está aplicada la migración 020?" },
+          { status: 500 }
+        );
+      }
+    } else {
+      return NextResponse.json(
+        { status: "error", error: "La palabra clave debe ser una sola palabra, de 2 a 40 letras" },
+        { status: 400 }
+      );
+    }
   }
 
-  // Verify admin access
-  const { data: instance } = await supabase
-    .from("instances")
-    .select("id, admin_id")
-    .eq("id", instanceId)
-    .single();
-
-  if (!instance || instance.admin_id !== user.id) {
-    return NextResponse.json({ status: "error", error: "Only instance admin can update settings" }, { status: 403 });
+  /* Solo se escriben los campos PRESENTES. Antes se mandaban los dos
+     siempre, y como `sanitizeString(undefined)` devuelve null, guardar
+     solo uno BORRABA el otro sin avisar. */
+  const updates: Record<string, unknown> = {};
+  if (welcomeMessage !== undefined) {
+    updates.welcome_message = welcomeMessage ? String(welcomeMessage).slice(0, 1000) : null;
+  }
+  if (outsideHoursMessage !== undefined) {
+    updates.outside_hours_message = outsideHoursMessage ? String(outsideHoursMessage).slice(0, 1000) : null;
   }
 
-  const updatePayload: Record<string, unknown> = {};
-  if (welcomeMessage !== undefined) updatePayload.welcome_message = welcomeMessage || null;
-  if (outsideHoursMessage !== undefined) updatePayload.outside_hours_message = outsideHoursMessage || null;
+  if (Object.keys(updates).length === 0) return NextResponse.json({ status: "success" });
 
-  const { error } = await supabase
-    .from("instances")
-    .update(updatePayload)
-    .eq("id", instanceId);
+  const { error } = await ctx.db
+    .from("bots")
+    .update(updates)
+    .eq("id", ctx.bot.id);
 
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
+  if (error) return NextResponse.json({ status: "error", error: "No se pudo guardar" }, { status: 500 });
 
   return NextResponse.json({ status: "success" });
 }

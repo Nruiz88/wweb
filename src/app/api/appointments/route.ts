@@ -1,77 +1,94 @@
 import { NextResponse } from "next/server";
-import { createServerClient, getCurrentUser } from "@/lib/supabase/server";
+import { getSession, botDeLaSesion, clienteDeLaSesion } from "@/lib/sesion";
 import { rateLimitResponse } from "@/lib/rate-limit";
-import { safeErrorMessage, verifyUserAccess } from "@/lib/api-helpers";
+import { isValidId } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
-// GET: List appointments (optionally filtered by date range or status)
+/* =========================================================
+   Citas del bot
+   ---------------------------------------------------------
+   El bot sale de `botDeLaSesion()` (RLS), no de `?instanceId=`.
+
+   El double-booking ya no se comprueba en el código: hay un
+   `EXCLUDE USING gist` en `bots_appointments` (migración 011 del
+   panel) que lo impide en la propia base. Antes era un SELECT previo,
+   y dos peticiones simultáneas se colaban las dos. Aquí el INSERT que
+   pisa un hueco falla con 23P01 y se traduce a 409.
+
+   ⚠️  DELETE NO EXISTE, Y ES A PROPÓSITO
+   ------------------------------------
+   `bots_appointments` no tiene política de borrado: el cliente lee,
+   crea y edita, pero no borra. El histórico de una agenda no se puede
+   reescribir a posteriori; si se pudiera, un problema de citas quedaría
+   sin rastro y no se podría auditar nunca. Por eso DELETE responde
+   405 y explica que se cancele.
+   ========================================================= */
+
+const ESTADOS = ["pending", "confirmed", "canceled", "completed"];
+
+const COLUMNAS =
+  "id, customer_phone, customer_name, appointment_date, appointment_time, duration_min, status, notes, created_at";
+
+async function contexto() {
+  const session = await getSession();
+  if (!session) return { error: NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 }) };
+
+  const db = clienteDeLaSesion(session);
+  if (!db) {
+    return { error: NextResponse.json({ status: "error", error: "Sesión caducada" }, { status: 401 }) };
+  }
+
+  const bot = await botDeLaSesion(session);
+  if (!bot) {
+    return { error: NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 }) };
+  }
+
+  return { db, bot };
+}
+
+// GET /api/appointments?status=&from=&to=&phone=
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
-  const supabase = await createServerClient();
   const { searchParams } = new URL(request.url);
-  const instanceId = searchParams.get("instanceId");
-  const status = searchParams.get("status");
-  const dateFrom = searchParams.get("from");
-  const dateTo = searchParams.get("to");
-  const phone = searchParams.get("phone");
 
-  if (!instanceId) {
-    return NextResponse.json({ status: "error", error: "instanceId is required" }, { status: 400 });
-  }
-
-  // Validate query params
-  if (dateFrom && !/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
-    return NextResponse.json({ status: "error", error: "Invalid date format" }, { status: 400 });
-  }
-  if (dateTo && !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
-    return NextResponse.json({ status: "error", error: "Invalid date format" }, { status: 400 });
-  }
-  if (status && !["pending", "confirmed", "canceled", "completed"].includes(status)) {
-    return NextResponse.json({ status: "error", error: "Invalid status" }, { status: 400 });
-  }
-
-  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
-  }
-
-  let query = supabase
-    .from("appointments")
-    .select("*")
-    .eq("instance_id", instanceId)
+  let q = ctx.db
+    .from("bots_appointments")
+    .select(COLUMNAS)
+    .eq("bot_id", ctx.bot.id)
     .order("appointment_date", { ascending: true })
     .order("appointment_time", { ascending: true });
 
-  if (status) query = query.eq("status", status);
-  if (dateFrom) query = query.gte("appointment_date", dateFrom);
-  if (dateTo) query = query.lte("appointment_date", dateTo);
-  if (phone) query = query.eq("customer_phone", phone);
+  const status = searchParams.get("status");
+  if (status && ESTADOS.includes(status)) q = q.eq("status", status);
 
-  const { data: appointments, error } = await query;
+  const desde = searchParams.get("from");
+  if (desde && /^\d{4}-\d{2}-\d{2}$/.test(desde)) q = q.gte("appointment_date", desde);
 
-  if (error) {
-    return NextResponse.json({ status: "error", error: "Failed to fetch appointments" }, { status: 500 });
-  }
+  const hasta = searchParams.get("to");
+  if (hasta && /^\d{4}-\d{2}-\d{2}$/.test(hasta)) q = q.lte("appointment_date", hasta);
 
-  return NextResponse.json({ status: "success", data: appointments });
+  const phone = searchParams.get("phone");
+  if (phone) q = q.eq("customer_phone", phone);
+
+  const { data, error } = await q;
+  if (error) return NextResponse.json({ status: "error", error: "No se pudieron leer las citas" }, { status: 500 });
+
+  return NextResponse.json({ status: "success", data: data ?? [] });
 }
 
-// POST: Create new appointment (admin/system only — customers book via webhook)
+// POST /api/appointments { customerPhone, customerName, appointmentDate, appointmentTime, durationMin, notes }
 export async function POST(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "appointments", { maxRequests: 30, windowMs: 60_000 });
+  const rateLimitErr = await rateLimitResponse(request, "appointments", {
+    maxRequests: 30,
+    windowMs: 60_000,
+  });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const supabase = await createServerClient();
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
   let body: unknown;
   try {
@@ -80,87 +97,68 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const {
-    instanceId,
-    customerPhone,
-    customerName,
-    appointmentDate,
-    appointmentTime,
-    durationMin,
-    notes,
-  } = (body ?? {}) as {
-    instanceId?: string;
-    customerPhone?: string;
-    customerName?: string;
-    appointmentDate?: string;
-    appointmentTime?: string;
-    durationMin?: number;
-    notes?: string;
-  };
+  const { customerPhone, customerName, appointmentDate, appointmentTime, durationMin, notes } = body as Record<string, unknown>;
 
-  if (!instanceId || !customerPhone || !appointmentDate || !appointmentTime) {
+  if (!customerPhone || !appointmentDate || !appointmentTime) {
     return NextResponse.json(
-      { status: "error", error: "instanceId, customerPhone, appointmentDate, and appointmentTime are required" },
-      { status: 400 },
+      { status: "error", error: "customerPhone, appointmentDate y appointmentTime son obligatorios" },
+      { status: 400 }
     );
   }
 
-  const hasAccess = await verifyUserAccess(supabase, user.id, instanceId);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Instance not found" }, { status: 404 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(appointmentDate)) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(appointmentTime))) {
+    return NextResponse.json({ status: "error", error: "Fecha u hora con formato inválido" }, { status: 400 });
   }
 
-  // Check for conflicts
-  const { data: conflicts } = await supabase
-    .from("appointments")
-    .select("id")
-    .eq("instance_id", instanceId)
-    .eq("appointment_date", appointmentDate)
-    .eq("appointment_time", appointmentTime)
-    .in("status", ["pending", "confirmed"])
-    .limit(1);
-
-  if (conflicts && conflicts.length > 0) {
-    return NextResponse.json(
-      { status: "error", error: "Este horario ya está ocupado" },
-      { status: 409 },
-    );
+  const duracion = Number(durationMin ?? 30);
+  if (!Number.isInteger(duracion) || duracion < 5 || duracion > 480) {
+    return NextResponse.json({ status: "error", error: "Duración inválida" }, { status: 400 });
   }
 
-  const { data: appointment, error } = await supabase
-    .from("appointments")
+  const { data, error } = await ctx.db
+    .from("bots_appointments")
     .insert({
-      instance_id: instanceId,
-      user_id: user.id,
-      customer_phone: customerPhone,
-      customer_name: customerName || null,
-      appointment_date: appointmentDate,
-      appointment_time: appointmentTime,
-      duration_min: durationMin ?? 30,
+      bot_id: ctx.bot.id,
+      customer_phone: String(customerPhone),
+      customer_name: customerName ? String(customerName) : null,
+      appointment_date: String(appointmentDate),
+      appointment_time: String(appointmentTime),
+      duration_min: duracion,
       status: "pending",
-      notes: notes || null,
+      notes: notes ? String(notes) : null,
     })
-    .select()
+    .select("id, appointment_date, appointment_time")
     .single();
 
   if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+    /* 23P01 es la violación del EXCLUDE: el hueco ya está ocupado.
+       Es la respuesta CORRECTA a dos peticiones simultáneas, que antes
+       se colaban porque el SELECT previo no las veía. */
+    if (error.code === "23P01") {
+      return NextResponse.json({ status: "error", error: "Este horario ya está ocupado" }, { status: 409 });
+    }
+    /* 23503 sería un bot_id que no existe: no debería llegar aquí
+       porque sale de una consulta con RLS, pero se distingue del 500
+       genérico por si algún día lo hace. */
+    if (error.code === "23503") {
+      return NextResponse.json({ status: "error", error: "Bot no encontrado" }, { status: 404 });
+    }
+    return NextResponse.json({ status: "error", error: "No se pudo crear la cita" }, { status: 500 });
   }
 
-  return NextResponse.json({ status: "success", data: appointment });
+  return NextResponse.json({ status: "success", data });
 }
 
-// PATCH: Update appointment status
+// PATCH /api/appointments { id, status, notes, reminder24hSent }
 export async function PATCH(request: Request) {
-  const rateLimitErr = await rateLimitResponse(request, "appointments", { maxRequests: 30, windowMs: 60_000 });
+  const rateLimitErr = await rateLimitResponse(request, "appointments", {
+    maxRequests: 30,
+    windowMs: 60_000,
+  });
   if (rateLimitErr) return rateLimitErr;
 
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const supabase = await createServerClient();
+  const ctx = await contexto();
+  if (ctx.error) return ctx.error;
 
   let body: unknown;
   try {
@@ -169,47 +167,56 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { id, status, notes, reminder24hSent } = (body ?? {}) as {
-    id?: string;
-    status?: string;
-    notes?: string;
-    reminder24hSent?: boolean;
-  };
-
-  if (!id) {
+  const { id, status, notes, reminder24hSent } = body as Record<string, unknown>;
+  if (typeof id !== "string" || !isValidId(id)) {
     return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
   }
 
-  const { data: existing } = await supabase
-    .from("appointments")
-    .select("id, instance_id")
-    .eq("id", id)
-    .single();
-
-  if (!existing) {
-    return NextResponse.json({ status: "error", error: "Appointment not found" }, { status: 404 });
+  const updates: Record<string, unknown> = {};
+  if (status !== undefined) {
+    if (typeof status !== "string" || !ESTADOS.includes(status)) {
+      return NextResponse.json({ status: "error", error: "status inválido" }, { status: 400 });
+    }
+    updates.status = status;
   }
+  if (notes !== undefined) updates.notes = notes ? String(notes) : null;
+  if (reminder24hSent !== undefined) updates.reminder_24h_sent = !!reminder24hSent;
 
-  const hasAccess = await verifyUserAccess(supabase, user.id, existing.instance_id);
-  if (!hasAccess) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 403 });
-  }
+  if (Object.keys(updates).length === 0) return NextResponse.json({ status: "success" });
 
-  const updatePayload: Record<string, unknown> = {};
-  if (status !== undefined) updatePayload.status = status;
-  if (notes !== undefined) updatePayload.notes = notes;
-  if (reminder24hSent !== undefined) updatePayload.reminder_24h_sent = reminder24hSent;
-
-  const { data: appointment, error } = await supabase
-    .from("appointments")
-    .update(updatePayload)
+  /* Cancelar libera el hueco: el filtro `where (estado in
+     ('pending','confirmed'))` del EXCLUDE deja de contar esa fila. Por
+     eso se cancela en vez de borrar. */
+  const { data, error } = await ctx.db
+    .from("bots_appointments")
+    .update(updates)
     .eq("id", id)
-    .select()
-    .single();
+    .eq("bot_id", ctx.bot.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
+    if (error.code === "23P01") {
+      return NextResponse.json({ status: "error", error: "Ese hueco pisa otra cita" }, { status: 409 });
+    }
+    return NextResponse.json({ status: "error", error: "No se pudo actualizar" }, { status: 500 });
   }
+  if (!data) return NextResponse.json({ status: "error", error: "Appointment not found" }, { status: 404 });
 
-  return NextResponse.json({ status: "success", data: appointment });
+  return NextResponse.json({ status: "success", data: { id, ...updates } });
+}
+
+// DELETE /api/appointments?id=xxx
+export async function DELETE() {
+  /* Se responde y no se ejecuta. Ver la nota de arriba: no hay
+     política de borrado, y devolver un 403 de RLS sin explicar nada
+     dejaría al cliente creyendo que es un problema de permisos. */
+  return NextResponse.json(
+    {
+      status: "error",
+      error: "Las citas no se borran, se cancelan: el histórico de la agenda no se puede reescribir.",
+      usa: { metodo: "PATCH", cuerpo: { id: "...", status: "canceled" } },
+    },
+    { status: 405 }
+  );
 }

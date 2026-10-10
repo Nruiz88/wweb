@@ -1,248 +1,218 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabase/server";
-import { supabaseConfig } from "@/lib/supabase/config";
+import { getSession, botDeLaSesion, clienteDeLaSesion } from "@/lib/sesion";
 import { getConnectionState } from "@/lib/evolution-multi";
-import { validateEvolutionUrl, sanitizeString } from "@/lib/validation";
-import { safeErrorMessage } from "@/lib/api-helpers";
+import { getAdmin } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-interface InstanceRow {
+/* =========================================================
+   Estado del bot
+   ---------------------------------------------------------
+   ESTA RUTA ANTES HACÍA TRES COSAS, Y AHORA SOLO UNA
+   ----------------------------------------------
+   Antes: listar instancias, CREARLAS (POST) y BORRARLAS (DELETE),
+   cada una con su propia conexión a Evolution (url + clave).
+
+   Ahora solo lista. Y no es que se haya hecho la vista gorda:
+
+   · El cliente no puede crear su bot. `bots` no tiene política de
+     INSERT ni de DELETE a propósito (migración 011 del panel): el alta
+     la hace el equipo de Nexo Studio, porque crear una conexión
+     significa tocar un servidor de Evolution compartido. Un cliente
+     que pudiera insertarse un bot apuntando al servidor de otro
+     tendría el bot de otro.
+
+   · Tampoco puede borrarlo: si pudiera, se quedaría sin servicio y sin
+     histórico, y no habría forma de deshacerlo.
+
+   · La url y la clave ya no están en su fila. Viven en
+     `evolution_servers`, que no tiene ninguna política RLS: solo la
+     alcanza el servidor con la secret key. Por eso aquí se consulta el
+     estado con la secret key y al cliente solo se le devuelve el
+     RESULTADO, nunca las credenciales.
+
+     Antes se llamaba a `sanitizeInstance()`, que quitaba url y clave de
+     la respuesta. Ya no hace falta quitar nada porque nunca se
+     cargan: es una defensa mejor no traerlas.
+   ========================================================= */
+
+/** Cuánto se considera fresco un estado antes de volver a preguntar a Evolution. */
+const STATUS_TTL_MS = 60_000;
+
+/**
+ * Cache en memoria del estado de Evolution.
+ *
+ * Es por petición/proceso: en Coolify hay una sola instancia, así que
+ * sirve. Con varias, cada una tendría la suya y se frescos un poco más
+ * a menudo. No es un problema: el TTL es de un minuto.
+ */
+const statusCache = new Map<string, { status: string; at: number }>();
+
+/** Lo que se devuelve al cliente. Nunca incluye url ni clave. */
+interface BotPublico {
   id: string;
-  instance_name: string;
+  name: string;
+  slug: string;
   status: string;
-  created_at: string;
-  evolution_api_url?: string;
-  evolution_api_key?: string;
+  status_checked_at: string | null;
+  welcome_message: string | null;
+  outside_hours_message: string | null;
 }
 
-function sanitizeInstance(instance: InstanceRow) {
+/* `instance_name` ya NO sale por aquí.
+
+   Es el nombre con el que Evolution guarda el número de WhatsApp. El
+   navegador no lo necesita: no se pinta y no se usa para decidir nada.
+   Kept it out porque "no sale en pantalla" y "no sale en la respuesta"
+   no son lo mismo: en la respuesta acabaría en el historial del
+   navegador y en cualquier "ver fuente" que alguien mirase.
+
+   Sigue usándose por dentro, en el servidor: para conectar el número,
+   para enviar mensajes y para que el webhook encuentre el bot. Lo que
+   no sale es la clave de la caja de Evolution ni este nombre. */
+function publico(b: Record<string, unknown>): BotPublico {
   return {
-    id: instance.id,
-    instance_name: instance.instance_name,
-    status: instance.status,
-    created_at: instance.created_at,
+    id: b.id as string,
+    name: b.name as string,
+    slug: b.slug as string,
+    status: (b.status as string) ?? "close",
+    status_checked_at: (b.status_checked_at as string) ?? null,
+    welcome_message: (b.welcome_message as string) ?? null,
+    outside_hours_message: (b.outside_hours_message as string) ?? null,
   };
 }
 
-// Caché del estado en vivo: evita llamar a Evolution API en cada request.
-// Solo se refresca si el dato tiene mas de TTL_MS de antiguedad.
-const statusCache = new Map<string, { status: string; at: number }>();
-const STATUS_TTL_MS = 10_000;
+// GET /api/instances?lite=1
+export async function GET(request: Request) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
 
-async function withLiveStatus(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
-  instances: InstanceRow[]
-) {
-  const now = Date.now();
+  const lite = new URL(request.url).searchParams.get("lite") === "1";
 
-  return Promise.all(
-    instances.map(async (instance) => {
-      if (!instance.evolution_api_url || !instance.evolution_api_key) {
-        return sanitizeInstance(instance);
-      }
+  const db = clienteDeLaSesion(session);
+  if (!db) return NextResponse.json({ status: "error", error: "Sesión caducada" }, { status: 401 });
 
-      const cacheKey = `${instance.evolution_api_url}|${instance.instance_name}`;
-      const cached = statusCache.get(cacheKey);
+  /* Con RLS: solo se ve su propio bot. La consulta va por el cliente de
+     la sesión a propósito, aunque `botDeLaSesion` ya lo asegure. */
+  const { data: fila, error } = await db
+    .from("bots")
+    .select("id, name, slug, status, status_checked_at, welcome_message, outside_hours_message")
+    .eq("client_id", session.clientId)
+    .maybeSingle();
 
-      if (cached && now - cached.at < STATUS_TTL_MS) {
-        return sanitizeInstance({ ...instance, status: cached.status });
-      }
+  if (error) return NextResponse.json({ status: "error", error: "No se pudo leer el bot" }, { status: 500 });
+  if (!fila) return NextResponse.json({ status: "error", error: "No tienes un bot" }, { status: 404 });
 
-      const state = await getConnectionState(
-        instance.evolution_api_url,
-        instance.evolution_api_key,
-        instance.instance_name
-      );
+  const bot = publico(fila as unknown as Record<string, unknown>);
 
-      if (state.ok && state.data) {
-        statusCache.set(cacheKey, { status: state.data, at: Date.now() });
-        try {
-          await supabase
-            .from("instances")
-            .update({ status: state.data })
-            .eq("id", instance.id);
-        } catch {
-          // Non-critical: keep serving even if DB update fails
-        }
-        return sanitizeInstance({ ...instance, status: state.data });
-      }
+  if (lite) return NextResponse.json({ status: "success", data: [bot] });
 
-      return sanitizeInstance(instance);
-    })
+  /* Estado en vivo: se pregunta a Evolution si el último dato es viejo.
+
+     El JOIN trae url y clave, que están en `evolution_servers`. Van con
+     la secret key: esa tabla no tiene políticas RLS a propósito, así
+     que el cliente NUNCA puede leerla por sí mismo. Aquí solo las usa
+     el servidor para hablar con Evolution, y no se devuelven.
+
+     El hint `evolution_servers:server_id` es obligatorio: sin él
+     PostgREST no sabe por qué columna se enlaza (la FK se llama
+     `server_id`, no `evolution_servers_id`). */
+  const { data: conCredenciales } = await getAdmin()
+    .from("bots")
+    .select("id, instance_name, evolution_servers:server_id(url, api_key)")
+    .eq("id", bot.id)
+    .maybeSingle();
+
+  /* PostgREST devuelve el JOIN anidado como OBJETO cuando la relación es
+   "many-to-one" (un bot pertenece a un servidor), pero devuelve ARRAY si
+   no sabe la cardinalidad. Por eso se normaliza: con un tipo explícito
+   queda claro, y no hay un `as` dentro de paréntesis que el parser de
+   TypeScript confunde. */
+type ServidorUnido = { evolution_servers: { url: string; api_key: string } | null };
+type ServidorUnidoArray = { evolution_servers: Array<{ url: string; api_key: string }> };
+
+const unido = conCredenciales as unknown as Partial<ServidorUnido & ServidorUnidoArray>;
+const nodo = Array.isArray(unido.evolution_servers) ? unido.evolution_servers[0] : unido.evolution_servers;
+const url = nodo?.url;
+const clave = nodo?.api_key;
+
+/* El nombre del número sale de AQUÍ, no de `bot`: `publico()` lo quitó
+   a propósito para que no llegue al navegador, pero el servidor lo
+   necesita para preguntar a Evolution por su estado. */
+const instanceName = conCredenciales?.instance_name as string | undefined;
+
+if (!url || !clave || !instanceName) {
+  return NextResponse.json({ status: "success", data: [bot] });
+}
+
+  /* Fresco o cacheado: no se pregunta a Evolution en cada recarga de
+     la página, que sería una llamada externa por render. */
+  const ahora = Date.now();
+  if (bot.status_checked_at) {
+    const t = new Date(bot.status_checked_at).getTime();
+    if (!Number.isNaN(t) && ahora - t < STATUS_TTL_MS) {
+      return NextResponse.json({ status: "success", data: [bot] });
+    }
+  }
+
+  const cacheKey = `${url}|${instanceName}`;
+  const cached = statusCache.get(cacheKey);
+  if (cached && ahora - cached.at < STATUS_TTL_MS) {
+    return NextResponse.json({ status: "success", data: [{ ...bot, status: cached.status }] });
+  }
+
+  const estado = await getConnectionState(url, clave, instanceName);
+  if (estado.ok && estado.data) {
+    statusCache.set(cacheKey, { status: estado.data, at: Date.now() });
+
+    const marca = new Date().toISOString();
+    /* El estado se guarda para la próxima. Si falla, da igual: es
+       informativo y no debe romper la respuesta. */
+    await getAdmin()
+      .from("bots")
+      .update({ status: estado.data, status_checked_at: marca })
+      .eq("id", bot.id);
+
+    return NextResponse.json({
+      status: "success",
+      data: [{ ...bot, status: estado.data, status_checked_at: marca }],
+    });
+  }
+
+  return NextResponse.json({ status: "success", data: [bot] });
+}
+
+/* ---------------------------------------------------------------------
+   POST y DELETE ya no existen
+   ---------------------------------------------------------------------
+   El alta de un bot la hace el equipo de Nexo Studio desde el panel
+   (crear el bot, apuntarlo a un servidor de Evolution y darlo de alta),
+   y el borrado también, con su historial.
+
+   Decir 405 con dónde hacerlo es mejor que devolver un 403 de RLS sin
+   explicación: el cliente vería "prohibido" y no sabría que la
+   operación existe y se hace en otro sitio. */
+
+// POST /api/instances
+export async function POST() {
+  return NextResponse.json(
+    {
+      status: "error",
+      error:
+        "El alta de bots la hace el equipo de Nexo Studio. Escríbenos y lo montamos.",
+    },
+    { status: 405 }
   );
 }
 
-// GET: List instances
-export async function GET() {
-  // Use SSR client to read session from request cookies
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
+// DELETE /api/instances
+export async function DELETE() {
+  return NextResponse.json(
+    {
+      status: "error",
+      error:
+        "Un bot no se puede borrar desde aquí: se quedaría sin servicio y sin historial.",
     },
-  });
-
-  const { data: { user } } = await sessionClient.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  // Use service role for DB queries
-  const supabase = await createServerClient();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role === "admin") {
-    const { data: instances, error } = await supabase
-      .from("instances")
-      .select("id, instance_name, status, created_at, evolution_api_url, evolution_api_key")
-      .eq("admin_id", user.id)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-    }
-
-    const live = await withLiveStatus(supabase, instances as InstanceRow[]);
-    return NextResponse.json({ status: "success", data: live, role: "admin" });
-  }
-
-  const { data: assignments } = await supabase
-    .from("user_instances")
-    .select("instance_id")
-    .eq("user_id", user.id);
-
-  if (!assignments || assignments.length === 0) {
-    return NextResponse.json({ status: "success", data: [], role: "user" });
-  }
-
-  const { data: instances, error } = await supabase
-    .from("instances")
-    .select("id, instance_name, status, created_at, evolution_api_url, evolution_api_key")
-    .in("id", assignments.map((a) => a.instance_id));
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
-
-  const live = await withLiveStatus(supabase, instances as InstanceRow[]);
-  return NextResponse.json({ status: "success", data: live, role: "user" });
-}
-
-// POST: Create new instance (admin only)
-export async function POST(request: Request) {
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
-
-  const { data: { user } } = await sessionClient.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const supabase = await createServerClient();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profile?.role !== "admin") {
-    return NextResponse.json({ status: "error", error: "Only admins can create instances" }, { status: 403 });
-  }
-
-  let body: unknown;
-  try { body = await request.json(); } catch {
-    return NextResponse.json({ status: "error", error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const { instanceName, evolutionApiUrl, evolutionApiKey } = (body ?? {}) as {
-    instanceName?: string;
-    evolutionApiUrl?: string;
-    evolutionApiKey?: string;
-  };
-
-  const cleanName = sanitizeString(instanceName, 50);
-  if (!cleanName) {
-    return NextResponse.json({ status: "error", error: "Instance name is required" }, { status: 400 });
-  }
-
-  if (!evolutionApiUrl || !evolutionApiKey) {
-    return NextResponse.json({ status: "error", error: "All fields are required" }, { status: 400 });
-  }
-
-  const urlCheck = validateEvolutionUrl(evolutionApiUrl);
-  if (!urlCheck.valid) {
-    return NextResponse.json({ status: "error", error: urlCheck.error }, { status: 400 });
-  }
-
-  const { data: instance, error } = await supabase
-    .from("instances")
-    .insert({ admin_id: user.id, instance_name: cleanName, evolution_api_url: urlCheck.normalized || evolutionApiUrl.trim(), evolution_api_key: evolutionApiKey })
-    .select("id, instance_name, status, created_at")
-    .single();
-
-  if (error) {
-    return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-  }
-
-  return NextResponse.json({ status: "success", data: instance });
-}
-
-// DELETE: Delete instance (admin only)
-export async function DELETE(request: Request) {
-  const { createServerClient: createSSRClient } = await import("@supabase/ssr");
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-
-  const sessionClient = createSSRClient(supabaseConfig.url, supabaseConfig.anonKey, {
-    cookies: {
-      getAll() { return cookieStore.getAll(); },
-      setAll() {},
-    },
-  });
-
-  const { data: { user } } = await sessionClient.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ status: "error", error: "Unauthorized" }, { status: 401 });
-  }
-
-  const supabase = await createServerClient();
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get("id");
-
-  if (!id) {
-    return NextResponse.json({ status: "error", error: "id is required" }, { status: 400 });
-  }
-
-  const { data: instance } = await supabase.from("instances").select("id, admin_id").eq("id", id).single();
-
-  if (!instance || instance.admin_id !== user.id) {
-    return NextResponse.json({ status: "error", error: "Not found" }, { status: 404 });
-  }
-
-  const { error } = await supabase.from("instances").delete().eq("id", id);
-  if (error) return NextResponse.json({ status: "error", error: safeErrorMessage(error) }, { status: 500 });
-
-  return NextResponse.json({ status: "success" });
+    { status: 405 }
+  );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MenuConfig } from "./supabase/types";
+import type { MenuConfig } from "@/lib/db/types";
 
 /**
  * Pure helper extracted from the webhook logic:
