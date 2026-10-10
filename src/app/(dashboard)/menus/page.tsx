@@ -356,8 +356,20 @@ export default function MenusPage() {
     load();
   }
 
+  /* SIN `h-full`, y esto es lo que arregla el scroll.
+     La página se renderiza dentro de un `flex-1 overflow-y-auto` (layout.tsx):
+     el contenedor que scrollea es el shell del dashboard, no esta columna. Con
+     `h-full` la columna quedaba clavada a la altura de la ventana y su propio
+     `overflow` recortaba lo que no entraba. El formulario crecía, el botón
+     "Guardar" caía fuera, y no había scroll para llegar porque el scroll está
+     un nivel más arriba, en un contenedor al que esta columna no llega.
+
+     Arriba, además, en móvil hay un header de altura variable (hasta
+     `100dvh-60px`), así que cualquier `max-h` calculado con `dvh` deja de
+     acertar en cuanto esa altura cambia. Por eso acá no se calcula nada: la
+     columna crece con su contenido y scrollea el shell. */
   return (
-    <div className="flex h-full flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+    <div className="flex flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       <div className="px-4 sm:px-6 pt-6 pb-4">
         <div className="flex items-center gap-4">
           <div className="relative">
@@ -382,8 +394,26 @@ export default function MenusPage() {
 
       <AnimatePresence>
         {(editando || showForm) && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+          /* `overflow-hidden` es lo único que hace falta acá: es lo que
+             recorta durante la animación de altura.
+
+             El bug que había era el `h-full` de la raíz (ver el comentario
+             de arriba), no este panel. Con la raíz sin `h-full` la columna
+             crece, el shell scrollea y "Guardar" se alcanza. Este panel se
+             deja en flujo normal a propósito: si le ponía `max-h` calculado
+             con `dvh`, el tope solo acertaba en escritorio, porque arriba en
+             móvil hay un header de altura variable. */
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
             <div className="px-4 sm:px-6 pb-3">
+              {/* Sin `max-h` y sin scroll propio: el panel crece con su
+                  contenido y lo scrollea el shell. Ver el comentario de la
+                  raíz. */}
               <div className="rounded-2xl border-2 border-violet-400/20 bg-gradient-to-br from-violet-500/[0.06] to-transparent p-4 backdrop-blur-md">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm font-semibold text-slate-100">{editando ? "Editar menú" : "Nuevo menú"}</p>
@@ -526,7 +556,11 @@ export default function MenusPage() {
                   </p>
                 )}
 
-                <div className="flex justify-end gap-2">
+                {/* La barra va en flujo normal, al final del formulario. Con el
+                    panel creciendo y scrolleando el shell, se llega con el
+                    scroll normal: no hace falta un `sticky` que compite con el
+                    padding del contenedor. */}
+                <div className="mt-1 flex justify-end gap-2">
                   <Button variant="ghost" size="sm" onClick={resetForm} className="h-8 text-xs text-slate-300">Cancelar</Button>
                   <Button onClick={onSubmit} size="sm" disabled={!puedeGuardar} className="h-8 text-xs bg-gradient-to-r from-violet-400 to-violet-500 hover:from-violet-300 hover:to-violet-400 text-slate-950 font-semibold">
                     {guardando ? "Guardando…" : "Guardar"}
@@ -538,7 +572,10 @@ export default function MenusPage() {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6">
+      {/* La lista va en flujo normal también: sin `h-full` arriba, `flex-1` no
+          hacía falta y su `overflow-y-auto` era un segundo scroller que
+          competía con el del shell. */}
+      <div className="px-4 sm:px-6 pb-6">
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl bg-white/[0.03]" />)}
